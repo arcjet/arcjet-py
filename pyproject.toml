@@ -1,0 +1,30 @@
+[project]
+name = "arcjet"
+version = "0.2.0"
+description = "Arcjet Python SDK. Bot detection, rate limiting, email validation, attack protection for Python applications."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+  "connect-python>=0.6.0",
+  "httpx[http2]>=0.28.1",
+  "typeid-python>=0.3.3",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+"homepage" = "https://arcjet.com"
+"source" = "https://github.com/arcjet"
+"documentation" = "https://docs.arcjet.com"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]

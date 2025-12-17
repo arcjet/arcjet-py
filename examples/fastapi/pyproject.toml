@@ -1,0 +1,10 @@
+[project]
+name = "example-fastapi"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["arcjet", "fastapi>=0.124.4", "uvicorn>=0.38.0"]
+
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
