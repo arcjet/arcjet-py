@@ -16,7 +16,7 @@ jobs:
       #- name: Ruff lint
       #  run: uv run ruff check .
       - name: Ruff format
-        run: uv run ruff format --diff .
+        run: uvx ruff format --diff .
 
   test:
     name: Run tests
