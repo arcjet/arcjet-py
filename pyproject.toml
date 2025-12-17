@@ -13,14 +13,24 @@ dependencies = [
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
+  "Framework :: Flask",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Topic :: Communications :: Email :: Filters",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Networking :: Firewalls",
 ]
+keywords = ["security", "bot-detection", "rate-limiting", "email-validation"]
 
 [project.urls]
 "homepage" = "https://arcjet.com"
-"source" = "https://github.com/arcjet"
+"source" = "https://github.com/arcjet/arcjet-py"
 "documentation" = "https://docs.arcjet.com"
+"releases" = "https://github.com/arcjet/arcjet-py/releases"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
