@@ -46,6 +46,16 @@ Arcjet security features for protecting Python apps:
 [Join our Discord server](https://arcjet.com/discord) or [reach out for
 support](https://docs.arcjet.com/support).
 
+## Installation
+
+Install [from PyPI](https://pypi.org/project/arcjet/) with
+[uv](https://docs.astral.sh/uv/):
+
+```
+# With uv
+uv install arcjet
+```
+
 ## Usage
 
 Read the docs at [docs.arcjet.com](https://docs.arcjet.com/)
