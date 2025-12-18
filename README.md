@@ -39,7 +39,8 @@ Arcjet security features for protecting Python apps:
 > [!NOTE]
 > The Arcjet Python SDK currently doesn't support [sensitive information
 > detection](https://docs.arcjet.com/sensitive-info) or [request
-> filters](https://docs.arcjet.com/filters).
+> filters](https://docs.arcjet.com/filters). These features are planned for a 
+> future release when local analysis will be supported.
 
 ### Get help
 
