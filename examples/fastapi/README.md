@@ -10,5 +10,5 @@ export ARCJET_KEY="ajkey_..."
 export ARCJET_ENV=development
 
 # Run the FastAPI application
-uv run uvicorn main:app --reload --port 1122
+uv run uvicorn main:app --reload
 ```
