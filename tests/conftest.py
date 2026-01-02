@@ -45,11 +45,11 @@ sys.modules.setdefault("google.protobuf.json_format", mod_json_format)
 # ---------------------------------------------------------------------------
 # Stub proto.decide.v1alpha1.decide_pb2 and decide_connect
 # ---------------------------------------------------------------------------
-mod_proto = types.ModuleType("proto")
-mod_decide = types.ModuleType("proto.decide")
-mod_v1 = types.ModuleType("proto.decide.v1alpha1")
-mod_pb2 = types.ModuleType("proto.decide.v1alpha1.decide_pb2")
-mod_connect = types.ModuleType("proto.decide.v1alpha1.decide_connect")
+mod_proto = types.ModuleType("arcjet.proto")
+mod_decide = types.ModuleType("arcjet.proto.decide")
+mod_v1 = types.ModuleType("arcjet.proto.decide.v1alpha1")
+mod_pb2 = types.ModuleType("arcjet.proto.decide.v1alpha1.decide_pb2")
+mod_connect = types.ModuleType("arcjet.proto.decide.v1alpha1.decide_connect")
 
 # Constants and enums
 MODE_DRY_RUN = 1
@@ -363,11 +363,11 @@ mod_connect.DecideServiceClient = DecideServiceClient
 mod_connect.DecideServiceClientSync = DecideServiceClientSync
 
 # Install in sys.modules
-sys.modules.setdefault("proto", mod_proto)
-sys.modules.setdefault("proto.decide", mod_decide)
-sys.modules.setdefault("proto.decide.v1alpha1", mod_v1)
-sys.modules.setdefault("proto.decide.v1alpha1.decide_pb2", mod_pb2)
-sys.modules.setdefault("proto.decide.v1alpha1.decide_connect", mod_connect)
+sys.modules.setdefault("arcjet.proto", mod_proto)
+sys.modules.setdefault("arcjet.proto.decide", mod_decide)
+sys.modules.setdefault("arcjet.proto.decide.v1alpha1", mod_v1)
+sys.modules.setdefault("arcjet.proto.decide.v1alpha1.decide_pb2", mod_pb2)
+sys.modules.setdefault("arcjet.proto.decide.v1alpha1.decide_connect", mod_connect)
 
 
 @pytest.fixture(autouse=True)

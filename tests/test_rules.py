@@ -13,7 +13,7 @@ from arcjet.rules import (
     EmailType,
     Mode,
 )
-from arcjet.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
 def test_shield_to_proto_and_characteristics():
