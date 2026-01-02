@@ -330,17 +330,6 @@ logging.basicConfig(
 Arcjet logging can be controlled directly by setting the `ARCJET_LOG_LEVEL`
 environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
 
-## Tests
-
-Run the unit tests locally with uv and pytest:
-
-```bash
-uv run pytest -q
-```
-
-- Tests stub the Decide API protobufs and clients, so no network access is required.
-- Set `ARCJET_LOG_LEVEL=debug` to see detailed debug logs during development.
-
 ## Support
 
 This repository follows the [Arcjet Support
