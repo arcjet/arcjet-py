@@ -26,7 +26,7 @@ import os
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 import ipaddress
 
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
 def _is_development() -> bool:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from arcjet._enums import Mode, _mode_to_proto
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
 def test_mode_enum_to_proto():

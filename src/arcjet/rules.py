@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from typing import Sequence, Tuple, Iterable, Union
 from enum import Enum
 
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._enums import _mode_to_proto, Mode
 

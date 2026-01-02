@@ -5,7 +5,7 @@ from arcjet.decision import (
     RuleResult as SDKRuleResult,
     is_spoofed_bot,
 )
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 import types
 
 

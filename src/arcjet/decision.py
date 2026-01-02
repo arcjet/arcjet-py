@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 from google.protobuf.json_format import MessageToDict
 
 

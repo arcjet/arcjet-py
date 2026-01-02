@@ -17,7 +17,7 @@ from connectrpc.server import (
     Endpoint,
     EndpointSync,
 )
-import proto.decide.v1alpha1.decide_pb2 as proto_dot_decide_dot_v1alpha1_dot_decide__pb2
+import arcjet.proto.decide.v1alpha1.decide_pb2 as proto_dot_decide_dot_v1alpha1_dot_decide__pb2
 
 
 class DecideService(Protocol):

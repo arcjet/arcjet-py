@@ -24,8 +24,8 @@ from typing import Mapping, Sequence, Any, TypedDict
 import asyncio
 import uuid
 
-from proto.decide.v1alpha1 import decide_pb2
-from proto.decide.v1alpha1.decide_connect import (
+from arcjet.proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1.decide_connect import (
     DecideServiceClient,
     DecideServiceClientSync,
 )

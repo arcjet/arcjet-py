@@ -6,7 +6,7 @@ from arcjet.cache import DecisionCache, make_cache_key
 from arcjet.context import RequestContext
 from arcjet.rules import shield, token_bucket, Mode
 from arcjet.decision import Decision
-from proto.decide.v1alpha1 import decide_pb2
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
 def test_cache_set_get_and_expiry():
