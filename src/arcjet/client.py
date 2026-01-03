@@ -99,6 +99,17 @@ def _auth_headers(
     return out
 
 
+def _sdk_stack(stack: str | None) -> str | decide_pb2.SDKStack:
+    """Resolve the SDK stack for client metadata.
+
+    Uses the provided `stack` string if given; otherwise defaults to
+    `decide_pb2.SDK_STACK_PYTHON`.
+    """
+    if stack is None:
+        return decide_pb2.SDK_STACK_PYTHON
+    return stack
+
+
 def _sdk_version(default: str = "0.0.0") -> str:
     """Resolve the installed SDK version for client metadata.
 
@@ -132,7 +143,7 @@ class Arcjet:
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClient
     _session: Any | None
-    _sdk_stack: int
+    _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
     _fail_open: bool
@@ -229,7 +240,7 @@ class Arcjet:
                 dec = cached.to_proto()
                 dec.id = _new_local_request_id()
                 rep = decide_pb2.ReportRequest(
-                    sdk_stack=self._sdk_stack,
+                    sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
                     details=request_details_from_context(ctx),
                     decision=dec,
@@ -295,7 +306,7 @@ class Arcjet:
             return cached
 
         req = decide_pb2.DecideRequest(
-            sdk_stack=self._sdk_stack,
+            sdk_stack=_sdk_stack(self._sdk_stack),
             sdk_version=self._sdk_version,
             details=request_details_from_context(ctx),
         )
@@ -498,7 +509,7 @@ class ArcjetSync:
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClientSync
     _session: Any | None
-    _sdk_stack: int
+    _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
     _fail_open: bool
@@ -571,7 +582,7 @@ class ArcjetSync:
                 dec = cached.to_proto()
                 dec.id = _new_local_request_id()
                 rep = decide_pb2.ReportRequest(
-                    sdk_stack=self._sdk_stack,
+                    sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
                     details=request_details_from_context(ctx),
                     decision=dec,
@@ -638,7 +649,7 @@ class ArcjetSync:
             return cached
 
         req = decide_pb2.DecideRequest(
-            sdk_stack=self._sdk_stack,
+            sdk_stack=_sdk_stack(self._sdk_stack),
             sdk_version=self._sdk_version,
             details=request_details_from_context(ctx),
         )
@@ -827,7 +838,7 @@ def arcjet(
     rules: Sequence[RuleSpec],
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
-    stack: int = decide_pb2.SDK_STACK_PYTHON,
+    stack: str | None = None,
     sdk_version: str | None = None,
     fail_open: bool = True,
     proxies: Sequence[str] = (),
@@ -867,7 +878,7 @@ def arcjet_sync(
     rules: Sequence[RuleSpec],
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
-    stack: int = decide_pb2.SDK_STACK_PYTHON,
+    stack: str | None = None,
     sdk_version: str | None = None,
     fail_open: bool = True,
     proxies: Sequence[str] = (),

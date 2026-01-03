@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from typing import Any, Iterable, Mapping, Protocol, Sequence
+from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 import ipaddress
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -332,10 +332,15 @@ def coerce_request_context(
         return req
 
     if isinstance(req, Mapping):
+        # Here we cast to Mapping[str, Any] to help type checkers understand
+        # that we can access keys by string. At runtime, we still do duck-typing
+        # but ty doesn't yet understand the narrowing. This has no runtime effect.
+        cast_req = cast(Mapping[str, Any], req)
+
         # ASGI scope (has "type" and "headers") vs our own dict.
         if "headers" in req and "type" in req:
             headers = {}
-            raw = req.get("headers") or []
+            raw = cast_req.get("headers") or []
             # ASGI headers are list[tuple[bytes, bytes]]
             for k, v in raw:
                 try:
@@ -343,7 +348,7 @@ def coerce_request_context(
                 except Exception:
                     continue
             ip = None
-            client = req.get("client")
+            client = cast_req.get("client")
             if isinstance(client, (tuple, list)) and client:
                 # Prefer the direct remote address when it's global and not a trusted proxy.
                 if _is_global_public_ip(client[0], _parse_proxies(proxies)):
@@ -353,15 +358,15 @@ def coerce_request_context(
                 ip = "127.0.0.1"
             return RequestContext(
                 ip=ip,
-                method=req.get("method"),
-                protocol=req.get("scheme"),
+                method=cast_req.get("method"),
+                protocol=cast_req.get("scheme"),
                 host=_first_header(headers, "host"),
-                path=req.get("path"),
+                path=cast_req.get("path"),
                 headers=headers,
                 query=(
-                    req.get("query_string", b"").decode("latin-1")
-                    if isinstance(req.get("query_string"), (bytes, bytearray))
-                    else req.get("query_string")
+                    cast_req.get("query_string", b"").decode("latin-1")
+                    if isinstance(cast_req.get("query_string"), (bytes, bytearray))
+                    else cast_req.get("query_string")
                 ),
                 cookies=_first_header(headers, "cookie"),
             )
@@ -369,9 +374,9 @@ def coerce_request_context(
         # Plain mapping: treat as already-normalized
         return RequestContext(
             **{
-                k: req.get(k)
+                k: cast_req.get(k)
                 for k in RequestContext.__dataclass_fields__.keys()
-                if k in req
+                if k in cast_req
             }
         )
 
@@ -403,7 +408,7 @@ def coerce_request_context(
         except Exception:
             query = None
         try:
-            body = getattr(req, "get_data", None)()
+            body = getattr(req, "get_data", None)()  # ty:ignore[call-non-callable] caught by except
         except Exception:
             body = None
         scheme = "https" if getattr(req, "is_secure", False) else "http"
