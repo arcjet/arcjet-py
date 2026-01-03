@@ -1,0 +1,4 @@
+{
+  // Disables the Python language server to avoid conflicts with Astral's ty
+  "python.languageServer": "None"
+}

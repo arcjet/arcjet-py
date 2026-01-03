@@ -11,7 +11,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"astral-sh.ty"
+				"astral-sh.ty",
+				"tamasfe.even-better-toml"
 			]
 		}
 	}

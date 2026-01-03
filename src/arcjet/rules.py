@@ -206,7 +206,9 @@ class RateLimitAlgorithm(Enum):
     SLIDING_WINDOW = "SLIDING_WINDOW"
 
 
-def _rate_limit_algorithm_to_proto(alg: RateLimitAlgorithm) -> int:
+def _rate_limit_algorithm_to_proto(
+    alg: RateLimitAlgorithm,
+) -> decide_pb2.RateLimitAlgorithm:
     if alg is RateLimitAlgorithm.TOKEN_BUCKET:
         return decide_pb2.RATE_LIMIT_ALGORITHM_TOKEN_BUCKET
     if alg is RateLimitAlgorithm.FIXED_WINDOW:
@@ -400,7 +402,7 @@ class EmailValidation(RuleSpec):
         return decide_pb2.Rule(email=er)
 
 
-def _email_type_to_proto(value: str) -> int:
+def _email_type_to_proto(value: str) -> decide_pb2.EmailType:
     v = (value or "").upper()
     mapping = {
         "DISPOSABLE": decide_pb2.EMAIL_TYPE_DISPOSABLE,
