@@ -8,13 +8,13 @@ class Mode(str, Enum):
     DRY_RUN = "DRY_RUN"
     LIVE = "LIVE"
 
-    def to_proto(self) -> int:
+    def to_proto(self) -> decide_pb2.Mode:
         if self is Mode.DRY_RUN:
             return decide_pb2.MODE_DRY_RUN
         return decide_pb2.MODE_LIVE
 
 
-def _mode_to_proto(mode: str | Mode) -> int:
+def _mode_to_proto(mode: str | Mode) -> decide_pb2.Mode:
     if isinstance(mode, Mode):
         return mode.to_proto()
     m = str(mode).upper()
