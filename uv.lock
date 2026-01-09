@@ -38,7 +38,7 @@ dev = [
 requires-dist = [
     { name = "connect-python", specifier = ">=0.6.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
-    { name = "typeid-python", specifier = ">=0.3.3" },
+    { name = "typeid-python", specifier = ">=0.3.3,<0.3.7" },
 ]
 
 [package.metadata.requires-dev]
