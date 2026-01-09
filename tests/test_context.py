@@ -63,3 +63,21 @@ def test_request_details_from_context_normalizes_headers_and_extra():
     assert d.ip == "203.0.113.6"
     assert d.headers["x-foo"] == "Bar"
     assert d.extra["k"] == "v"
+
+def test_request_details_from_context_normalizes_query_string():
+    """
+    Decide server expects query string to include the leading '?' while
+    RequestContext explicitly excludes it from the `query` field.
+    """
+
+    ctx = RequestContext(
+        ip="203.0.113.6",
+        method="GET",
+        protocol="https",
+        host="ex",
+        path="/p",
+        query="a=1&b=2",
+    )
+    d = request_details_from_context(ctx)
+    assert d.ip == "203.0.113.6"
+    assert d.query == "?a=1&b=2"

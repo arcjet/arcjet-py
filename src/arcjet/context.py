@@ -290,7 +290,10 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
     if ctx.cookies:
         d.cookies = ctx.cookies
     if ctx.query:
-        d.query = ctx.query
+        # Decide API expects leading "?" on query string while RequestContext
+        # explicitly excludes it. We add it here if missing in an abundance of
+        # caution.
+        d.query = f"?{ctx.query}" if not ctx.query.startswith("?") else ctx.query
     if ctx.body is not None:
         d.body = ctx.body
     if ctx.email:
