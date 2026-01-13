@@ -587,11 +587,7 @@ def _coerce_email_types(
 def validate_email(
     *,
     mode: Union[str, Mode] = Mode.LIVE,
-    deny: Sequence[Union[str, EmailType]] = (
-        EmailType.DISPOSABLE,
-        EmailType.INVALID,
-        EmailType.NO_MX_RECORDS,
-    ),
+    deny: Sequence[Union[str, EmailType]] = (),
     allow: Sequence[Union[str, EmailType]] = (),
     require_top_level_domain: bool = True,
     allow_domain_literal: bool = False,
