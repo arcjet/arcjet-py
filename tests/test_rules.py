@@ -60,3 +60,11 @@ def test_validate_email_coercion_and_proto():
     # Should map string and enum to email type ints
     assert decide_pb2.EMAIL_TYPE_DISPOSABLE in pb.email.deny
     assert decide_pb2.EMAIL_TYPE_INVALID in pb.email.deny
+    assert pb.email.allow == []
+
+    r = validate_email(allow=(EmailType.NO_MX_RECORDS, "FREE"))
+    pb = r.to_proto()
+    # Should map string and enum to email type ints
+    assert decide_pb2.EMAIL_TYPE_NO_MX_RECORDS in pb.email.allow
+    assert decide_pb2.EMAIL_TYPE_FREE in pb.email.allow
+    assert pb.email.deny == []
