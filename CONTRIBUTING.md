@@ -20,9 +20,11 @@ uv run pytest -q
 
 ## Releasing
 
-1. Bump the version using `uv version --bump` e.g. `uv version --bump minor`.
-2. Push the changes to GitHub.
-3. Create a new Git tag with the new version e.g. `git tag -a v0.1.0 -m v0.1.0`
+1. Create a new branch `git checkout -b release-0.1.0`
+2. Bump the version using `uv version --bump` e.g. `uv version --bump patch`.
+3. Commit and push the changes to GitHub, then open a PR.
+4. Once merged to `main`, create a new Git tag with the new version e.g. `git tag -a v0.1.0 -m v0.1.0`
 4. Push the tag to GitHub e.g. `git push --tags`
-5. The release will be created automatically by GitHub Actions.
-6. Create a new release in GitHub and link the release to the newly created tag.
+5. The release workflow will be triggered automatically and must be approved by another member of the team.
+6. Once approved, the package will be pushed to PyPI
+7. Create a new release in GitHub and link the release to the newly created tag.
