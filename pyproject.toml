@@ -40,15 +40,38 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "pytest==8.0.0",
-    "ruff==0.14.10",
-    "ty==0.0.8",
-    "types-protobuf==6.32.1.20251210",
+  "pytest==8.0.0",
+  "ruff==0.14.10",
+  "ty==0.0.8",
+  "types-protobuf==6.32.1.20251210",
 ]
 
 [tool.ruff]
 exclude = [
-  "examples", # Example code (enable eventually)
-  "src/arcjet/proto", # Generated code
-  "tests", # Test code (enable eventually)
+  # Generated code
+  "src/arcjet/proto",
+  # TODO: re-enable once we fix the issues
+  "examples",
+  "tests/mocked/conftest.py",
+  "tests/mocked/test_cache.py",
+  "tests/mocked/test_client_sync.py",
+  "tests/mocked/test_context.py",
+  "tests/mocked/test_decision.py",
+  "tests/mocked/test_enums.py",
+  "tests/mocked/test_logging.py",
+  "tests/mocked/test_rules.py",
+]
+
+[tool.ty.src]
+exclude = [
+  # TODO: re-enable once we fix the issues
+  "examples",
+  "tests/mocked/conftest.py",
+  "tests/mocked/test_cache.py",
+  "tests/mocked/test_client_sync.py",
+  "tests/mocked/test_context.py",
+  "tests/mocked/test_decision.py",
+  "tests/mocked/test_enums.py",
+  "tests/mocked/test_logging.py",
+  "tests/mocked/test_rules.py",
 ]

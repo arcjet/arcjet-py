@@ -18,7 +18,7 @@ jobs:
       - name: Ruff format
         run: uv run ruff format --diff .
       - name: Ty type check
-        run: uv run ty check src --output-format github
+        run: uv run ty check --output-format github
 
   test:
     name: Run tests
