@@ -16,30 +16,12 @@ def make_allow_decision(ttl: int = 0):
     )
 
 
-def test_fail_open_false_raises(monkeypatch):
-    # Configure client stub to raise on decide
-    def raise_decide(req):
-        raise RuntimeError("network down")
-
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = raise_decide
-
-    aj = arcjet_sync(
-        key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
-        fail_open=False,
-    )
-    with pytest.raises(ArcjetTransportError):
-        aj.protect({"headers": [], "type": "http"})
-
-
 def test_email_required_for_validate_email_rule():
     aj = arcjet_sync(key="ajkey_x", rules=[validate_email()])
-    with pytest.raises(ArcjetMisconfiguration):
-        aj.protect({"headers": [], "type": "http"})
+    decision = aj.protect({"headers": [], "type": "http"})
+    assert decision.is_error()
 
-
-def test_fail_open_true_allows(monkeypatch):
+def test_decision_error_from_exception(monkeypatch):
     def raise_decide(req):
         raise RuntimeError("boom")
 
@@ -49,10 +31,9 @@ def test_fail_open_true_allows(monkeypatch):
     aj = arcjet_sync(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
-        fail_open=True,
     )
     d = aj.protect({"headers": [], "type": "http"})
-    assert d.is_allowed()
+    assert d.is_error()
     assert d.reason.is_error()
 
 

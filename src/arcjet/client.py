@@ -31,7 +31,7 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 )
 import httpx
 
-from ._errors import ArcjetMisconfiguration, ArcjetTransportError
+from ._errors import ArcjetMisconfiguration
 from ._logging import logger
 from .context import (
     RequestContext,
@@ -146,7 +146,6 @@ class Arcjet:
     _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
-    _fail_open: bool
     _needs_email: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
@@ -177,12 +176,6 @@ class Arcjet:
         Returns: - `Decision`: a convenience wrapper around the
         protobuf response with
             helpers like `.is_allowed()` and `.reason`.
-
-        Raises: - `ArcjetMisconfiguration` when required context (e.g.
-        `email`) is
-            missing for the configured rules.
-        - `ArcjetTransportError` for transport issues when
-            `fail_open=False`.
         """
         t0 = time.perf_counter()
         ctx = coerce_request_context(request, proxies=self._proxies)
@@ -190,10 +183,14 @@ class Arcjet:
             ctx = replace(ctx, email=email)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
-            raise ArcjetMisconfiguration(
-                "email is required when validate_email(...) is configured. "
-                "Pass email=... to aj.protect(...)."
-            )
+            # TODO: this should probably return an error from the rule instead.
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message="email is required when validate_email(...) is configured. ")
+                ),
+            ))
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
             requested = 1
@@ -335,32 +332,6 @@ class Arcjet:
                 if "t_api_start" in locals()
                 else 0.0
             )
-            if self._fail_open:
-                # Fail open: allow the request and record the error in the decision reason.
-                logger.warning(
-                    "arcjet fail_open allow due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    str(e),
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_transport_error",
-                        "error": str(e),
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(message=str(e))
-                    ),
-                )
-                return Decision(d)
             logger.error(
                 "arcjet transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                 str(e),
@@ -377,7 +348,13 @@ class Arcjet:
                     "rule_count": len(self._rules),
                 },
             )
-            raise ArcjetTransportError(str(e)) from e
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message=str(e))
+                ),
+            ))
 
         if not resp or not resp.HasField("decision"):
             total_ms = (time.perf_counter() - t0) * 1000.0
@@ -387,33 +364,6 @@ class Arcjet:
             prepare_ms = (
                 (t_api_start - t0) * 1000.0 if "t_api_start" in locals() else total_ms
             )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open allow due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    "missing decision in response",
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_invalid_response",
-                        "error": "missing decision in response",
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(
-                            message="missing decision in response"
-                        )
-                    ),
-                )
-                return Decision(d)
             logger.error(
                 "arcjet invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                 "missing decision in response",
@@ -430,9 +380,13 @@ class Arcjet:
                     "rule_count": len(self._rules),
                 },
             )
-            raise ArcjetTransportError(
-                "Arcjet API returned an invalid response (missing decision)."
-            )
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message="Arcjet API returned an invalid response (missing decision).")
+                ),
+            ))
 
         decision = Decision(resp.decision)
         # Cache the decision when TTL is present (>0)
@@ -512,7 +466,6 @@ class ArcjetSync:
     _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
-    _fail_open: bool
     _needs_email: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
@@ -537,10 +490,14 @@ class ArcjetSync:
             ctx = replace(ctx, email=email)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
-            raise ArcjetMisconfiguration(
-                "email is required when validate_email(...) is configured. "
-                "Pass email=... to aj.protect(...)."
-            )
+            # TODO: this should probably return an error from the rule instead.
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message="email is required when validate_email(...) is configured. ")
+                ),
+            ))
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
             requested = 1
@@ -676,31 +633,6 @@ class ArcjetSync:
                 if "t_api_start" in locals()
                 else 0.0
             )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open allow due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    str(e),
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_transport_error",
-                        "error": str(e),
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(message=str(e))
-                    ),
-                )
-                return Decision(d)
             logger.error(
                 "arcjet transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                 str(e),
@@ -717,8 +649,13 @@ class ArcjetSync:
                     "rule_count": len(self._rules),
                 },
             )
-            raise ArcjetTransportError(str(e)) from e
-
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message=str(e))
+                ),
+            ))
         if not resp or not resp.HasField("decision"):
             total_ms = (time.perf_counter() - t0) * 1000.0
             api_ms = (
@@ -727,33 +664,6 @@ class ArcjetSync:
             prepare_ms = (
                 (t_api_start - t0) * 1000.0 if "t_api_start" in locals() else total_ms
             )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open allow due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    "missing decision in response",
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_invalid_response",
-                        "error": "missing decision in response",
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(
-                            message="missing decision in response"
-                        )
-                    ),
-                )
-                return Decision(d)
             logger.error(
                 "arcjet invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                 "missing decision in response",
@@ -770,9 +680,13 @@ class ArcjetSync:
                     "rule_count": len(self._rules),
                 },
             )
-            raise ArcjetTransportError(
-                "Arcjet API returned an invalid response (missing decision)."
-            )
+            return Decision(decide_pb2.Decision(
+                id="",
+                conclusion=decide_pb2.CONCLUSION_ERROR,
+                reason=decide_pb2.Reason(
+                    error=decide_pb2.ErrorReason(message="Arcjet API returned an invalid response (missing decision).")
+                ),
+            ))
 
         decision = Decision(resp.decision)
         # Cache the decision when TTL is present (>0)
@@ -840,7 +754,6 @@ def arcjet(
     timeout_ms: int | None = None,
     stack: str | None = None,
     sdk_version: str | None = None,
-    fail_open: bool = True,
     proxies: Sequence[str] = (),
 ) -> Arcjet:
     """Create an async Arcjet client.
@@ -849,8 +762,6 @@ def arcjet(
     - `base_url`: Defaults to `ARCJET_BASE_URL` env var, then Fly.io internal
         URL when `FLY_APP_NAME` is set, otherwise the public Decide endpoint.
     - `timeout_ms`: Defaults to 1000ms in development and 500ms otherwise.
-    - `fail_open`: When True (default), transport errors yield ALLOW decisions
-        with an error reason instead of raising.
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
@@ -865,7 +776,6 @@ def arcjet(
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
-        _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
@@ -880,7 +790,6 @@ def arcjet_sync(
     timeout_ms: int | None = None,
     stack: str | None = None,
     sdk_version: str | None = None,
-    fail_open: bool = True,
     proxies: Sequence[str] = (),
 ) -> ArcjetSync:
     """Create a sync Arcjet client.
@@ -900,7 +809,6 @@ def arcjet_sync(
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
-        _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
