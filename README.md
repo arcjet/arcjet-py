@@ -54,7 +54,7 @@ Install [from PyPI](https://pypi.org/project/arcjet/) with
 
 ```
 # With uv
-uv install arcjet
+uv pip install arcjet
 ```
 
 ## Usage
