@@ -6,6 +6,17 @@ We recommend using the provided [Dev
 Container](https://code.visualstudio.com/docs/devcontainers/containers). It
 gives you a consistent toolchain and avoids “works on my machine” issues.
 
+## Static analysis
+
+```sh
+# Formatting with ruff
+uv run ruff format
+# Linting with ruff
+uv run ruff check
+# Type checking with ty
+uv run ty check
+```
+
 ## Tests
 
 Run the unit tests locally with uv and pytest:
