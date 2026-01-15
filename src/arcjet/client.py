@@ -184,13 +184,17 @@ class Arcjet:
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             # TODO: this should probably return an error from the rule instead.
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message="email is required when validate_email(...) is configured. ")
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(
+                            message="email is required when validate_email(...) is configured. "
+                        )
+                    ),
+                )
+            )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
             requested = 1
@@ -348,13 +352,15 @@ class Arcjet:
                     "rule_count": len(self._rules),
                 },
             )
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message=str(e))
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(message=str(e))
+                    ),
+                )
+            )
 
         if not resp or not resp.HasField("decision"):
             total_ms = (time.perf_counter() - t0) * 1000.0
@@ -380,13 +386,17 @@ class Arcjet:
                     "rule_count": len(self._rules),
                 },
             )
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message="Arcjet API returned an invalid response (missing decision).")
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(
+                            message="Arcjet API returned an invalid response (missing decision)."
+                        )
+                    ),
+                )
+            )
 
         decision = Decision(resp.decision)
         # Cache the decision when TTL is present (>0)
@@ -491,13 +501,17 @@ class ArcjetSync:
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             # TODO: this should probably return an error from the rule instead.
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message="email is required when validate_email(...) is configured. ")
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(
+                            message="email is required when validate_email(...) is configured. "
+                        )
+                    ),
+                )
+            )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
             requested = 1
@@ -649,13 +663,15 @@ class ArcjetSync:
                     "rule_count": len(self._rules),
                 },
             )
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message=str(e))
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(message=str(e))
+                    ),
+                )
+            )
         if not resp or not resp.HasField("decision"):
             total_ms = (time.perf_counter() - t0) * 1000.0
             api_ms = (
@@ -680,13 +696,17 @@ class ArcjetSync:
                     "rule_count": len(self._rules),
                 },
             )
-            return Decision(decide_pb2.Decision(
-                id="",
-                conclusion=decide_pb2.CONCLUSION_ERROR,
-                reason=decide_pb2.Reason(
-                    error=decide_pb2.ErrorReason(message="Arcjet API returned an invalid response (missing decision).")
-                ),
-            ))
+            return Decision(
+                decide_pb2.Decision(
+                    id="",
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
+                    reason=decide_pb2.Reason(
+                        error=decide_pb2.ErrorReason(
+                            message="Arcjet API returned an invalid response (missing decision)."
+                        )
+                    ),
+                )
+            )
 
         decision = Decision(resp.decision)
         # Cache the decision when TTL is present (>0)
