@@ -21,13 +21,23 @@ uv run ty check
 
 Run the unit tests locally with uv and pytest:
 
-```bash
-uv run pytest -q
+```sh
+uv run pytest
 ```
 
-- Tests stub the Decide API protobufs and clients, so no network access is
-  required.
 - Set `ARCJET_LOG_LEVEL=debug` to see detailed debug logs during development.
+
+### Mocked tests
+
+Mocked tests stub the Decide API protobufs and clients, so no network access is
+required.
+
+_The mocked test monkeypatch various internal SDK things and need to be
+isolated (read: run entirely seperately) from the other tests._
+
+```sh
+uv run pytest tests/mocked
+```
 
 ## Releasing
 
