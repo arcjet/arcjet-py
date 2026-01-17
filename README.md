@@ -339,6 +339,69 @@ logging.basicConfig(
 Arcjet logging can be controlled directly by setting the `ARCJET_LOG_LEVEL`
 environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
 
+## Accessing decision details
+
+Arcjet returns per-rule `rule_results` and a top-level `decision.reason`. To make a simple decision about allowing or denying a request you can check `if decision.is_denied():`. For more details, inspect the rule results.
+
+### Getting bot detection details
+
+To find out which bots were detected (if any):
+
+```py
+if decision.reason and decision.reason.is_bot():
+   denied = (decision.reason.to_dict() or {}).get(
+      decision.reason.which(), {}).get("denied", [])
+
+   print("Denied bots:", ", ".join(denied) if denied else "none")
+```
+
+Future releases of the Python SDK will provide more helpers to access this without needing to convert to a dict.
+
+## IP analysis
+
+Arcjet returns an `ip_details` object as part of a `Decision` from `aj.protect(...)`. There are two ways to inspect that data:
+
+1. high-level helpers for common reputation checks.
+2. the full raw fields via `Decision.to_dict()`.
+
+### IP analysis helpers
+
+For common checks (is this IP a VPN, proxy, Tor exit node, or a hosting provider) use the `IpInfo` helpers exposed at `decision.ip`:
+
+```py
+# high level booleans
+if decision.ip.is_hosting():
+    # likely a cloud / hosting provider — often suspicious for bots
+    do_block()
+
+if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
+    # treat according to your policy
+    do_something_else()
+```
+
+### IP analysis fields
+
+To access all the fields, convert the decision to a dict and then access the fields directly. A future SDK release will include more helpers to access this data:
+
+```py
+d = decision.to_dict()
+ip = d.get("ip_details")
+if ip:
+    lat = ip.get("latitude")
+    lon = ip.get("longitude")
+    asn = ip.get("asn")
+    asn_name = ip.get("asn_name")
+    service = ip.get("service")  # may be missing
+else:
+    # ip details not present
+```
+
+These are the available fields, although not all may be present for every IP:
+
+* Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`, `postal_code`, `city`, `region`, `country`, `country_name`, `continent`, `continent_name`
+* ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp, hosting, business, education), `asn_country`
+* Reputation / service: service name (when present) and boolean indicators for `vpn`, `proxy`, `tor`, `hosting`, `relay`
+
 ## Support
 
 This repository follows the [Arcjet Support
