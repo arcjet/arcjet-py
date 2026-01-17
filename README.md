@@ -52,9 +52,18 @@ support](https://docs.arcjet.com/support).
 Install [from PyPI](https://pypi.org/project/arcjet/) with
 [uv](https://docs.astral.sh/uv/):
 
+```shell
+# With a uv project
+uv add arcjet
+
+# With an existing pip managed project
+uv pip install arcjet
 ```
-# With uv
-uv install arcjet
+
+Or with pip:
+
+```shell
+pip install arcjet
 ```
 
 ## Usage
