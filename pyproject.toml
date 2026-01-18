@@ -40,11 +40,21 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-  "pytest==8.0.0",
+  "fastapi==0.128.0", # For testing integration with FastAPI
+  "flask==3.1.2", # For testing integration with Flask
+  "pytest==9.0.2",
   "ruff==0.14.10",
   "ty==0.0.8",
   "types-protobuf==6.32.1.20251210",
 ]
+
+[tool.pytest]
+# The tests/mocked test monkeypatch various internal SDK things and need to be
+# isolated (read: run entirely seperately) from the other tests. Run them with
+# `uv run pytest tests/mocked`.
+addopts = ["--ignore=tests/mocked", "-q"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [tool.ruff]
 exclude = [
