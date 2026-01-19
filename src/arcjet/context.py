@@ -21,10 +21,10 @@ Environment behavior:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
-from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 import ipaddress
+import os
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 

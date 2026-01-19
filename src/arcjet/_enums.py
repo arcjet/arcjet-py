@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 

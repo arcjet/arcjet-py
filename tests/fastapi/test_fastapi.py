@@ -1,7 +1,7 @@
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
-import pytest
 
 from arcjet import arcjet as arcjet_fastapi
 

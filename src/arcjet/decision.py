@@ -14,11 +14,12 @@ Core types:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
+
+from google.protobuf.json_format import MessageToDict
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-from google.protobuf.json_format import MessageToDict
 
 
 @dataclass(frozen=True, slots=True)

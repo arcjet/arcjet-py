@@ -15,32 +15,34 @@ Flask/Werkzeug `Request`, Django `HttpRequest`) or a pre-built
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, replace, field
-import logging
-import time
-from importlib.metadata import PackageNotFoundError, version as pkg_version
-from typing import Mapping, Sequence, Any, TypedDict
 import asyncio
+import logging
+import os
+import time
 import uuid
+from dataclasses import dataclass, field, replace
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
+from typing import Any, Mapping, Sequence, TypedDict
+
+import httpx
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 from arcjet.proto.decide.v1alpha1.decide_connect import (
     DecideServiceClient,
     DecideServiceClientSync,
 )
-import httpx
 
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._logging import logger
+from .cache import DecisionCache, make_cache_key
 from .context import (
     RequestContext,
     coerce_request_context,
     request_details_from_context,
 )
 from .decision import Decision
-from .rules import RuleSpec, TokenBucket, EmailValidation
-from .cache import DecisionCache, make_cache_key
+from .rules import EmailValidation, RuleSpec, TokenBucket
 
 
 def _new_local_request_id() -> str:

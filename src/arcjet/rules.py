@@ -46,12 +46,12 @@ Email validation:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Tuple, Iterable, Union
 from enum import Enum
+from typing import Iterable, Sequence, Tuple, Union
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
-from ._enums import _mode_to_proto, Mode
+from ._enums import Mode, _mode_to_proto
 
 
 class RuleSpec:
