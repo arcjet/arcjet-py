@@ -16,6 +16,7 @@ Flask/Werkzeug `Request`, Django `HttpRequest`) or a pre-built
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -317,8 +318,8 @@ class Arcjet:
         # which characteristics are used. When none provided, server defaults to IP.
         t_prepare_end = time.perf_counter()
 
+        t_api_start = time.perf_counter()
         try:
-            t_api_start = time.perf_counter()
             resp = await self._client.decide(
                 req,
                 headers=_auth_headers(self._key),
@@ -479,7 +480,9 @@ class Arcjet:
         """Close the underlying transport when supported (async)."""
         close = getattr(self._client, "aclose", None)
         if callable(close):
-            await close()
+            result = close()
+            if inspect.isawaitable(result):
+                await result
             return
         close_sync = getattr(self._client, "close", None)
         if callable(close_sync):
@@ -488,7 +491,10 @@ class Arcjet:
             # We own the session; ensure it's closed to free sockets
             aclose = getattr(self._session, "aclose", None)
             if callable(aclose):
-                await aclose()
+                result = aclose()
+                if inspect.isawaitable(result):
+                    await result
+            close = getattr(self._client, "aclose", None)
 
     async def __aenter__(self) -> "Arcjet":
         """Async context manager entry; returns `self`."""
@@ -658,8 +664,8 @@ class ArcjetSync:
         req.rules.extend([r.to_proto() for r in self._rules])
         t_prepare_end = time.perf_counter()
 
+        t_api_start = time.perf_counter()
         try:
-            t_api_start = time.perf_counter()
             resp = self._client.decide(
                 req,
                 headers=_auth_headers(self._key),
