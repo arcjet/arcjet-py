@@ -411,7 +411,7 @@ def coerce_request_context(
         except Exception:
             query = None
         try:
-            body = getattr(req, "get_data", None)()  # ty:ignore[call-non-callable] caught by except
+            body = getattr(req, "get_data", None)()  # type: ignore - caught by except
         except Exception:
             body = None
         scheme = "https" if getattr(req, "is_secure", False) else "http"

@@ -20,6 +20,8 @@ jobs:
         run: uv run ruff format --diff .
       - name: Ty type check
         run: uv run ty check --output-format github
+      - name: Pyright type check
+        run: uv run pyright
 
   test:
     name: Run tests

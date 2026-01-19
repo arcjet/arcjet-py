@@ -17,6 +17,8 @@ uv run ruff format
 uv run ruff check
 # Type checking with ty
 uv run ty check
+# Type checking with pyright
+uv run pyright
 ```
 
 ## Tests
