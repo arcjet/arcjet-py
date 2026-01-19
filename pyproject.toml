@@ -40,8 +40,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-  "fastapi==0.128.0", # For testing integration with FastAPI
-  "flask==3.1.2", # For testing integration with Flask
+  "fastapi==0.128.0",                # For testing integration with FastAPI
+  "flask==3.1.2",                    # For testing integration with Flask
   "pytest==9.0.2",
   "ruff==0.14.10",
   "ty==0.0.8",
@@ -70,6 +70,11 @@ exclude = [
   "tests/mocked/test_enums.py",
   "tests/mocked/test_logging.py",
   "tests/mocked/test_rules.py",
+]
+
+[tool.ruff.lint]
+select = [
+  "I", # Import formatting
 ]
 
 [tool.ty.src]
