@@ -9,10 +9,10 @@ The cache stores the `Decision` wrapper directly and tracks expiry using
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
 import threading
 import time
-import hashlib
+from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from .context import RequestContext

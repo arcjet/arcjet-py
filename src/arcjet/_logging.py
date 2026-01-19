@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Final
 
-
 _LEVELS: Final[dict[str, int]] = {
     "debug": logging.DEBUG,
     "info": logging.INFO,

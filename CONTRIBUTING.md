@@ -10,6 +10,8 @@ gives you a consistent toolchain and avoids “works on my machine” issues.
 
 ```sh
 # Formatting with ruff
+# See https://docs.astral.sh/ruff/formatter/#sorting-imports for double command
+ruff check --select I --fix # Sort imports
 uv run ruff format
 # Linting with ruff
 uv run ruff check

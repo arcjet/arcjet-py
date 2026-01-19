@@ -1,5 +1,5 @@
-from flask import Flask, request
 import pytest
+from flask import Flask, request
 
 from arcjet import arcjet_sync as arcjet_flask
 

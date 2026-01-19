@@ -1,38 +1,38 @@
 from __future__ import annotations
 
-from .client import arcjet, arcjet_sync, Arcjet, ArcjetSync
-from .decision import Decision, RuleResult, Reason, IpInfo, is_spoofed_bot
+from ._enums import Mode
+from .client import Arcjet, ArcjetSync, arcjet, arcjet_sync
+from .decision import Decision, IpInfo, Reason, RuleResult, is_spoofed_bot
 from .rules import (
-    shield,
-    detect_bot,
-    token_bucket,
-    fixed_window,
-    sliding_window,
-    validate_email,
-    RuleSpec,
     BotCategory,
     EmailType,
+    RuleSpec,
+    detect_bot,
+    fixed_window,
+    shield,
+    sliding_window,
+    token_bucket,
+    validate_email,
 )
-from ._enums import Mode
 
 __all__ = [
-    "arcjet",
     "arcjet_sync",
+    "arcjet",
     "Arcjet",
     "ArcjetSync",
+    "BotCategory",
     "Decision",
-    "RuleResult",
-    "Reason",
+    "detect_bot",
+    "EmailType",
+    "fixed_window",
     "IpInfo",
+    "is_spoofed_bot",
+    "Mode",
+    "Reason",
+    "RuleResult",
     "RuleSpec",
     "shield",
-    "detect_bot",
-    "token_bucket",
-    "fixed_window",
     "sliding_window",
+    "token_bucket",
     "validate_email",
-    "is_spoofed_bot",
-    "BotCategory",
-    "EmailType",
-    "Mode",
 ]
