@@ -132,12 +132,12 @@ class RuleResult:
     @property
     # TODO: Replace with reason_v2 behavior and deprecate reason_v2 in future.
     @deprecated("Use `reason_v2` property instead.")
-    def reason(self) -> Reason: # type: ignore -- intentionally deprecated
+    def reason(self) -> Reason:  # type: ignore -- intentionally deprecated
         """Reason for the decision.
 
         Deprecated. Use `reason_v2` instead.
         """
-        return Reason(self._rr.reason if self._rr.HasField("reason") else None) # type: ignore -- intentionally deprecated
+        return Reason(self._rr.reason if self._rr.HasField("reason") else None)  # type: ignore -- intentionally deprecated
 
     @property
     def reason_v2(self) -> arcjet.dataclasses.Reason:
@@ -187,12 +187,12 @@ class Decision:
     @property
     # TODO: Replace with reason_v2 behavior and deprecate reason_v2 in future.
     @deprecated("Use `reason_v2` property instead.")
-    def reason(self) -> Reason: # type: ignore -- intentionally deprecated
+    def reason(self) -> Reason:  # type: ignore -- intentionally deprecated
         """Reason for the decision.
 
         Deprecated. Use `reason_v2` instead.
         """
-        return Reason(self._d.reason if self._d.HasField("reason") else None) # type: ignore -- intentionally deprecated
+        return Reason(self._d.reason if self._d.HasField("reason") else None)  # type: ignore -- intentionally deprecated
 
     @property
     def reason_v2(self) -> arcjet.dataclasses.Reason:
