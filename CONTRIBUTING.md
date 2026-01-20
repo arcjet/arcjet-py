@@ -43,6 +43,17 @@ isolated (read: run entirely seperately) from the other tests._
 uv run pytest tests/mocked
 ```
 
+## Breaking changes
+
+Check if there are any breaking changes in the public API using Griffe:
+
+```sh
+# Check against the most recent tag (default)
+uvx griffe check arcjet -s src
+# Check against `main` branch
+uvx griffe check arcjet -s src --against main
+```
+
 ## Releasing
 
 1. Create a new branch `git checkout -b release-0.1.0`

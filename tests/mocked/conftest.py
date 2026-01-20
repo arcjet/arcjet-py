@@ -280,6 +280,12 @@ class _DecideResponse:
     def HasField(self, name: str) -> bool:
         return getattr(self, name, None) is not None
 
+class EmailType(int):
+    EMAIL_TYPE_DISPOSABLE = EMAIL_TYPE_DISPOSABLE
+    EMAIL_TYPE_FREE = EMAIL_TYPE_FREE
+    EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS
+    EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR
+    EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID
 
 # Expose symbols like real module
 mod_pb2.MODE_DRY_RUN = MODE_DRY_RUN
@@ -311,6 +317,7 @@ mod_pb2.RuleResult = RuleResult
 mod_pb2.Decision = Decision
 mod_pb2.DecideRequest = DecideRequest
 mod_pb2.ReportRequest = ReportRequest
+mod_pb2.EmailType = EmailType
 
 
 # Decide client stubs with injectable behavior
