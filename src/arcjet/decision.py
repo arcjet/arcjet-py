@@ -18,7 +18,10 @@ import json
 from dataclasses import dataclass
 
 from google.protobuf.json_format import MessageToDict
+from typing_extensions import deprecated
 
+import arcjet.dataclasses
+from arcjet._convert import _reason_from_proto
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
@@ -49,6 +52,7 @@ class IpInfo:
 
 
 @dataclass(frozen=True, slots=True)
+@deprecated("Use `arcjet.dataclasses.Reason` instead.")
 class Reason:
     """Tagged reason for a rule conclusion or overall decision.
 
@@ -126,8 +130,19 @@ class RuleResult:
         return self._rr.conclusion
 
     @property
-    def reason(self) -> Reason:
-        return Reason(self._rr.reason if self._rr.HasField("reason") else None)
+    # TODO: Replace with reason_v2 behavior and deprecate reason_v2 in future.
+    @deprecated("Use `reason_v2` property instead.")
+    def reason(self) -> Reason:  # type: ignore -- intentionally deprecated
+        """Reason for the decision.
+
+        Deprecated. Use `reason_v2` instead.
+        """
+        return Reason(self._rr.reason if self._rr.HasField("reason") else None)  # type: ignore -- intentionally deprecated
+
+    @property
+    def reason_v2(self) -> arcjet.dataclasses.Reason:
+        """Reason for the result."""
+        return _reason_from_proto(self._rr.reason)
 
     @property
     def fingerprint(self) -> str | None:
@@ -170,8 +185,19 @@ class Decision:
         return self._d.ttl
 
     @property
-    def reason(self) -> Reason:
-        return Reason(self._d.reason if self._d.HasField("reason") else None)
+    # TODO: Replace with reason_v2 behavior and deprecate reason_v2 in future.
+    @deprecated("Use `reason_v2` property instead.")
+    def reason(self) -> Reason:  # type: ignore -- intentionally deprecated
+        """Reason for the decision.
+
+        Deprecated. Use `reason_v2` instead.
+        """
+        return Reason(self._d.reason if self._d.HasField("reason") else None)  # type: ignore -- intentionally deprecated
+
+    @property
+    def reason_v2(self) -> arcjet.dataclasses.Reason:
+        """Reason for the decision."""
+        return _reason_from_proto(self._d.reason)
 
     @property
     def ip(self) -> IpInfo:

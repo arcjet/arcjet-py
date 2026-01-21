@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from ._enums import Mode
 from .client import Arcjet, ArcjetSync, arcjet, arcjet_sync
-from .decision import Decision, IpInfo, Reason, RuleResult, is_spoofed_bot
+from .decision import (
+    Decision,
+    IpInfo,
+    Reason,  # type: ignore -- intentionally deprecated
+    RuleResult,
+    is_spoofed_bot,
+)
 from .rules import (
     BotCategory,
     EmailType,
