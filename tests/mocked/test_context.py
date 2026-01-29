@@ -68,7 +68,7 @@ def test_extract_ip_multiple_xff_headers_are_combined_in_order():
     headers = {
         "x-forwarded-for": [
             "10.0.0.1, 192.168.0.1",  # first header value
-            "8.8.8.8, 1.1.1.1",       # second header value
+            "8.8.8.8, 1.1.1.1",  # second header value
         ]
     }
 
