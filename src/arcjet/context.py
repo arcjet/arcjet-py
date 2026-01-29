@@ -28,6 +28,8 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
+HeaderValue = str | Sequence[str]
+
 
 def _is_development() -> bool:
     """Return True when running in development mode.
@@ -67,7 +69,7 @@ class RequestContext:
     protocol: str | None = None
     host: str | None = None
     path: str | None = None
-    headers: Mapping[str, str] | None = None
+    headers: Mapping[str, HeaderValue] | None = None
     cookies: str | None = None
     query: str | None = None
     body: bytes | None = None
@@ -83,22 +85,49 @@ class SupportsRequestContext(Protocol):
     uses duck-typing with careful defensive access.
     """
 
-    headers: Mapping[str, str]
+    headers: Mapping[str, HeaderValue]
     method: str
     # Optional/duck-typed fields; Protocol does not enforce at runtime.
     # Present in ASGI scope: `type`, `path`, `scheme`, `client`, `query_string`.
 
 
-def _first_header(headers: Mapping[str, str], *names: str) -> str | None:
+def _first_header(headers: Mapping[str, HeaderValue], *names: str) -> str | None:
     """Return the first matching header value from `headers`.
 
     Matching is case-insensitive and respects the order of `names`.
+
+    If a header is represented with multiple instances (value is a list/tuple),
+    returns the first string item.
     """
     for n in names:
         for k, v in headers.items():
-            if k.lower() == n.lower():
+            if k.lower() != n.lower():
+                continue
+            if isinstance(v, str):
                 return v
+            # Multiple header instances represented as a list/tuple
+            if isinstance(v, Sequence):
+                if len(v) > 0 and isinstance(v[0], str):
+                    return v[0]
+            return None
     return None
+
+
+def _all_headers(headers: Mapping[str, HeaderValue], name: str) -> list[str]:
+    """Return all values for a header name (case-insensitive).
+
+    Supports both a single string value and a list/tuple of strings representing
+    multiple header instances.
+    """
+    out: list[str] = []
+    for k, v in headers.items():
+        if k.lower() != name.lower():
+            continue
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, Sequence):
+            out.extend([x for x in v if isinstance(x, str)])
+    return out
 
 
 def _normalize_ip_string(value: str | None) -> str | None:
@@ -181,24 +210,31 @@ def _is_global_public_ip(
     return True
 
 
-def _parse_x_forwarded_for(v: str | None) -> list[str]:
-    if not isinstance(v, str):
-        return []
-    return [item.strip() for item in v.split(",") if item.strip()]
+def _parse_x_forwarded_for_values(values: Sequence[str]) -> list[str]:
+    """Parse one or more XFF header values into a single ordered list.
+
+    MDN: multiple X-Forwarded-For headers must be treated as a single list,
+    starting with the first IP of the first header and continuing to the last IP
+    of the last header.
+    """
+    out: list[str] = []
+    for v in values:
+        if not isinstance(v, str):
+            continue
+        for item in v.split(","):
+            item = item.strip()
+            if item:
+                out.append(item)
+    return out
 
 
 def extract_ip_from_headers(
-    headers: Mapping[str, str],
+    headers: Mapping[str, HeaderValue],
     *,
     proxies: Sequence[str] | None = None,
 ) -> str | None:
-    """Extract a likely client IP from headers with validation and trusted proxies.
-
-    Strategy (best-effort):
-    - In development, honor `X-Arcjet-Ip` override.
-    - Prefer platform-style headers when present (Cloudflare, Fly.io, Vercel, etc.).
-    - Fall back to generic headers (`X-Client-Ip`, `X-Forwarded-For`, `X-Real-Ip`, ...).
-    - Validate that chosen IP is global/public and not in `proxies` ranges.
+    """
+    Extract a likely client IP from headers with validation and trusted proxies.
     """
     proxy_nets = _parse_proxies(proxies)
 
@@ -209,64 +245,12 @@ def extract_ip_from_headers(
             # In development, accept any override to ease local testing.
             return _normalize_ip_string(xaj)
 
-    # Platform-specific style headers (only used if present; still validated)
-    cf_ipv6 = _first_header(headers, "cf-connecting-ipv6")
-    if _is_global_public_ip(cf_ipv6, proxy_nets):
-        return _normalize_ip_string(cf_ipv6)
-    cf_ip = _first_header(headers, "cf-connecting-ip")
-    if _is_global_public_ip(cf_ip, proxy_nets):
-        return _normalize_ip_string(cf_ip)
-    fly = _first_header(headers, "fly-client-ip")
-    if _is_global_public_ip(fly, proxy_nets):
-        return _normalize_ip_string(fly)
-    vercel_xvff = _first_header(headers, "x-vercel-forwarded-for")
-    for item in reversed(_parse_x_forwarded_for(vercel_xvff)):
-        if _is_global_public_ip(item, proxy_nets):
-            return _normalize_ip_string(item)
-    firebase = _first_header(headers, "x-fah-client-ip")
-    if _is_global_public_ip(firebase, proxy_nets):
-        return _normalize_ip_string(firebase)
-    render_true = _first_header(headers, "true-client-ip")
-    if _is_global_public_ip(render_true, proxy_nets):
-        return _normalize_ip_string(render_true)
-
-    # Generic headers
-    xclient = _first_header(headers, "x-client-ip")
-    if _is_global_public_ip(xclient, proxy_nets):
-        return _normalize_ip_string(xclient)
-
-    xff = _first_header(headers, "x-forwarded-for")
-    for item in reversed(_parse_x_forwarded_for(xff)):
+    # X-Forwarded-For may appear multiple times; combine as a single list per MDN.
+    xff_values = _all_headers(headers, "x-forwarded-for")
+    for item in reversed(_parse_x_forwarded_for_values(xff_values)):
         if _is_global_public_ip(item, proxy_nets):
             return _normalize_ip_string(item)
 
-    do_conn = _first_header(headers, "do-connecting-ip")
-    if _is_global_public_ip(do_conn, proxy_nets):
-        return _normalize_ip_string(do_conn)
-    fastly = _first_header(headers, "fastly-client-ip")
-    if _is_global_public_ip(fastly, proxy_nets):
-        return _normalize_ip_string(fastly)
-    true_client = _first_header(headers, "true-client-ip")
-    if _is_global_public_ip(true_client, proxy_nets):
-        return _normalize_ip_string(true_client)
-    xri = _first_header(headers, "x-real-ip")
-    if _is_global_public_ip(xri, proxy_nets):
-        return _normalize_ip_string(xri)
-    xcluster = _first_header(headers, "x-cluster-client-ip")
-    if _is_global_public_ip(xcluster, proxy_nets):
-        return _normalize_ip_string(xcluster)
-    xfwd = _first_header(headers, "x-forwarded")
-    if _is_global_public_ip(xfwd, proxy_nets):
-        return _normalize_ip_string(xfwd)
-    fwd_for = _first_header(headers, "forwarded-for")
-    if _is_global_public_ip(fwd_for, proxy_nets):
-        return _normalize_ip_string(fwd_for)
-    forwarded = _first_header(headers, "forwarded")
-    if _is_global_public_ip(forwarded, proxy_nets):
-        return _normalize_ip_string(forwarded)
-    appengine = _first_header(headers, "x-appengine-user-ip")
-    if _is_global_public_ip(appengine, proxy_nets):
-        return _normalize_ip_string(appengine)
     return None
 
 
@@ -342,7 +326,7 @@ def coerce_request_context(
 
         # ASGI scope (has "type" and "headers") vs our own dict.
         if "headers" in req and "type" in req:
-            headers = {}
+            headers: dict[str, str] = {}
             raw = cast_req.get("headers") or []
             # ASGI headers are list[tuple[bytes, bytes]]
             for k, v in raw:
