@@ -1,6 +1,6 @@
 [project]
 name = "arcjet"
-version = "0.2.2"
+version = "0.2.3"
 description = "Arcjet Python SDK. Bot detection, rate limiting, email validation, attack protection for Python applications."
 readme = "README.md"
 requires-python = ">=3.10"
