@@ -60,7 +60,7 @@ uvx griffe check arcjet -s src --against main
 2. Bump the version using `uv version --bump` e.g. `uv version --bump patch`.
 3. Commit and push the changes to GitHub, then open a PR.
 4. Once merged to `main`, create a new Git tag with the new version e.g. `git tag -a v0.1.0 -m v0.1.0`
-4. Push the tag to GitHub e.g. `git push --tags`
-5. The release workflow will be triggered automatically and must be approved by another member of the team.
-6. Once approved, the package will be pushed to PyPI
-7. Create a new release in GitHub and link the release to the newly created tag.
+5. Push the tag to GitHub e.g. `git push --tags`
+6. The release workflow will be triggered automatically and must be approved by another member of the team.
+7. Once approved, the package will be pushed to PyPI
+8. Create a new release in GitHub and link the release to the newly created tag.
