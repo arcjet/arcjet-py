@@ -61,6 +61,22 @@ def test_extract_ip_xff_all_trusted_returns_none():
     assert ip is None
 
 
+def test_extract_ip_multiple_xff_headers_are_combined_in_order():
+    # MDN: multiple X-Forwarded-For headers must be treated as a single list.
+    # Simulate multiple header instances via a list value (common
+    # representation).
+    headers = {
+        "x-forwarded-for": [
+            "10.0.0.1, 192.168.0.1",  # first header value
+            "8.8.8.8, 1.1.1.1",  # second header value
+        ]
+    }
+
+    # With no trusted proxies configured, Arcjet-style selection walks from the
+    # end of the combined list, so it should pick the last global IP: 1.1.1.1
+    assert extract_ip_from_headers(headers) == "1.1.1.1"
+
+
 def test_extract_ip_xff_ipv4_with_port_is_returned_without_port():
     headers = {"x-forwarded-for": "1.1.1.1:443"}
     assert extract_ip_from_headers(headers) == "1.1.1.1"
