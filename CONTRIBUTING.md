@@ -54,6 +54,10 @@ uv run griffe check arcjet -s src
 uv run griffe check arcjet -s src --against main
 ```
 
+Pull requests that introduce breaking changes must be labeled with the
+`breaking` label. This will allow the PR to be merged even if Griffe detects
+breaking changes.
+
 ## Releasing
 
 1. Create a new branch `git checkout -b release-0.1.0`
