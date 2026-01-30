@@ -168,7 +168,7 @@ class Arcjet:
     ) -> Decision:
         """Evaluate configured rules for a given request.
 
-        Parameters: 
+        Parameters:
         - `request`: A framework request (ASGI scope dict, Flask `Request`, Django `HttpRequest`) or a pre-built `RequestContext`.
         - `requested`: For token bucket rate limits, the request's cost (defaults to 1 when a token bucket rule is present).
         - `characteristics`: Configuration for how to track the client across requests.
@@ -176,10 +176,10 @@ class Arcjet:
         - `extra`: Arbitrary key/value pairs forwarded to the Decide API.
         - `ip_src`: When set, overrides automatic IP detection. `disable_automatic_ip_detection` must be enabled on the client to use this parameter. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `ip_src` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
 
-        Returns: 
+        Returns:
         - `Decision`: a convenience wrapper around the protobuf response with helpers like `.is_allowed()` and `.reason`.
 
-        Raises: 
+        Raises:
         - `ArcjetMisconfiguration` when required context (e.g. `email`) is missing for the configured rules.
         - `ArcjetTransportError` for transport issues when `fail_open=False`.
         """
@@ -197,9 +197,7 @@ class Arcjet:
             raise ArcjetMisconfiguration(
                 "ip_src cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(
-            request, proxies=self._proxies, ip_src=ip_src
-        )
+        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
 
         if email:
             ctx = replace(ctx, email=email)
@@ -220,10 +218,10 @@ class Arcjet:
             merged_extra.update({str(k): str(v) for k, v in extra.items()})
         if requested is not None:
             merged_extra["requested"] = str(int(requested))
-        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
+        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
         if self._disable_automatic_ip_detection and ip_src:
             merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
-            
+
         # Include per-request characteristic values as extra fields so
         # server-side fingerprinting can read them by name.
         if characteristics:
@@ -571,9 +569,7 @@ class ArcjetSync:
             raise ArcjetMisconfiguration(
                 "ip_src cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(
-            request, proxies=self._proxies, ip_src=ip_src
-        )
+        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
 
         if email:
             ctx = replace(ctx, email=email)
@@ -592,7 +588,7 @@ class ArcjetSync:
             merged_extra.update({str(k): str(v) for k, v in ctx.extra.items()})
         if extra:
             merged_extra.update({str(k): str(v) for k, v in extra.items()})
-        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
+        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
         if self._disable_automatic_ip_detection and ip_src:
             merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
         if requested is not None:
