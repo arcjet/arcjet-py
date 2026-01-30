@@ -104,3 +104,53 @@ def test_caching_hits_trigger_background_report(monkeypatch):
     assert DecideServiceClientSync.decide_calls == 1
     # type: ignore[attr-defined]
     assert DecideServiceClientSync.report_calls >= 1
+
+def test_ip_override_with_request_ip(monkeypatch):
+    """Test that request_ip parameter overrides automatic IP detection."""
+    captured = {}
+
+    def capture_decide(req):
+        # Capture the IP from the request details
+        captured["ip"] = req.details.ip
+        return types.SimpleNamespace(
+            HasField=lambda f: True, decision=make_allow_decision()
+        )
+
+    # type: ignore[attr-defined]
+    DecideServiceClientSync.decide_behavior = capture_decide
+
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+
+    # Provide request_ip to override automatic detection
+    ctx = {"type": "http", "headers": [("x-forwarded-for", "1.1.1.1")], "client": ("1.1.1.1", 12345)}
+    d = aj.protect(ctx, request_ip="8.8.8.8")
+    
+    # Verify the overridden IP was used
+    assert captured["ip"] == "8.8.8.8"
+    assert d.is_allowed()
+
+def test_disable_automatic_ip_detection_requires_request_ip():
+    """Test that when disable_automatic_ip_detection=True, request_ip is required."""
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(
+        key="ajkey_x", 
+        rules=rules, 
+        disable_automatic_ip_detection=True
+    )
+
+    # Should raise error when request_ip is not provided
+    with pytest.raises(ArcjetMisconfiguration, match="request_ip is required"):
+        aj.protect({"headers": [], "type": "http"})
+
+def test_request_ip_disallowed_when_automatic_ip_detection_enabled():
+    """Test that providing request_ip raises error when automatic IP detection is enabled."""
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(
+        key="ajkey_x", 
+        rules=rules, 
+    )
+
+    # Should raise error when request_ip is provided
+    with pytest.raises(ArcjetMisconfiguration, match="request_ip cannot be set"):
+        aj.protect({"headers": [], "type": "http"}, request_ip="8.8.8.8")

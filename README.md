@@ -39,7 +39,7 @@ Arcjet security features for protecting Python apps:
 > [!NOTE]
 > The Arcjet Python SDK currently doesn't support [sensitive information
 > detection](https://docs.arcjet.com/sensitive-info) or [request
-> filters](https://docs.arcjet.com/filters). These features are planned for a 
+> filters](https://docs.arcjet.com/filters). These features are planned for a
 > future release when local analysis will be supported.
 
 ### Get help
@@ -324,6 +324,41 @@ Only globally routable IPs are accepted for client identification; private,
 loopback, link-local, and addresses matching `proxies` are ignored during IP
 extraction.
 
+### Overriding automatic IP detection
+
+By default, Arcjet automatically detects the client IP from the request using
+ `X-Forwarded-For`. We recommend leaving this enabled in most cases and
+configuring trusted proxies as needed (see above).
+
+> [!WARNING]
+> Disabling automatic IP detection is not recommended unless you have
+> written your own IP detection logic that considers the correct parsing of IP
+> headers. Accepting client IPs from untrusted sources can expose your
+> application to IP spoofing attacks. See the [MDN
+> documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For)
+> for further guidance.
+
+To disable automatic IP detection (for example, if you have your own custom
+logic to extract the client IP), set `disable_automatic_ip_detection=True` when
+creating the Arcjet client, and then provide the `request_ip` parameter to
+`.protect(...)`.
+
+```py
+from arcjet import arcjet
+aj = arcjet(
+    key=os.environ["ARCJET_KEY"],
+    rules=[...],
+    disable_automatic_ip_detection=True,
+)
+
+# ...
+
+decision = aj.protect(
+    request,
+    request_ip="8.8.8.8",  # provide the client IP here
+)
+```
+
 ### Logging
 
 Enable debug logging to troubleshoot issues with Arcjet integration.
@@ -341,7 +376,9 @@ environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
 
 ## Accessing decision details
 
-Arcjet returns per-rule `rule_results` and a top-level `decision.reason`. To make a simple decision about allowing or denying a request you can check `if decision.is_denied():`. For more details, inspect the rule results.
+Arcjet returns per-rule `rule_results` and a top-level `decision.reason`. To
+make a simple decision about allowing or denying a request you can check `if
+decision.is_denied():`. For more details, inspect the rule results.
 
 ### Getting bot detection details
 
@@ -355,18 +392,21 @@ if decision.reason and decision.reason.is_bot():
    print("Denied bots:", ", ".join(denied) if denied else "none")
 ```
 
-Future releases of the Python SDK will provide more helpers to access this without needing to convert to a dict.
+Future releases of the Python SDK will provide more helpers to access this
+without needing to convert to a dict.
 
 ## IP analysis
 
-Arcjet returns an `ip_details` object as part of a `Decision` from `aj.protect(...)`. There are two ways to inspect that data:
+Arcjet returns an `ip_details` object as part of a `Decision` from
+`aj.protect(...)`. There are two ways to inspect that data:
 
 1. high-level helpers for common reputation checks.
 2. the full raw fields via `Decision.to_dict()`.
 
 ### IP analysis helpers
 
-For common checks (is this IP a VPN, proxy, Tor exit node, or a hosting provider) use the `IpInfo` helpers exposed at `decision.ip`:
+For common checks (is this IP a VPN, proxy, Tor exit node, or a hosting
+provider) use the `IpInfo` helpers exposed at `decision.ip`:
 
 ```py
 # high level booleans
@@ -381,7 +421,9 @@ if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
 
 ### IP analysis fields
 
-To access all the fields, convert the decision to a dict and then access the fields directly. A future SDK release will include more helpers to access this data:
+To access all the fields, convert the decision to a dict and then access the
+fields directly. A future SDK release will include more helpers to access this
+data:
 
 ```py
 d = decision.to_dict()
@@ -398,9 +440,13 @@ else:
 
 These are the available fields, although not all may be present for every IP:
 
-* Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`, `postal_code`, `city`, `region`, `country`, `country_name`, `continent`, `continent_name`
-* ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp, hosting, business, education), `asn_country`
-* Reputation / service: service name (when present) and boolean indicators for `vpn`, `proxy`, `tor`, `hosting`, `relay`
+- Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`,
+  `postal_code`, `city`, `region`, `country`, `country_name`, `continent`,
+  `continent_name`
+- ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp, hosting,
+  business, education), `asn_country`
+- Reputation / service: service name (when present) and boolean indicators for
+  `vpn`, `proxy`, `tor`, `hosting`, `relay`
 
 ## Support
 

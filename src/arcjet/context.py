@@ -299,6 +299,7 @@ def coerce_request_context(
     req: SupportsRequestContext | Any,
     *,
     proxies: Sequence[str] | None = None,
+    request_ip: str | None = None,
 ) -> RequestContext:
     """Best-effort coercion from common request objects.
 
@@ -336,13 +337,17 @@ def coerce_request_context(
                     continue
             ip = None
             client = cast_req.get("client")
-            if isinstance(client, (tuple, list)) and client:
-                # Prefer the direct remote address when it's global and not a trusted proxy.
-                if _is_global_public_ip(client[0], _parse_proxies(proxies)):
-                    ip = client[0]
-            ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-            if not ip and _is_development():
-                ip = "127.0.0.1"
+            if not request_ip:
+                if isinstance(client, (tuple, list)) and client:
+                    # Prefer the direct remote address when it's global and not a trusted proxy.
+                    if _is_global_public_ip(client[0], _parse_proxies(proxies)):
+                        ip = client[0]
+                ip = ip or extract_ip_from_headers(headers, proxies=proxies)
+                if not ip and _is_development():
+                    ip = "127.0.0.1"
+            else:
+                ip = request_ip
+
             return RequestContext(
                 ip=ip,
                 method=cast_req.get("method"),
@@ -380,11 +385,14 @@ def coerce_request_context(
             headers = {}
         ip = None
         remote = getattr(req, "remote_addr", None)
-        if _is_global_public_ip(remote, _parse_proxies(proxies)):
-            ip = remote
-        ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-        if not ip and _is_development():
-            ip = "127.0.0.1"
+        if not request_ip:
+            if _is_global_public_ip(remote, _parse_proxies(proxies)):
+                ip = remote
+            ip = ip or extract_ip_from_headers(headers, proxies=proxies)
+            if not ip and _is_development():
+                ip = "127.0.0.1"
+        else:
+            ip = request_ip
         try:
             query_raw = getattr(req, "query_string", None)
             query = (
@@ -419,11 +427,14 @@ def coerce_request_context(
         headers = dict(hdrs_obj) if hdrs_obj is not None else {}
         ip = None
         remote = meta.get("REMOTE_ADDR")
-        if _is_global_public_ip(remote, _parse_proxies(proxies)):
-            ip = remote
-        ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-        if not ip and _is_development():
-            ip = "127.0.0.1"
+        if not request_ip:
+            if _is_global_public_ip(remote, _parse_proxies(proxies)):
+                ip = remote
+            ip = ip or extract_ip_from_headers(headers, proxies=proxies)
+            if not ip and _is_development():
+                ip = "127.0.0.1"
+        else:
+            ip = request_ip
         scheme = (
             "https"
             if meta.get("wsgi.url_scheme") == "https"
