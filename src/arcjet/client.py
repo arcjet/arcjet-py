@@ -572,6 +572,7 @@ class ArcjetSync:
         # Override IP when provided
         if request_ip:
             ctx = replace(ctx, ip=request_ip)
+        
         if email:
             ctx = replace(ctx, email=email)
         # Enforce required per-request context based on configured rules.
@@ -929,7 +930,9 @@ def arcjet_sync(
 ) -> ArcjetSync:
     """Create a sync Arcjet client.
 
-    See `arcjet(...)` for parameter details and default behavior.
+    Parameters match `arcjet(...)` - see that function for detailed documentation.
+    The `disable_automatic_ip_detection` parameter, when set to True, disables
+    automatic IP detection and requires `request_ip` to be passed to `protect()`.
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
