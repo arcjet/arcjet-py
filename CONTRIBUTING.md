@@ -49,10 +49,14 @@ Check if there are any breaking changes in the public API using Griffe:
 
 ```sh
 # Check against the most recent tag (default)
-uvx griffe check arcjet -s src
-# Check against `main` branch
-uvx griffe check arcjet -s src --against main
+uv run griffe check arcjet -s src
+# Check against `main` branch (or use `origin/main` instead)
+uv run griffe check arcjet -s src --against main
 ```
+
+Pull requests that introduce breaking changes must be labeled with the
+`breaking` label. This will allow the PR to be merged even if Griffe detects
+breaking changes.
 
 ## Releasing
 
