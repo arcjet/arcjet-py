@@ -2,6 +2,12 @@ name: Test
 
 on:
   pull_request:
+    types:
+      - labeled
+      - opened
+      - reopened
+      - synchronize
+      - unlabeled
   merge_group: 
   push:
     branches:
@@ -25,6 +31,9 @@ jobs:
       - name: Pyright type check
         run: uv run pyright
       - name: Griffe check
+        # Only run on PRs and allow breaking changes to be merged with a label
+        if: github.event_name == 'pull_request'
+        continue-on-error: ${{ contains(github.event.pull_request.labels.*.name, 'breaking') }}
         run: uv run griffe check arcjet --search src --format github --against origin/main
 
 
