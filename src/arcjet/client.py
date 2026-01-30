@@ -168,33 +168,30 @@ class Arcjet:
     ) -> Decision:
         """Evaluate configured rules for a given request.
 
-        Parameters: - request: A framework request (ASGI scope dict,
-        Flask `Request`,
-            Django `HttpRequest`) or a pre-built `RequestContext`.
-        - requested: For token bucket rate limits, the request's cost
-            (defaults to 1 when a token bucket rule is present).
-        - characteristics: Configuration for how to track the client
-            across requests.
-        - email: Email address to validate when an email rule is
-            configured.
-        - extra: Arbitrary key/value pairs forwarded to the Decide API.
-        - request_ip: When set, overrides automatic IP detection.
+        Parameters: 
+        - `request`: A framework request (ASGI scope dict, Flask `Request`, Django `HttpRequest`) or a pre-built `RequestContext`.
+        - `requested`: For token bucket rate limits, the request's cost (defaults to 1 when a token bucket rule is present).
+        - `characteristics`: Configuration for how to track the client across requests.
+        - `email`: Email address to validate when an email rule is configured.
+        - `extra`: Arbitrary key/value pairs forwarded to the Decide API.
+        - `request_ip`: When set, overrides automatic IP detection. `disable_automatic_ip_detection` must be enabled on the client to use this parameter. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `request_ip` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
 
-        Returns: - `Decision`: a convenience wrapper around the
-        protobuf response with
-            helpers like `.is_allowed()` and `.reason`.
+        Returns: 
+        - `Decision`: a convenience wrapper around the protobuf response with helpers like `.is_allowed()` and `.reason`.
 
-        Raises: - `ArcjetMisconfiguration` when required context (e.g.
-        `email`) is
-            missing for the configured rules.
-        - `ArcjetTransportError` for transport issues when
-            `fail_open=False`.
+        Raises: 
+        - `ArcjetMisconfiguration` when required context (e.g. `email`) is missing for the configured rules.
+        - `ArcjetTransportError` for transport issues when `fail_open=False`.
         """
         t0 = time.perf_counter()
         if self._disable_automatic_ip_detection and not request_ip:
             raise ArcjetMisconfiguration(
                 "request_ip is required when disable_automatic_ip_detection=True. "
                 "Pass request_ip=... to aj.protect(...)."
+            )
+        if self._disable_automatic_ip_detection and self._proxies:
+            raise ArcjetMisconfiguration(
+                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
             )
         if not self._disable_automatic_ip_detection and request_ip:
             raise ArcjetMisconfiguration(
@@ -223,6 +220,10 @@ class Arcjet:
             merged_extra.update({str(k): str(v) for k, v in extra.items()})
         if requested is not None:
             merged_extra["requested"] = str(int(requested))
+        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
+        if self._disable_automatic_ip_detection and request_ip:
+            merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
+            
         # Include per-request characteristic values as extra fields so
         # server-side fingerprinting can read them by name.
         if characteristics:
@@ -562,6 +563,10 @@ class ArcjetSync:
                 "request_ip is required when disable_automatic_ip_detection=True. "
                 "Pass request_ip=... to aj.protect(...)."
             )
+        if self._disable_automatic_ip_detection and self._proxies:
+            raise ArcjetMisconfiguration(
+                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
+            )
         if not self._disable_automatic_ip_detection and request_ip:
             raise ArcjetMisconfiguration(
                 "request_ip cannot be set when disable_automatic_ip_detection=False."
@@ -587,6 +592,9 @@ class ArcjetSync:
             merged_extra.update({str(k): str(v) for k, v in ctx.extra.items()})
         if extra:
             merged_extra.update({str(k): str(v) for k, v in extra.items()})
+        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
+        if self._disable_automatic_ip_detection and request_ip:
+            merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
         if requested is not None:
             merged_extra["requested"] = str(int(requested))
         if characteristics:
@@ -884,14 +892,10 @@ def arcjet(
     """Create an async Arcjet client.
 
     Parameters:
-    - `base_url`: Defaults to `ARCJET_BASE_URL` env var, then Fly.io internal
-        URL when `FLY_APP_NAME` is set, otherwise the public Decide endpoint.
+    - `base_url`: Defaults to `ARCJET_BASE_URL` env var, then Fly.io internal URL when `FLY_APP_NAME` is set, otherwise the public Decide endpoint.
     - `timeout_ms`: Defaults to 1000ms in development and 500ms otherwise.
-    - `fail_open`: When True (default), transport errors yield ALLOW decisions
-        with an error reason instead of raising.
-    - `disable_automatic_ip_detection`: When True, automatic IP detection
-        from the request is disabled, and `request_ip` must be provided
-        to `.protect(...)`.
+    - `fail_open`: When True (default), transport errors yield ALLOW decisions with an error reason instead of raising.
+    - `disable_automatic_ip_detection`: When True, automatic IP detection from the request is disabled, and `request_ip` must be provided to `.protect(...)`. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `request_ip` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")

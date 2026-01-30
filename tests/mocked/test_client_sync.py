@@ -143,6 +143,20 @@ def test_disable_automatic_ip_detection_requires_request_ip():
     with pytest.raises(ArcjetMisconfiguration, match="request_ip is required"):
         aj.protect({"headers": [], "type": "http"})
 
+def test_disable_automatic_ip_detection_with_proxies():
+    """Test that using proxies with disable_automatic_ip_detection=True raises error."""
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(
+        key="ajkey_x", 
+        rules=rules, 
+        disable_automatic_ip_detection=True,
+        proxies={"http": "http://proxy.example.com:8080"}
+    )
+
+    # Should raise error when proxies are set
+    with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
+        aj.protect({"headers": [], "type": "http"}, request_ip="8.8.8.8")
+
 def test_request_ip_disallowed_when_automatic_ip_detection_enabled():
     """Test that providing request_ip raises error when automatic IP detection is enabled."""
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
