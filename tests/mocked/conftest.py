@@ -348,7 +348,11 @@ class _BaseClient:
 
 class DecideServiceClient(_BaseClient):
     async def decide(self, req: DecideRequest, **kwargs: Any):
-        return self._decide_impl(req)
+        result = self._decide_impl(req)
+        # If the behavior callback is async, await it
+        if hasattr(result, '__await__'):
+            return await result
+        return result
 
     async def report(self, rep: ReportRequest, **kwargs: Any):
         return self._report_impl(rep)

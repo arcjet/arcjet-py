@@ -21,7 +21,7 @@ async def test_ip_override_with_request_ip(monkeypatch):
     """Test that request_ip parameter overrides automatic IP detection."""
     captured = {}
 
-    def capture_decide(req):
+    async def capture_decide(req):
         # Capture the IP from the request details
         captured["ip"] = req.details.ip
         return types.SimpleNamespace(
@@ -63,7 +63,7 @@ async def test_disable_automatic_ip_detection_with_request_ip(monkeypatch):
     """Test that disable_automatic_ip_detection works with request_ip."""
     captured = {}
 
-    def capture_decide(req):
+    async def capture_decide(req):
         # Capture the IP from the request details
         captured["ip"] = req.details.ip
         return types.SimpleNamespace(
