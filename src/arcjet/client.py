@@ -200,7 +200,9 @@ class Arcjet:
             raise ArcjetMisconfiguration(
                 "request_ip cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(request, proxies=self._proxies, request_ip=request_ip)
+        ctx = coerce_request_context(
+            request, proxies=self._proxies, request_ip=request_ip
+        )
 
         if email:
             ctx = replace(ctx, email=email)
@@ -564,7 +566,9 @@ class ArcjetSync:
             raise ArcjetMisconfiguration(
                 "request_ip cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(request, proxies=self._proxies, request_ip=request_ip)
+        ctx = coerce_request_context(
+            request, proxies=self._proxies, request_ip=request_ip
+        )
 
         if email:
             ctx = replace(ctx, email=email)
