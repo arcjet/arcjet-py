@@ -340,7 +340,7 @@ configuring trusted proxies as needed (see above).
 
 To disable automatic IP detection (for example, if you have your own custom
 logic to extract the client IP), set `disable_automatic_ip_detection=True` when
-creating the Arcjet client, and then provide the `request_ip` parameter to
+creating the Arcjet client, and then provide the `ip_src` parameter to
 `.protect(...)`.
 
 ```py
@@ -355,7 +355,7 @@ aj = arcjet(
 
 decision = aj.protect(
     request,
-    request_ip="8.8.8.8",  # provide the client IP here
+    ip_src="8.8.8.8",  # provide the client IP here
 )
 ```
 

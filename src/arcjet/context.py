@@ -299,7 +299,7 @@ def coerce_request_context(
     req: SupportsRequestContext | Any,
     *,
     proxies: Sequence[str] | None = None,
-    request_ip: str | None = None,
+    ip_src: str | None = None,
 ) -> RequestContext:
     """Best-effort coercion from common request objects.
 
@@ -337,7 +337,7 @@ def coerce_request_context(
                     continue
             ip = None
             client = cast_req.get("client")
-            if not request_ip:
+            if not ip_src:
                 if isinstance(client, (tuple, list)) and client:
                     # Prefer the direct remote address when it's global and not a trusted proxy.
                     if _is_global_public_ip(client[0], _parse_proxies(proxies)):
@@ -346,7 +346,7 @@ def coerce_request_context(
                 if not ip and _is_development():
                     ip = "127.0.0.1"
             else:
-                ip = request_ip
+                ip = ip_src
 
             return RequestContext(
                 ip=ip,
@@ -385,14 +385,14 @@ def coerce_request_context(
             headers = {}
         ip = None
         remote = getattr(req, "remote_addr", None)
-        if not request_ip:
+        if not ip_src:
             if _is_global_public_ip(remote, _parse_proxies(proxies)):
                 ip = remote
             ip = ip or extract_ip_from_headers(headers, proxies=proxies)
             if not ip and _is_development():
                 ip = "127.0.0.1"
         else:
-            ip = request_ip
+            ip = ip_src
         try:
             query_raw = getattr(req, "query_string", None)
             query = (
@@ -427,14 +427,14 @@ def coerce_request_context(
         headers = dict(hdrs_obj) if hdrs_obj is not None else {}
         ip = None
         remote = meta.get("REMOTE_ADDR")
-        if not request_ip:
+        if not ip_src:
             if _is_global_public_ip(remote, _parse_proxies(proxies)):
                 ip = remote
             ip = ip or extract_ip_from_headers(headers, proxies=proxies)
             if not ip and _is_development():
                 ip = "127.0.0.1"
         else:
-            ip = request_ip
+            ip = ip_src
         scheme = (
             "https"
             if meta.get("wsgi.url_scheme") == "https"
