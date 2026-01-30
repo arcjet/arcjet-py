@@ -104,3 +104,72 @@ def test_caching_hits_trigger_background_report(monkeypatch):
     assert DecideServiceClientSync.decide_calls == 1
     # type: ignore[attr-defined]
     assert DecideServiceClientSync.report_calls >= 1
+
+
+def test_ip_override_with_request_ip(monkeypatch):
+    """Test that request_ip parameter overrides automatic IP detection."""
+    captured = {}
+
+    def capture_decide(req):
+        # Capture the IP from the request details
+        captured["ip"] = req.details.ip
+        return types.SimpleNamespace(
+            HasField=lambda f: True, decision=make_allow_decision()
+        )
+
+    # type: ignore[attr-defined]
+    DecideServiceClientSync.decide_behavior = capture_decide
+
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(key="ajkey_x", rules=rules)
+
+    # Provide request_ip to override automatic detection
+    ctx = {"type": "http", "headers": [], "client": ("192.168.1.1", 1)}
+    d = aj.protect(ctx, request_ip="203.0.113.42")
+    
+    # Verify the overridden IP was used
+    assert captured["ip"] == "203.0.113.42"
+    assert d.is_allowed()
+
+
+def test_disable_automatic_ip_detection_requires_request_ip():
+    """Test that when disable_automatic_ip_detection=True, request_ip is required."""
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(
+        key="ajkey_x", 
+        rules=rules, 
+        disable_automatic_ip_detection=True
+    )
+
+    # Should raise error when request_ip is not provided
+    with pytest.raises(ArcjetMisconfiguration, match="request_ip is required"):
+        aj.protect({"headers": [], "type": "http"})
+
+
+def test_disable_automatic_ip_detection_with_request_ip(monkeypatch):
+    """Test that disable_automatic_ip_detection works with request_ip."""
+    captured = {}
+
+    def capture_decide(req):
+        # Capture the IP from the request details
+        captured["ip"] = req.details.ip
+        return types.SimpleNamespace(
+            HasField=lambda f: True, decision=make_allow_decision()
+        )
+
+    # type: ignore[attr-defined]
+    DecideServiceClientSync.decide_behavior = capture_decide
+
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet_sync(
+        key="ajkey_x", 
+        rules=rules, 
+        disable_automatic_ip_detection=True
+    )
+
+    # Provide request_ip as required when automatic detection is disabled
+    d = aj.protect({"headers": [], "type": "http"}, request_ip="198.51.100.5")
+    
+    # Verify the provided IP was used
+    assert captured["ip"] == "198.51.100.5"
+    assert d.is_allowed()

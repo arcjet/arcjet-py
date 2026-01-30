@@ -153,6 +153,7 @@ class Arcjet:
     _needs_email: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
+    _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
 
     async def protect(
@@ -163,6 +164,7 @@ class Arcjet:
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
         extra: Mapping[str, str] | None = None,
+        request_ip: str | None = None,
     ) -> Decision:
         """Evaluate configured rules for a given request.
 
@@ -176,6 +178,8 @@ class Arcjet:
         - email: Email address to validate when an email rule is
             configured.
         - extra: Arbitrary key/value pairs forwarded to the Decide API.
+        - request_ip: Override automatic IP detection. Required when
+            `disable_automatic_ip_detection=True`.
 
         Returns: - `Decision`: a convenience wrapper around the
         protobuf response with
@@ -188,7 +192,20 @@ class Arcjet:
             `fail_open=False`.
         """
         t0 = time.perf_counter()
+        
+        # When automatic IP detection is disabled, require request_ip parameter
+        if self._disable_automatic_ip_detection and not request_ip:
+            raise ArcjetMisconfiguration(
+                "request_ip is required when disable_automatic_ip_detection=True. "
+                "Pass request_ip=... to aj.protect(...)."
+            )
+        
         ctx = coerce_request_context(request, proxies=self._proxies)
+        
+        # Override IP when provided
+        if request_ip:
+            ctx = replace(ctx, ip=request_ip)
+        
         if email:
             ctx = replace(ctx, email=email)
         # Enforce required per-request context based on configured rules.
@@ -524,6 +541,7 @@ class ArcjetSync:
     _needs_email: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
+    _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
 
     def protect(
@@ -534,13 +552,26 @@ class ArcjetSync:
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
         extra: Mapping[str, str] | None = None,
+        request_ip: str | None = None,
     ) -> Decision:
         """Evaluate configured rules for a given request (sync).
 
         See `Arcjet.protect` for parameter and behavior details.
         """
         t0 = time.perf_counter()
+        
+        # When automatic IP detection is disabled, require request_ip parameter
+        if self._disable_automatic_ip_detection and not request_ip:
+            raise ArcjetMisconfiguration(
+                "request_ip is required when disable_automatic_ip_detection=True. "
+                "Pass request_ip=... to aj.protect(...)."
+            )
+        
         ctx = coerce_request_context(request, proxies=self._proxies)
+        
+        # Override IP when provided
+        if request_ip:
+            ctx = replace(ctx, ip=request_ip)
         if email:
             ctx = replace(ctx, email=email)
         # Enforce required per-request context based on configured rules.
@@ -850,6 +881,7 @@ def arcjet(
     sdk_version: str | None = None,
     fail_open: bool = True,
     proxies: Sequence[str] = (),
+    disable_automatic_ip_detection: bool = False,
 ) -> Arcjet:
     """Create an async Arcjet client.
 
@@ -859,6 +891,8 @@ def arcjet(
     - `timeout_ms`: Defaults to 1000ms in development and 500ms otherwise.
     - `fail_open`: When True (default), transport errors yield ALLOW decisions
         with an error reason instead of raising.
+    - `disable_automatic_ip_detection`: When True, automatic IP detection is
+        disabled and `request_ip` must be provided to `protect()`.
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
@@ -877,6 +911,7 @@ def arcjet(
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
+        _disable_automatic_ip_detection=disable_automatic_ip_detection,
     )
 
 
@@ -890,6 +925,7 @@ def arcjet_sync(
     sdk_version: str | None = None,
     fail_open: bool = True,
     proxies: Sequence[str] = (),
+    disable_automatic_ip_detection: bool = False,
 ) -> ArcjetSync:
     """Create a sync Arcjet client.
 
@@ -912,4 +948,5 @@ def arcjet_sync(
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
+        _disable_automatic_ip_detection=disable_automatic_ip_detection,
     )
