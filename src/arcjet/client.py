@@ -910,6 +910,7 @@ def arcjet(
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
+        _disable_automatic_ip_detection=disable_automatic_ip_detection,
     )
 
 
