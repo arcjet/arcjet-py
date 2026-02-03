@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import types
+
 import pytest
 
 from arcjet import arcjet
 from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
-from arcjet.rules import token_bucket, validate_email
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+from arcjet.rules import token_bucket, validate_email
 
 
 def make_allow_decision(ttl: int = 0):
