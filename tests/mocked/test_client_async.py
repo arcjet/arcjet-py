@@ -118,7 +118,7 @@ def test_disable_automatic_ip_detection_with_proxies():
         key="ajkey_x",
         rules=rules,
         disable_automatic_ip_detection=True,
-        proxies={"http": "http://proxy.example.com:8080"},
+        proxies=["3.3.3.3"],
     )
     import asyncio
 
