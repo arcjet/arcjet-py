@@ -26,7 +26,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import Any, Mapping, Sequence, TypedDict
 
-import httpx
+import pyqwest
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 from arcjet.proto.decide.v1alpha1.decide_connect import (
@@ -145,7 +145,6 @@ class Arcjet:
     _key: str
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClient
-    _session: Any | None
     _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
@@ -501,14 +500,6 @@ class Arcjet:
         close_sync = getattr(self._client, "close", None)
         if callable(close_sync):
             close_sync()
-        if self._session is not None:
-            # We own the session; ensure it's closed to free sockets
-            aclose = getattr(self._session, "aclose", None)
-            if callable(aclose):
-                result = aclose()
-                if inspect.isawaitable(result):
-                    await result
-            close = getattr(self._client, "aclose", None)
 
     async def __aenter__(self) -> "Arcjet":
         """Async context manager entry; returns `self`."""
@@ -530,7 +521,6 @@ class ArcjetSync:
     _key: str
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClientSync
-    _session: Any | None
     _sdk_stack: str | None
     _sdk_version: str
     _timeout_ms: int | None
@@ -858,11 +848,6 @@ class ArcjetSync:
         close = getattr(self._client, "close", None)
         if callable(close):
             close()
-        if self._session is not None:
-            # We own the session; ensure it's closed to free sockets
-            sess_close = getattr(self._session, "close", None)
-            if callable(sess_close):
-                sess_close()
 
     def __enter__(self) -> "ArcjetSync":
         """Context manager entry; returns `self`."""
@@ -896,13 +881,12 @@ def arcjet(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     # Always enable HTTP/2 by default.
-    session = httpx.AsyncClient(http2=True)
-    client = DecideServiceClient(base_url, session=session)
+    transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    client = DecideServiceClient(base_url, http_client=pyqwest.Client(transport))
     return Arcjet(
         _key=key,
         _rules=tuple(rules),
         _client=client,
-        _session=session,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
@@ -933,13 +917,15 @@ def arcjet_sync(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     # Always enable HTTP/2 by default.
-    session = httpx.Client(http2=True)
-    client = DecideServiceClientSync(base_url, session=session)
+    transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    client = DecideServiceClientSync(
+        base_url, http_client=pyqwest.SyncClient(transport)
+    )
+
     return ArcjetSync(
         _key=key,
         _rules=tuple(rules),
         _client=client,
-        _session=session,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
