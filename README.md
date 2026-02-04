@@ -138,9 +138,9 @@ async def hello(request: Request):
 
     # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason.is_rate_limit() else 403
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
         return JSONResponse(
-            {"error": "Denied", "reason": decision.reason.to_dict()},
+            {"error": "Denied", "reason": decision.reason_v2},
             status_code=status,
         )
 
@@ -205,8 +205,8 @@ def hello():
   decision = aj.protect(request, requested=1, email="example@arcjet.com")
 
   if decision.is_denied():
-    status = 429 if decision.reason.is_rate_limit() else 403
-    return jsonify(error="Denied", reason=decision.reason.to_dict()), status
+    status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+    return jsonify(error="Denied", reason=decision.reason_v2), status
 
   if decision.ip.is_hosting():
     return jsonify(error="Hosting IP blocked"), 403
@@ -283,8 +283,8 @@ def hello():
 
     # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason.is_rate_limit() else 403
-        return jsonify(error="Denied", reason=decision.reason.to_dict()), status
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+        return jsonify(error="Denied", reason=decision.reason_v2), status
 
     # Check IP metadata (VPNs, hosting, geolocation, etc)
     if decision.ip.is_hosting():
@@ -376,7 +376,7 @@ environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
 
 ## Accessing decision details
 
-Arcjet returns per-rule `rule_results` and a top-level `decision.reason`. To
+Arcjet returns per-rule `rule_results` and a top-level `decision.reason_v2`. To
 make a simple decision about allowing or denying a request you can check `if
 decision.is_denied():`. For more details, inspect the rule results.
 
@@ -385,15 +385,11 @@ decision.is_denied():`. For more details, inspect the rule results.
 To find out which bots were detected (if any):
 
 ```py
-if decision.reason and decision.reason.is_bot():
-   denied = (decision.reason.to_dict() or {}).get(
-      decision.reason.which(), {}).get("denied", [])
+if decision.reason_v2.type == "BOT":
+   denied = decision.reason_v2.denied
 
    print("Denied bots:", ", ".join(denied) if denied else "none")
 ```
-
-Future releases of the Python SDK will provide more helpers to access this
-without needing to convert to a dict.
 
 ## IP analysis
 
