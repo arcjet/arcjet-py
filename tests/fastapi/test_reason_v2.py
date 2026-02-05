@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
-from httpx import Headers
+from pyqwest import Headers
 
 from arcjet import Arcjet, RuleSpec, shield
 from arcjet import arcjet as arcjet_fastapi
@@ -62,7 +62,6 @@ def create_app() -> tuple[FastAPI, MockClient]:
         _rules=tuple(rules),
         _sdk_stack=None,
         _sdk_version="0.0.0",
-        _session=None,
         _timeout_ms=0,
     )
 

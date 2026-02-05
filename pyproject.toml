@@ -7,9 +7,8 @@ requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = { text = "Apache-2.0" }
 dependencies = [
-  # Pinned because 0.8.0 introduced breaking changes which we will address in a future release 
-  "connect-python>=0.6.0,<0.8.0",
-  "httpx[http2]>=0.28.1",
+  "connect-python>=0.8.1",
+  "pyqwest>=0.3.3",
   # Explaination of upper bound:
   # https://github.com/arcjet/arcjet-py/issues/2
   "typeid-python>=0.3.3,<0.3.7",
@@ -44,6 +43,7 @@ dev = [
   "fastapi==0.128.0",                # For testing integration with FastAPI
   "flask==3.1.2",                    # For testing integration with Flask
   "griffe==1.15.0",
+  "httpx>=0.28.1",                   # Used by FastAPI tests
   "pyright==1.1.408",
   "pytest==9.0.2",
   "ruff==0.14.10",

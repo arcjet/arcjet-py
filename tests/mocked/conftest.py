@@ -280,12 +280,14 @@ class _DecideResponse:
     def HasField(self, name: str) -> bool:
         return getattr(self, name, None) is not None
 
+
 class EmailType(int):
     EMAIL_TYPE_DISPOSABLE = EMAIL_TYPE_DISPOSABLE
     EMAIL_TYPE_FREE = EMAIL_TYPE_FREE
     EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS
     EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR
     EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID
+
 
 # Expose symbols like real module
 mod_pb2.MODE_DRY_RUN = MODE_DRY_RUN
@@ -327,9 +329,9 @@ class _BaseClient:
     report_calls = 0
     decide_behavior = None  # type: Optional[Any]
 
-    def __init__(self, base_url: str, session: Any | None = None) -> None:
+    def __init__(self, base_url: str, http_client: Any = None) -> None:
         self.base_url = base_url
-        self.session = session
+        self.http_client = http_client  # placeholder for real HTTP client
 
     def _decide_impl(self, req: DecideRequest):
         type(self).decide_calls += 1
@@ -374,7 +376,8 @@ sys.modules.setdefault("arcjet.proto", mod_proto)
 sys.modules.setdefault("arcjet.proto.decide", mod_decide)
 sys.modules.setdefault("arcjet.proto.decide.v1alpha1", mod_v1)
 sys.modules.setdefault("arcjet.proto.decide.v1alpha1.decide_pb2", mod_pb2)
-sys.modules.setdefault("arcjet.proto.decide.v1alpha1.decide_connect", mod_connect)
+sys.modules.setdefault(
+    "arcjet.proto.decide.v1alpha1.decide_connect", mod_connect)
 
 
 @pytest.fixture(autouse=True)
