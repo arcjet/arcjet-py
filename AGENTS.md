@@ -395,4 +395,3 @@ Before submitting a PR:
 - [ ] Run `uv run griffe check arcjet -s src --against origin/main` to check for breaking changes
 - [ ] Add `breaking` label if introducing intentional API breaking changes
 - [ ] Update documentation if changing public API
-- [ ] Consider storing memories for important codebase facts using the `store_memory` tool
