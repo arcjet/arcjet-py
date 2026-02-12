@@ -188,7 +188,7 @@ requests to a common `RequestContext` type.
 
 The SDK supports these environment variables:
 
-- `ARCJET_KEY` - API key (required for production)
+- `ARCJET_KEY` - API key (passed to `arcjet()` or `arcjet_sync()`; often stored in environment for security)
 - `ARCJET_ENV` - Set to `"development"` for development mode (enables defaults
   like `127.0.0.1` for missing IPs)
 - `ARCJET_LOG_LEVEL` - Log level (`debug`, `info`, `warning`, `error`)
