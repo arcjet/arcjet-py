@@ -1,14 +1,16 @@
 # AGENTS.md - Coding Agent Onboarding Guide
 
-This document provides essential information for coding agents working on the arcjet-py repository for the first time.
+This document provides essential information for coding agents working on the
+arcjet-py repository for the first time.
 
 ## Repository Overview
 
 **Project**: Arcjet Python SDK  
-**Purpose**: Security SDK for Python applications providing bot detection, rate limiting, email validation, Shield WAF, and attack protection for Flask, FastAPI, and other Python web frameworks.  
+**Purpose**: Security SDK for Python applications providing bot detection, rate
+limiting, email validation, Shield WAF, and attack protection for Flask,
+FastAPI, and other Python web frameworks.  
 **Language**: Python 3.10+  
 **Package Manager**: uv (modern Python package manager)  
-**Documentation**: https://docs.arcjet.com
 
 ## Quick Start
 
@@ -23,11 +25,13 @@ This document provides essential information for coding agents working on the ar
    ```bash
    uv sync
    ```
-   This creates a virtual environment in `.venv` and installs all dependencies from `uv.lock`
+   This creates a virtual environment in `.venv` and installs all dependencies
+   from `uv.lock`
 
 ### Development Workflow
 
-The repository uses **uv** for all package management and script execution. Always prefix commands with `uv run`:
+The repository uses **uv** for all package management and script execution.
+Always prefix commands with `uv run`:
 
 ```bash
 # Run tests
@@ -55,14 +59,18 @@ uv run pyright
    uv run pytest
    ```
 
-2. **Mocked tests** - Tests that stub protobuf and decide clients (must run separately):
+2. **Mocked tests** - Tests that stub protobuf and decide clients (must run
+   separately):
    ```bash
    uv run pytest tests/mocked
    ```
 
-**Critical**: The mocked tests in `tests/mocked/` monkeypatch internal SDK components and **must be run entirely separately** from other tests. Do NOT run them together with the main test suite.
+**Critical**: The mocked tests in `tests/mocked/` monkeypatch internal SDK
+components and **must be run entirely separately** from other tests. Do NOT run
+them together with the main test suite.
 
-Configuration note: `pyproject.toml` has `addopts = ["--ignore=tests/mocked", "-q"]` to exclude mocked tests from the default pytest run.
+Configuration note: `pyproject.toml` has `addopts = ["--ignore=tests/mocked",
+"-q"]` to exclude mocked tests from the default pytest run.
 
 ### Linting and Formatting
 
@@ -81,7 +89,9 @@ uv run ty check                     # Ty type checker (outputs to console)
 uv run pyright                      # Pyright type checker
 ```
 
-**Note**: Some files are excluded from linting/type checking (see `pyproject.toml` for exclusions, including `examples/` and some `tests/mocked/*.py` files).
+**Note**: Some files are excluded from linting/type checking (see
+`pyproject.toml` for exclusions, including `examples/` and some
+`tests/mocked/*.py` files).
 
 ### API Breaking Change Detection
 
@@ -96,6 +106,12 @@ uv run griffe check arcjet --search src
 ```
 
 PRs with breaking changes must be labeled with `breaking` label to be merged.
+
+**IMPORTANT**: Always run this check before committing changes. Breaking changes
+must be avoided unless absolutely necessary. Whenever there is a breaking
+change, existing code must not break - we must maintain backward compatibility
+and provide clear migration paths. This can be docs, deprecation warnings, and
+keeping the existing API surface intact with internal changes.
 
 ## Code Organization
 
@@ -134,13 +150,15 @@ tests/
 
 ### Python Style
 
-1. **Future imports**: Always use `from __future__ import annotations` at the top of files for forward compatibility
+1. **Future imports**: Always use `from __future__ import annotations` at the
+   top of files for forward compatibility
    
 2. **Type hints**: Fully type-annotated codebase
    - Use modern type syntax (e.g., `list[str]` not `List[str]`)
    - Use `from typing import` for protocols, type aliases, etc.
 
-3. **Dataclasses**: Prefer `@dataclass(frozen=True, slots=True)` for immutable data structures
+3. **Dataclasses**: Prefer `@dataclass(frozen=True, slots=True)` for immutable
+   data structures
 
 4. **Enums**: Use `str, Enum` pattern for string enums:
    ```python
@@ -149,36 +167,45 @@ tests/
        LIVE = "LIVE"
    ```
 
-5. **Docstrings**: Module-level docstrings for public modules; class/function docstrings for public API
+5. **Docstrings**: Module-level docstrings for public modules; class/function
+   docstrings for public API
 
-6. **Private modules**: Prefix with underscore (e.g., `_enums.py`, `_logging.py`) for internal-only modules
+6. **Private modules**: Prefix with underscore (e.g., `_enums.py`,
+   `_logging.py`) for internal-only modules
 
 ### Framework Support
 
 The SDK is **framework-agnostic** with explicit support for:
+
 - **ASGI** (Starlette, FastAPI) - async client
 - **Flask/Werkzeug** - sync client
 - **Django** - via `RequestContext`
 
-The `context.py` module provides `coerce_request_context()` to convert framework requests to a common `RequestContext` type.
+The `context.py` module provides `coerce_request_context()` to convert framework
+requests to a common `RequestContext` type.
 
 ### Environment Variables
 
 The SDK supports these environment variables:
 
 - `ARCJET_KEY` - API key (required for production)
-- `ARCJET_ENV` - Set to `"development"` for development mode (enables defaults like `127.0.0.1` for missing IPs)
+- `ARCJET_ENV` - Set to `"development"` for development mode (enables defaults
+  like `127.0.0.1` for missing IPs)
 - `ARCJET_LOG_LEVEL` - Log level (`debug`, `info`, `warning`, `error`)
-- `ARCJET_BASE_URL` - Override Decide API endpoint (defaults to `https://decide.arcjet.com` or Fly.io internal URL)
-- `FLY_APP_NAME` - Automatically detected; uses internal Fly.io URL when set
+- `ARCJET_BASE_URL` - Override Decide API endpoint (defaults to
+  `https://decide.arcjet.com` or Fly.io internal URL)
+- `FLY_APP_NAME` - Automatically detected; uses internal Fly.io Arcjet API URL
+  when set
 
 ## Common Errors and Workarounds
 
 ### 1. Mocked Test Failures
 
-**Error**: Tests fail when running `uv run pytest` with both standard and mocked tests together.
+**Error**: Tests fail when running `uv run pytest` with both standard and mocked
+tests together.
 
-**Cause**: Mocked tests stub protobuf modules which conflicts with real protobuf imports in standard tests.
+**Cause**: Mocked tests stub protobuf modules which conflicts with real protobuf
+imports in standard tests.
 
 **Solution**: Always run mocked tests separately:
 ```bash
@@ -191,9 +218,11 @@ uv run pytest tests/mocked
 
 ### 2. Import Errors in Mocked Tests
 
-**Error**: `ImportError` when mocked tests try to import helper functions from `tests.helpers`.
+**Error**: `ImportError` when mocked tests try to import helper functions from
+`tests.helpers`.
 
-**Cause**: Mocked tests use their own `conftest.py` with stub dependencies and helper functions.
+**Cause**: Mocked tests use their own `conftest.py` with stub dependencies and
+helper functions.
 
 **Solution**: Import helper functions from `.conftest` in mocked tests:
 ```python
@@ -218,7 +247,10 @@ pip install uv
 
 **Solutions**:
 - Revert the breaking change if unintentional
-- If intentional, add `breaking` label to the PR to allow it to pass CI
+- If intentional, add `breaking` label to the PR to allow it to pass CI. Always
+  strive to avoid breaking changes and maintain backward compatibility for
+  existing APIs. Provide clear migration paths if breaking changes are
+  necessary.
 
 ### 5. Type Check Failures
 
@@ -228,64 +260,8 @@ pip install uv
 
 **Solution**: 
 - Fix type annotations to match actual usage
-- Use `# type: ignore[error-code]` sparingly and only when necessary (currently only 6 instances in the codebase)
-
-## Development Environment
-
-### Recommended: Dev Container
-
-The repository includes a Dev Container configuration (`.devcontainer/devcontainer.json`) for consistent development environments:
-- Based on Python 3.10
-- Pre-installs uv
-- Includes VS Code extensions: `astral-sh.ty`, `tamasfe.even-better-toml`
-
-### Manual Setup
-
-If not using Dev Container:
-1. Ensure Python 3.10+ is installed
-2. Install uv: `pip install uv`
-3. Run `uv sync` to set up the virtual environment
-
-## Versioning and Releases
-
-### Version Bumping
-
-Use uv's built-in version command:
-```bash
-# Bump patch version (0.3.1 -> 0.3.2)
-uv version --bump patch
-
-# Bump minor version (0.3.1 -> 0.4.0)
-uv version --bump minor
-
-# Bump major version (0.3.1 -> 1.0.0)
-uv version --bump major
-```
-
-### Release Process
-
-1. Create a release branch: `git checkout -b release-x.y.z`
-2. Bump version: `uv version --bump [patch|minor|major]`
-3. Commit and push, then open a PR
-4. Once merged to `main`, create and push a Git tag: `git tag -a vx.y.z -m vx.y.z && git push --tags`
-5. GitHub Actions will build and publish to PyPI (requires approval)
-6. Create a GitHub release linked to the tag
-
-## CI/CD
-
-The CI workflow (`.github/workflows/ci.yml`) runs on PRs and pushes to main:
-
-### Lint Job
-- Ruff format check: `uv run ruff format --diff .`
-- Ruff lint: `uv run ruff check . --output-format github`
-- Ty type check: `uv run ty check --output-format github`
-- Pyright type check: `uv run pyright`
-- Griffe API check: `uv run griffe check arcjet --search src --format github --against origin/main`
-  - Continues on error if PR has `breaking` label
-
-### Test Job
-- Run standard tests: `uv run pytest`
-- Run mocked tests separately: `uv run pytest tests/mocked`
+- Use `# type: ignore[error-code]` sparingly and only when necessary (currently
+  only 6 instances in the codebase)
 
 ## Key Design Patterns
 
@@ -297,7 +273,9 @@ The SDK provides both async and sync clients for different frameworks:
 
 ### 2. Framework-Agnostic Context
 
-`RequestContext` provides a normalized request representation that works across frameworks. The `coerce_request_context()` function handles conversion from framework-specific request objects.
+`RequestContext` provides a normalized request representation that works across
+frameworks. The `coerce_request_context()` function handles conversion from
+framework-specific request objects.
 
 ### 3. Decision-Based API
 
@@ -309,7 +287,9 @@ The `.protect()` method returns a `Decision` object with:
 
 ### 4. Protobuf Code Generation
 
-The `src/arcjet/proto/` directory contains **generated code**. Do not edit these files directly. They are generated from protobuf definitions maintained in the Arcjet protobuf repository.
+The `src/arcjet/proto/` directory contains **generated code**. Do not edit these
+files directly. They are generated from protobuf definitions maintained
+elsewhere.
 
 ## Testing Best Practices
 
@@ -352,37 +332,6 @@ def test_something():
     # Test logic
 ```
 
-## Troubleshooting
-
-### Debug Logging
-
-Enable debug logging to troubleshoot issues:
-```bash
-export ARCJET_LOG_LEVEL=debug
-uv run pytest
-```
-
-Or in code:
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
-```
-
-### Common Development Issues
-
-1. **Virtual environment issues**: Delete `.venv` and run `uv sync` again
-2. **Lock file out of sync**: Run `uv lock` to regenerate `uv.lock`
-3. **Import errors**: Ensure you're running commands with `uv run` prefix
-4. **Test isolation**: Remember to run mocked tests separately
-
-## Additional Resources
-
-- **Main Documentation**: https://docs.arcjet.com
-- **Source Code**: https://github.com/arcjet/arcjet-py
-- **PyPI Package**: https://pypi.org/project/arcjet/
-- **Discord Community**: https://arcjet.com/discord
-- **Support**: https://docs.arcjet.com/support
-
 ## Summary Checklist for New Changes
 
 Before submitting a PR:
@@ -392,6 +341,9 @@ Before submitting a PR:
 - [ ] Run `uv run ty check` and `uv run pyright` for type checking
 - [ ] Run `uv run pytest` for standard tests
 - [ ] Run `uv run pytest tests/mocked` for mocked tests
-- [ ] Run `uv run griffe check arcjet -s src --against origin/main` to check for breaking changes
+- [ ] Run `uv run griffe check arcjet -s src --against origin/main` to check for
+  breaking changes
 - [ ] Add `breaking` label if introducing intentional API breaking changes
-- [ ] Update documentation if changing public API
+- [ ] Update documentation, including docstrings and AGENTS.md if necessary
+- [ ] Ensure all new code is fully type-annotated and follows coding conventions
+- [ ] Add new tests to aim for 100% coverage
