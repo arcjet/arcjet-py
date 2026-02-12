@@ -1,27 +1,32 @@
+"""Tests for decision caching functionality."""
+
 from __future__ import annotations
 
 import time
 
 from arcjet.cache import DecisionCache, make_cache_key
 from arcjet.context import RequestContext
-from arcjet.rules import shield, token_bucket, Mode
 from arcjet.decision import Decision
 from arcjet.proto.decide.v1alpha1 import decide_pb2
+from arcjet.rules import Mode, shield, token_bucket
 
 
 def test_cache_set_get_and_expiry():
+    """Test that cache stores and retrieves decisions, respecting TTL expiry."""
     cache = DecisionCache()
     d = Decision(
         decide_pb2.Decision(id="d1", conclusion=decide_pb2.CONCLUSION_ALLOW, ttl=1)
     )
     cache.set("k", d, ttl_seconds=1)
     assert cache.get("k") is d
-    # After expiry
+
+    # After expiry, decision should no longer be cached
     time.sleep(1.1)
     assert cache.get("k") is None
 
 
 def test_make_cache_key_characteristics_and_ip_fallback():
+    """Test cache key generation based on characteristics and IP address."""
     ctx = RequestContext(ip="203.0.113.5", extra={"uid": "u-1"})
     rules = [
         shield(mode=Mode.LIVE, characteristics=("uid",)),
@@ -35,7 +40,8 @@ def test_make_cache_key_characteristics_and_ip_fallback():
     k2 = make_cache_key(ctx2, rules)
     assert k1 != k2
 
-    # When no characteristics, IP becomes identity; if IP missing and no characteristics, returns None
+    # When no characteristics, IP becomes identity
+    # If IP missing and no characteristics, returns None
     ctx3 = RequestContext(ip=None)
     k3 = make_cache_key(
         ctx3, [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]

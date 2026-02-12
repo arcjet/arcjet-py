@@ -1,4 +1,8 @@
+"""Tests for decision and reason helper functions."""
+
 from __future__ import annotations
+
+import types
 
 from arcjet.decision import (
     Decision,
@@ -6,10 +10,10 @@ from arcjet.decision import (
     is_spoofed_bot,
 )
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-import types
 
 
 def test_decision_and_reason_helpers():
+    """Test Decision class wraps protobuf decisions correctly with helper methods."""
     # Build a decision with a bot_v2 reason and a ttl
     rr_pb = decide_pb2.RuleResult(
         rule_id="r1",
@@ -40,6 +44,7 @@ def test_decision_and_reason_helpers():
 
 
 def test_is_spoofed_bot_helper():
+    """Test is_spoofed_bot() helper identifies spoofed bot attempts."""
     bot_v2 = types.SimpleNamespace(spoofed=True)
     rr_pb = decide_pb2.RuleResult(
         rule_id="r1",
