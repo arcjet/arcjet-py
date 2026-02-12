@@ -8,7 +8,8 @@ import types
 from typing import Any, Dict, List, Optional
 
 # Ensure the package's src directory is importable
-ROOT = os.path.dirname(os.path.dirname(__file__))
+# tests/mocked/conftest.py -> tests/mocked/ -> tests/ -> repo root
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
