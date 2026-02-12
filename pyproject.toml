@@ -52,10 +52,8 @@ dev = [
 ]
 
 [tool.pytest]
-# The tests/mocked test monkeypatch various internal SDK things and need to be
-# isolated (read: run entirely seperately) from the other tests. Run them with
-# `uv run pytest tests/mocked`.
-addopts = ["--ignore=tests/mocked", "-q"]
+# All tests can now run together with a single pytest command
+addopts = ["-q"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 

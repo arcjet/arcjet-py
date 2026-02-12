@@ -6,7 +6,8 @@ from arcjet import arcjet_sync
 from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
 from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 from arcjet.rules import token_bucket, validate_email
-from tests.helpers import (
+
+from .conftest import (
     capture_request_field,
     make_allow_decision,
     make_basic_http_context,

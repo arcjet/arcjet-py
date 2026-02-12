@@ -400,3 +400,66 @@ class Stub:
     pb2 = mod_pb2
     connect = mod_connect
     _DecideResponse = _DecideResponse
+
+
+# Helper functions for creating test decisions and responses
+def make_allow_decision(ttl: int = 0, id: str = "d-allow") -> Decision:
+    """Create a simple ALLOW decision for testing."""
+    return Decision(id=id, conclusion=CONCLUSION_ALLOW, ttl=ttl)
+
+
+def make_deny_decision(ttl: int = 0, id: str = "d-deny") -> Decision:
+    """Create a simple DENY decision for testing."""
+    return Decision(id=id, conclusion=CONCLUSION_DENY, ttl=ttl)
+
+
+def make_error_decision(message: str = "Test error", id: str = "d-error") -> Decision:
+    """Create an ERROR decision for testing."""
+    return Decision(
+        id=id,
+        conclusion=CONCLUSION_ERROR,
+        reason=_Reason(error=ErrorReason(message=message)),
+    )
+
+
+def make_decide_response(decision: Optional[Decision] = None):
+    """Create a mock decide response with the given decision."""
+    if decision is None:
+        decision = make_allow_decision()
+    return _DecideResponse(decision=decision)
+
+
+def capture_request_field(field_name: str):
+    """Create a decide behavior that captures a specific request field.
+    
+    Returns a tuple of (behavior_function, captured_dict).
+    """
+    captured: Dict[str, Any] = {}
+
+    def capture_behavior(req):
+        field_value = getattr(req, field_name, None)
+        if field_value is not None:
+            if hasattr(field_value, "__dict__"):
+                # Capture all attributes
+                for key, value in vars(field_value).items():
+                    if not key.startswith("_"):
+                        captured[key] = value
+            else:
+                captured[field_name] = field_value
+        return make_decide_response()
+
+    return capture_behavior, captured
+
+
+def make_basic_http_context(
+    headers: Optional[List[tuple[str, str]]] = None,
+    client: Optional[tuple[str, int]] = None,
+) -> dict:
+    """Create a basic HTTP context for testing."""
+    ctx = {
+        "type": "http",
+        "headers": headers or [],
+    }
+    if client is not None:
+        ctx["client"] = client
+    return ctx

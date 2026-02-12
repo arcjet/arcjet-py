@@ -38,11 +38,10 @@ These tests verify core SDK logic without external dependencies:
 
 - **Purpose**: Test SDK internals in isolation
 - **Dependencies**: All external dependencies (protobuf, network) are stubbed
-- **Isolation**: Must be run separately: `pytest tests/mocked/`
 - **Speed**: Very fast (no network, no real protobuf)
 
 **Key Characteristics:**
-- Custom `conftest.py` provides complete protobuf stubs
+- Custom `conftest.py` provides complete protobuf stubs and helper functions
 - Test behavior injection via class-level attributes:
   ```python
   DecideServiceClient.decide_behavior = custom_function
@@ -111,7 +110,7 @@ Available shared fixtures (from `tests/conftest.py`):
 
 ### Helper Functions
 
-Use helper functions from `tests/helpers.py` to reduce duplication:
+**For non-mocked tests**, use helper functions from `tests/helpers.py`:
 
 ```python
 from tests.helpers import make_allow_decision, capture_request_field
@@ -124,6 +123,15 @@ capture_fn, captured = capture_request_field("details")
 DecideServiceClient.decide_behavior = capture_fn
 # ... run test ...
 assert captured["ip"] == "1.2.3.4"
+```
+
+**For mocked tests**, use helper functions from `tests/mocked/conftest.py`:
+
+```python
+from .conftest import make_allow_decision, capture_request_field
+
+# Same API, but uses mocked stubs
+decision = make_allow_decision(ttl=60)
 ```
 
 Available helpers:
@@ -176,14 +184,13 @@ The `conftest.py` automatically resets behavior between tests via the `_reset_st
 
 ## Running Tests
 
-### Run all tests (except mocked):
+### Run all tests:
+```bash
+pytest
+```
+or
 ```bash
 pytest tests/
-```
-
-### Run mocked tests separately:
-```bash
-pytest tests/mocked/
 ```
 
 ### Run specific test files:
@@ -194,7 +201,7 @@ pytest tests/mocked/test_cache.py
 
 ### Run with verbose output:
 ```bash
-pytest -v tests/
+pytest -v
 ```
 
 ### Run specific test:
