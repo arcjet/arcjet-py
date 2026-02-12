@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import types
-
 import pytest
 
 from arcjet import arcjet
 from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
-from arcjet.proto.decide.v1alpha1 import decide_pb2
 from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 from arcjet.rules import token_bucket, validate_email
+from tests.helpers import (
+    capture_request_field,
+    make_allow_decision,
+    make_basic_http_context,
+    make_decide_response,
+)
 
 
-def make_allow_decision(ttl: int = 0):
-    return decide_pb2.Decision(
-        id="d-allow", conclusion=decide_pb2.CONCLUSION_ALLOW, ttl=ttl
-    )
+@pytest.mark.asyncio
+async def test_fail_open_false_raises():
+    """Test that fail_open=False raises ArcjetTransportError on network failures."""
 
-
-def test_fail_open_false_raises(monkeypatch):
     def raise_decide(req):
         raise RuntimeError("network down")
 
@@ -28,20 +28,22 @@ def test_fail_open_false_raises(monkeypatch):
         fail_open=False,
     )
     with pytest.raises(ArcjetTransportError):
-        import asyncio
-
-        asyncio.run(aj.protect({"headers": [], "type": "http"}))
+        await aj.protect({"headers": [], "type": "http"})
 
 
-def test_email_required_for_validate_email_rule():
+@pytest.mark.asyncio
+async def test_email_required_for_validate_email_rule():
+    """Test that validate_email rule requires email in context."""
     aj = arcjet(key="ajkey_x", rules=[validate_email()])
-    import asyncio
 
     with pytest.raises(ArcjetMisconfiguration):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}))
+        await aj.protect({"headers": [], "type": "http"})
 
 
-def test_fail_open_true_allows(monkeypatch):
+@pytest.mark.asyncio
+async def test_fail_open_true_allows():
+    """Test that fail_open=True returns allowed decision on network failures."""
+
     def raise_decide(req):
         raise RuntimeError("boom")
 
@@ -51,68 +53,58 @@ def test_fail_open_true_allows(monkeypatch):
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
         fail_open=True,
     )
-    import asyncio
 
-    d = asyncio.run(aj.protect({"headers": [], "type": "http"}))
+    d = await aj.protect({"headers": [], "type": "http"})
     assert d.is_allowed()
     assert d.reason.is_error()
 
 
-def test_requested_default_and_characteristics_in_extra(monkeypatch):
-    captured = {}
-
-    def capture_decide(req):
-        captured["extra"] = dict(req.details.extra)
-        return types.SimpleNamespace(
-            HasField=lambda f: True, decision=make_allow_decision()
-        )
-
+@pytest.mark.asyncio
+async def test_requested_default_and_characteristics_in_extra():
+    """Test that characteristics are passed in the extra field of the request."""
+    capture_decide, captured = capture_request_field("details")
     DecideServiceClient.decide_behavior = capture_decide  # type: ignore[attr-defined]
+
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules)
-    import asyncio
 
-    d = asyncio.run(
-        aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
+    d = await aj.protect(
+        {"headers": [], "type": "http"}, characteristics={"uid": "123"}
     )
     assert captured["extra"]["requested"] == "1"
     assert captured["extra"]["uid"] == "123"
 
 
-def test_ip_override_with_ip_src(monkeypatch):
-    captured = {}
-
-    def capture_decide(req):
-        captured["ip"] = req.details.ip
-        return types.SimpleNamespace(
-            HasField=lambda f: True, decision=make_allow_decision()
-        )
-
+@pytest.mark.asyncio
+async def test_ip_override_with_ip_src():
+    """Test that ip_src parameter overrides automatic IP detection."""
+    capture_decide, captured = capture_request_field("details")
     DecideServiceClient.decide_behavior = capture_decide  # type: ignore[attr-defined]
+
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
-    import asyncio
 
-    ctx = {
-        "type": "http",
-        "headers": [("x-forwarded-for", "1.1.1.1")],
-        "client": ("1.1.1.1", 12345),
-    }
-    d = asyncio.run(aj.protect(ctx, ip_src="8.8.8.8"))
+    ctx = make_basic_http_context(
+        headers=[("x-forwarded-for", "1.1.1.1")], client=("1.1.1.1", 12345)
+    )
+    d = await aj.protect(ctx, ip_src="8.8.8.8")
     assert captured["ip"] == "8.8.8.8"
     assert d.is_allowed()
 
 
-def test_disable_automatic_ip_detection_requires_ip_src():
+@pytest.mark.asyncio
+async def test_disable_automatic_ip_detection_requires_ip_src():
+    """Test that disable_automatic_ip_detection requires ip_src to be provided."""
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
-    import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src is required"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}))
+        await aj.protect({"headers": [], "type": "http"})
 
 
-def test_disable_automatic_ip_detection_with_proxies():
+@pytest.mark.asyncio
+async def test_disable_automatic_ip_detection_with_proxies():
+    """Test that disable_automatic_ip_detection conflicts with proxies."""
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(
         key="ajkey_x",
@@ -120,19 +112,19 @@ def test_disable_automatic_ip_detection_with_proxies():
         disable_automatic_ip_detection=True,
         proxies=["3.3.3.3"],
     )
-    import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        await aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8")
 
 
-def test_ip_src_disallowed_when_automatic_ip_detection_enabled():
+@pytest.mark.asyncio
+async def test_ip_src_disallowed_when_automatic_ip_detection_enabled():
+    """Test that ip_src cannot be set when automatic IP detection is enabled."""
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(
         key="ajkey_x",
         rules=rules,
     )
-    import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        await aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8")

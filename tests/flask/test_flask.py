@@ -1,83 +1,40 @@
+"""Integration tests for Flask framework support."""
+
 import pytest
-from flask import Flask, request
-
-from arcjet import arcjet_sync as arcjet_flask
 
 
-def create_app() -> Flask:
-    app = Flask(__name__)
-
-    arcjet = arcjet_flask(
-        # TODO: figure out why `invalid.local` causes tests to take minutes.
-        base_url="https://invalid.test",  # Intentional invalid URL for testing
-        key="ajkey_dummy",
-        rules=[],
-    )
-
-    @app.route("/protected", methods=["GET"])
-    def protected_route():
-        decision = arcjet.protect(request)
-
-        if decision.is_error():
-            return f'Internal Server Error: "${decision.reason}', 500
-        if decision.is_allowed():
-            return "Ok", 200
-        if decision.is_denied():
-            return "Forbidden", 403
-
-        pytest.fail("Unexpected decision state.")
-
-    return app
-
-
-def test_basic_get():
-    app = create_app()
-    client = app.test_client()
-
-    response = client.get("/protected")
-
+def test_basic_get(flask_client):
+    """Test that a basic GET request to a protected route succeeds."""
+    response = flask_client.get("/protected")
     assert response.status_code == 200, f"Unexpected status: {response.text}"
 
 
-def test_basic_get_with_search_parameter():
-    app = create_app()
-    client = app.test_client()
-
-    response = client.get("/protected?alpha=bravo")
-
+def test_basic_get_with_search_parameter(flask_client):
+    """Test that query parameters are handled correctly."""
+    response = flask_client.get("/protected?alpha=bravo")
     assert response.status_code == 200, f"Unexpected status: {response.text}"
 
 
-def test_basic_get_with_hash():
-    app = create_app()
-    client = app.test_client()
-
-    response = client.get("/protected#alpha-bravo")
-
+def test_basic_get_with_hash(flask_client):
+    """Test that URL fragments are handled correctly."""
+    response = flask_client.get("/protected#alpha-bravo")
     assert response.status_code == 200, f"Unexpected status: {response.text}"
 
 
-def test_basic_get_with_headers():
-    app = create_app()
-    client = app.test_client()
-
+def test_basic_get_with_headers(flask_client):
+    """Test that custom headers are passed through correctly."""
     headers = {
         "X-Custom-Header": "CustomValue",
         "User-Agent": "ArcjetTestClient/1.0",
     }
-
-    response = client.get("/protected", headers=headers)
-
+    response = flask_client.get("/protected", headers=headers)
     assert response.status_code == 200, f"Unexpected status: {response.text}"
 
 
-def test_basic_get_with_cookies():
-    app = create_app()
+def test_basic_get_with_cookies(flask_client):
+    """Test that cookies are handled correctly."""
+    flask_client.set_cookie("alpha", "bravo")
+    flask_client.set_cookie("charlie", "delta")
 
-    client = app.test_client()
-    client.set_cookie("alpha", "bravo")
-    client.set_cookie("charlie", "delta")
-
-    response = client.get("/protected")
-
+    response = flask_client.get("/protected")
     assert response.status_code == 200, f"Unexpected status: {response.text}"
