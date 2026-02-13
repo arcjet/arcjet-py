@@ -65,6 +65,66 @@ class StubRequestDetails:
         self.extra: dict[str, str] = {}
 
 
+class StubShieldRule:
+    """Stub for protobuf ShieldRule message."""
+
+    def __init__(self, mode: int) -> None:
+        self.mode = mode
+        self.characteristics: list[str] = []
+
+
+class StubBotV2Rule:
+    """Stub for protobuf BotV2Rule message."""
+
+    def __init__(self, mode: int) -> None:
+        self.mode = mode
+        self.allow: list[str] = []
+        self.deny: list[str] = []
+
+
+class StubRateLimitRule:
+    """Stub for protobuf RateLimitRule message."""
+
+    def __init__(self, mode: int, algorithm: int, **kwargs: Any) -> None:
+        self.mode = mode
+        self.algorithm = algorithm
+        # Common numeric params
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        self.characteristics: list[str] = []
+
+
+class StubEmailRule:
+    """Stub for protobuf EmailRule message."""
+
+    def __init__(
+        self, mode: int, require_top_level_domain: bool, allow_domain_literal: bool
+    ) -> None:
+        self.mode = mode
+        self.require_top_level_domain = require_top_level_domain
+        self.allow_domain_literal = allow_domain_literal
+        self.allow: list[int] = []
+        self.deny: list[int] = []
+
+
+class StubRule:
+    """Stub for protobuf Rule message (oneof wrapper)."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        # oneof: shield | bot_v2 | rate_limit | email
+        self.shield = kwargs.get("shield")
+        self.bot_v2 = kwargs.get("bot_v2")
+        self.rate_limit = kwargs.get("rate_limit")
+        self.email = kwargs.get("email")
+
+
+class StubErrorReason:
+    """Stub for protobuf ErrorReason message."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+
 class StubReason:
     """Stub for protobuf Reason message."""
 
@@ -162,6 +222,16 @@ class StubDecision:
         }
 
 
+class StubEmailType(int):
+    """Stub for protobuf EmailType enum."""
+
+    EMAIL_TYPE_DISPOSABLE = EMAIL_TYPE_DISPOSABLE
+    EMAIL_TYPE_FREE = EMAIL_TYPE_FREE
+    EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS
+    EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR
+    EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID
+
+
 class StubDecideResponse:
     """Stub for protobuf DecideResponse."""
 
@@ -175,8 +245,33 @@ class StubDecideResponse:
 class StubReportRequest:
     """Stub for protobuf ReportRequest."""
 
-    def __init__(self) -> None:
-        self.details: Optional[StubRequestDetails] = None
+    def __init__(
+        self,
+        sdk_stack: int = 0,
+        sdk_version: str = "",
+        details: Optional[StubRequestDetails] = None,
+        decision: Optional[StubDecision] = None,
+    ) -> None:
+        self.sdk_stack = sdk_stack
+        self.sdk_version = sdk_version
+        self.details = details
+        self.decision = decision
+        self.rules: list[StubRule] = []
+
+
+class StubDecideRequest:
+    """Stub for protobuf DecideRequest."""
+
+    def __init__(
+        self,
+        sdk_stack: int = 0,
+        sdk_version: str = "",
+        details: Optional[StubRequestDetails] = None,
+    ) -> None:
+        self.sdk_stack = sdk_stack
+        self.sdk_version = sdk_version
+        self.details = details
+        self.rules: list[StubRule] = []
 
 
 class StubDecideServiceClient:
@@ -193,7 +288,7 @@ class StubDecideServiceClient:
     def __init__(self, base_url: str, **kwargs: Any) -> None:
         self.base_url = base_url
 
-    async def decide(self, request: Any) -> StubDecideResponse:
+    async def decide(self, request: Any, **kwargs: Any) -> StubDecideResponse:
         """Async decide method."""
         type(self).decide_calls += 1
         if callable(type(self).decide_behavior):
@@ -202,7 +297,7 @@ class StubDecideServiceClient:
             StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
 
-    async def report(self, request: StubReportRequest) -> None:
+    async def report(self, request: StubReportRequest, **kwargs: Any) -> None:
         """Async report method (no-op)."""
         pass
 
@@ -216,7 +311,7 @@ class StubDecideServiceClientSync:
     def __init__(self, base_url: str, **kwargs: Any) -> None:
         self.base_url = base_url
 
-    def decide(self, request: Any) -> StubDecideResponse:
+    def decide(self, request: Any, **kwargs: Any) -> StubDecideResponse:
         """Sync decide method."""
         type(self).decide_calls += 1
         if callable(type(self).decide_behavior):
@@ -225,7 +320,7 @@ class StubDecideServiceClientSync:
             StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
 
-    def report(self, request: StubReportRequest) -> None:
+    def report(self, request: StubReportRequest, **kwargs: Any) -> None:
         """Sync report method (no-op)."""
         pass
 
@@ -277,13 +372,29 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):
     mod_pb2.CONCLUSION_DENY = CONCLUSION_DENY
     mod_pb2.CONCLUSION_CHALLENGE = CONCLUSION_CHALLENGE
     mod_pb2.CONCLUSION_ERROR = CONCLUSION_ERROR
+    mod_pb2.EMAIL_TYPE_DISPOSABLE = EMAIL_TYPE_DISPOSABLE
+    mod_pb2.EMAIL_TYPE_FREE = EMAIL_TYPE_FREE
+    mod_pb2.EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS
+    mod_pb2.EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR
+    mod_pb2.EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID
+    mod_pb2.RATE_LIMIT_ALGORITHM_TOKEN_BUCKET = RATE_LIMIT_ALGORITHM_TOKEN_BUCKET
+    mod_pb2.RATE_LIMIT_ALGORITHM_FIXED_WINDOW = RATE_LIMIT_ALGORITHM_FIXED_WINDOW
+    mod_pb2.RATE_LIMIT_ALGORITHM_SLIDING_WINDOW = RATE_LIMIT_ALGORITHM_SLIDING_WINDOW
     mod_pb2.Conclusion = _Conclusion
     mod_pb2.RequestDetails = StubRequestDetails
-    mod_pb2.Decision = StubDecision
-    mod_pb2.ReportRequest = StubReportRequest
+    mod_pb2.ShieldRule = StubShieldRule
+    mod_pb2.BotV2Rule = StubBotV2Rule
+    mod_pb2.RateLimitRule = StubRateLimitRule
+    mod_pb2.EmailRule = StubEmailRule
+    mod_pb2.Rule = StubRule
+    mod_pb2.ErrorReason = StubErrorReason
     mod_pb2.Reason = StubReason
     mod_pb2.IpDetails = StubIpDetails
     mod_pb2.RuleResult = StubRuleResult
+    mod_pb2.Decision = StubDecision
+    mod_pb2.DecideRequest = StubDecideRequest
+    mod_pb2.ReportRequest = StubReportRequest
+    mod_pb2.EmailType = StubEmailType
 
     # Populate decide_connect module
     mod_connect.DecideServiceClient = StubDecideServiceClient
