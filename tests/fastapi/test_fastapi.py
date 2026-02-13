@@ -10,7 +10,6 @@ def create_app() -> FastAPI:
     app = FastAPI()
 
     arcjet = arcjet_fastapi(
-        # TODO: figure out why `invalid.local` causes tests to take minutes.
         base_url="https://invalid.test",  # Intentional invalid URL for testing
         key="ajkey_dummy",
         rules=[],
