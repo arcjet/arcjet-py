@@ -98,7 +98,7 @@ def test_cache_expired_entry_removal_exception():
 
     class FailingDict(dict):
         def __delitem__(self, key):
-            raise RuntimeError("Delete failed")
+            raise KeyError("Delete failed")
 
     cache._store = FailingDict(original_store)
 

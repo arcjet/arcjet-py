@@ -96,8 +96,7 @@ def test_requested_default_and_characteristics_in_extra(
     import asyncio
 
     asyncio.run(
-        aj.protect({"headers": [], "type": "http"},
-                   characteristics={"uid": "123"})
+        aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
     )
     assert captured["extra"]["requested"] == "1"
     assert captured["extra"]["uid"] == "123"
@@ -125,8 +124,7 @@ def test_ip_override_with_ip_src(
         DecideServiceClient, "decide_behavior", capture_decide, raising=False
     )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet(key="ajkey_x", rules=rules,
-                disable_automatic_ip_detection=True)
+    aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
     import asyncio
 
     ctx = {
@@ -146,8 +144,7 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     from arcjet.rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet(key="ajkey_x", rules=rules,
-                disable_automatic_ip_detection=True)
+    aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src is required"):
@@ -170,8 +167,7 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
-        asyncio.run(aj.protect(
-            {"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
 
 
 def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_modules):
@@ -188,5 +184,4 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
-        asyncio.run(aj.protect(
-            {"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))

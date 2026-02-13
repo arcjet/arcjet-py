@@ -126,8 +126,7 @@ def test_caching_hits_trigger_background_report(
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
-    ctx = {"type": "http", "headers": [
-        (b"host", b"ex")], "client": ("203.0.113.5", 1)}
+    ctx = {"type": "http", "headers": [(b"host", b"ex")], "client": ("203.0.113.5", 1)}
     aj.protect(ctx)
     aj.protect(ctx)
 
@@ -157,8 +156,7 @@ def test_ip_override_with_ip_src(
         DecideServiceClientSync, "decide_behavior", capture_decide, raising=False
     )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet_sync(key="ajkey_x", rules=rules,
-                     disable_automatic_ip_detection=True)
+    aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
 
     ctx = {
         "type": "http",
@@ -177,8 +175,7 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     from arcjet.rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet_sync(key="ajkey_x", rules=rules,
-                     disable_automatic_ip_detection=True)
+    aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src is required"):
         aj.protect({"headers": [], "type": "http"})
