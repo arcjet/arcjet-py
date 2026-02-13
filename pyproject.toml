@@ -52,7 +52,6 @@ dev = [
 ]
 
 [tool.pytest]
-# All tests can now run together with the fixture-based approach
 addopts = ["-q"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

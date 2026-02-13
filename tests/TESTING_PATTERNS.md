@@ -1,12 +1,15 @@
 # Testing Patterns for arcjet-py
 
-This document describes the testing patterns adopted from datasette-enrichments and best practices for test organization.
+This document describes the testing patterns adopted from
+[datasette-enrichments](https://github.com/datasette/datasette-enrichments) and
+best practices for test organization.
 
 ## Key Patterns from datasette-enrichments
 
 ### 1. **Autouse Fixtures for Test Isolation**
 
-Instead of permanently modifying `sys.modules`, use pytest's `autouse=True` fixtures:
+Instead of permanently modifying `sys.modules`, use pytest's `autouse=True`
+fixtures:
 
 ```python
 @pytest.fixture(autouse=True)
@@ -132,29 +135,6 @@ tests/
 └── TESTING_PATTERNS.md      # This file
 ```
 
-## Migration Strategy
-
-### Step 1: Create Shared Infrastructure
-1. Create `tests/conftest.py` with common fixtures
-2. Create `tests/helpers.py` with utility functions
-3. Create `tests/fixtures/` for test data factories
-
-### Step 2: Convert Mocked Tests
-1. Extract stub creation logic into fixtures
-2. Use `autouse=True` fixtures with `scope="function"`
-3. Replace `DecideServiceClient.decide_behavior = ...` with fixture parameters
-4. Move helper functions to shared location
-
-### Step 3: Reorganize Tests
-1. Rename `tests/mocked/` to `tests/unit/`
-2. Move integration tests under `tests/integration/`
-3. Update imports
-
-### Step 4: Enable Unified Suite
-1. Remove `--ignore=tests/mocked` from pyproject.toml
-2. Update CI workflows
-3. Update AGENTS.md documentation
-
 ## Best Practices
 
 ### Test Naming
@@ -187,10 +167,14 @@ async def test_feature_with_specific_condition():
 ### Parameterization
 - Group related test cases
 - Use meaningful parameter names
-- Add ids for readability: `@pytest.mark.parametrize("x", [1, 2], ids=["small", "large"])`
+- Add ids for readability: `@pytest.mark.parametrize("x", [1, 2], ids=["small",
+  "large"])`
 
 ## References
 
-- [datasette-enrichments tests](https://github.com/datasette/datasette-enrichments/tree/main/tests)
-- [pytest fixtures documentation](https://docs.pytest.org/en/stable/fixture.html)
-- [pytest monkeypatch](https://docs.pytest.org/en/stable/how-to/monkeypatch.html)
+- [datasette-enrichments
+  tests](https://github.com/datasette/datasette-enrichments/tree/main/tests)
+- [pytest fixtures
+  documentation](https://docs.pytest.org/en/stable/fixture.html)
+- [pytest
+  monkeypatch](https://docs.pytest.org/en/stable/how-to/monkeypatch.html)
