@@ -60,6 +60,10 @@ python_files = ["test_*.py"]
 [tool.coverage.run]
 omit = ["src/arcjet/proto/*"]
 
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
 [tool.ruff]
 exclude = [
   # Generated code

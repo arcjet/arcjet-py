@@ -5,7 +5,10 @@ Tests decision helpers and utilities without requiring real protobuf dependencie
 
 from __future__ import annotations
 
+import json
 import types
+from dataclasses import asdict
+from typing import cast
 
 import pytest
 
@@ -61,6 +64,7 @@ def test_is_spoofed_bot_helper(mock_protobuf_modules):
     rr = SDKRuleResult(rr_pb)
     assert is_spoofed_bot(rr) is True
 
+
 def test_decision_with_ip_details(mock_protobuf_modules):
     """Test Decision with IP details."""
     from arcjet.decision import Decision
@@ -71,9 +75,7 @@ def test_decision_with_ip_details(mock_protobuf_modules):
     ip_details.is_vpn = False
 
     dec = decide_pb2.Decision(
-        id="test",
-        conclusion=decide_pb2.CONCLUSION_ALLOW,
-        ip_details=ip_details
+        id="test", conclusion=decide_pb2.CONCLUSION_ALLOW, ip_details=ip_details
     )
     decision = Decision(dec)
 
@@ -85,43 +87,34 @@ def test_decision_with_ip_details(mock_protobuf_modules):
 
 
 def test_reason_which_method(mock_protobuf_modules):
-    """Test Reason.which() method."""
-    from arcjet.decision import Reason
-    from arcjet.proto.decide.v1alpha1 import decide_pb2
+    """Test dataclass reason fields."""
+    from arcjet.dataclasses import ErrorReason
 
-    # Test with None
-    reason = Reason(None)
-    assert reason.which() is None
-
-    # Test with a reason
-    reason_pb = decide_pb2.Reason(error=decide_pb2.ErrorReason(message="test"))
-    reason = Reason(reason_pb)
-    assert reason.which() == "error"
+    reason = ErrorReason(message="test")
+    assert reason.type == "ERROR"
+    assert reason.message == "test"
 
 
 def test_reason_raw_and_to_dict(mock_protobuf_modules):
-    """Test Reason.raw and to_dict methods."""
-    from arcjet.decision import Reason
-    from arcjet.proto.decide.v1alpha1 import decide_pb2
+    """Test dataclass reason conversion via asdict."""
+    from arcjet.dataclasses import ErrorReason
 
-    reason_pb = decide_pb2.Reason(error=decide_pb2.ErrorReason(message="test"))
-    reason = Reason(reason_pb)
-
-    # Test raw property
-    assert reason.raw is reason_pb
-
-    # Test to_dict
-    d = reason.to_dict()
-    assert d is not None
-    assert isinstance(d, dict)
+    reason = ErrorReason(message="test")
+    assert asdict(reason) == {"message": "test", "type": "ERROR"}
 
 
 def test_reason_to_json_returns_null_for_none(mock_protobuf_modules):
-    """Test Reason.to_json() returns 'null' for None."""
-    from arcjet.decision import Reason
+    """Test Decision.to_json() serializes None reason to null."""
+    from arcjet.decision import Decision
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
 
-    reason = Reason(None)
-    assert reason.to_json() == "null"
+    decision = Decision(
+        decide_pb2.Decision(
+            id="d1", conclusion=decide_pb2.CONCLUSION_ALLOW, reason=None
+        )
+    )
+    payload = json.loads(decision.to_json())
+    assert payload["reason"] is None
 
 
 def test_rule_result_properties(mock_protobuf_modules):
@@ -131,9 +124,9 @@ def test_rule_result_properties(mock_protobuf_modules):
 
     rr = decide_pb2.RuleResult(
         rule_id="my_rule",
-        state=2,
+        state=cast("decide_pb2.RuleState", 2),
         conclusion=decide_pb2.CONCLUSION_DENY,
-        fingerprint="fp_123"
+        fingerprint="fp_123",
     )
     result = RuleResult(rr)
 
@@ -149,10 +142,7 @@ def test_rule_result_empty_fingerprint(mock_protobuf_modules):
     from arcjet.decision import RuleResult
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
-    rr = decide_pb2.RuleResult(
-        rule_id="test",
-        fingerprint=""
-    )
+    rr = decide_pb2.RuleResult(rule_id="test", fingerprint="")
     result = RuleResult(rr)
 
     assert result.fingerprint is None
