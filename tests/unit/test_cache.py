@@ -10,7 +10,7 @@ import time
 from arcjet.cache import DecisionCache, make_cache_key
 from arcjet.context import RequestContext
 from arcjet.decision import Decision
-from arcjet.rules import shield, token_bucket, Mode
+from arcjet.rules import Mode, shield, token_bucket
 
 
 def test_cache_set_get_and_expiry(mock_protobuf_modules):
@@ -23,7 +23,7 @@ def test_cache_set_get_and_expiry(mock_protobuf_modules):
     )
     cache.set("k", d, ttl_seconds=1)
     assert cache.get("k") is d
-    
+
     # After expiry
     time.sleep(1.1)
     assert cache.get("k") is None

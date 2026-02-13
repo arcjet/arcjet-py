@@ -31,17 +31,18 @@ uv run pytest
 
 - Set `ARCJET_LOG_LEVEL=debug` to see detailed debug logs during development.
 
-### Mocked tests
+### Test Organization
 
-Mocked tests stub the Decide API protobufs and clients, so no network access is
-required.
+All tests (unit and integration) now run together in a single test suite:
 
-_The mocked test monkeypatch various internal SDK things and need to be
-isolated (read: run entirely seperately) from the other tests._
+- **Unit tests** (in `tests/unit/`): Use pytest fixtures to mock protobuf
+  dependencies without permanent module stubbing
+- **Integration tests** (in `tests/fastapi/`, `tests/flask/`, etc.): Test with
+  real framework integrations
+- **Fixtures** (in `tests/fixtures/`): Shared test fixtures and protobuf stubs
 
-```sh
-uv run pytest tests/mocked
-```
+The fixture-based approach prevents cross-contamination between tests while
+allowing them to run in a single pytest invocation.
 
 ## Breaking changes
 

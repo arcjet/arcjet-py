@@ -170,4 +170,3 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
         asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
-

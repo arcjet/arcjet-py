@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from arcjet.context import (
-    extract_ip_from_headers,
-    coerce_request_context,
-    request_details_from_context,
-    RequestContext,
-)
-
-
 import pytest
+
+from arcjet.context import (
+    RequestContext,
+    coerce_request_context,
+    extract_ip_from_headers,
+    request_details_from_context,
+)
 
 
 def test_extract_ip_xff_skips_trusted_proxy_literal():

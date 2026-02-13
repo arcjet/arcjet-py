@@ -12,7 +12,6 @@ from typing import Any, Callable, Optional
 
 import pytest
 
-
 # Constants for stub enums
 MODE_DRY_RUN = 1
 MODE_LIVE = 2
@@ -291,7 +290,7 @@ class StubDecideRequest:
 
 class StubDecideServiceClient:
     """Stub for async DecideServiceClient.
-    
+
     Supports behavior injection for testing via class attributes:
     - decide_behavior: Callable to customize decide() response
     - decide_calls: Counter for number of decide() calls
@@ -356,10 +355,10 @@ def _message_to_dict(x: Any, preserving_proto_field_name: bool = True) -> dict:
 @pytest.fixture(scope="function")
 def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):
     """Fixture to mock protobuf modules for a single test.
-    
+
     This fixture creates and installs stub protobuf modules into sys.modules
     for the duration of the test, then automatically cleans them up.
-    
+
     Usage:
         def test_something(mock_protobuf_modules):
             # Protobuf modules are mocked here
@@ -432,6 +431,16 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):
     StubDecideServiceClient.decide_behavior = None
     StubDecideServiceClientSync.decide_calls = 0
     StubDecideServiceClientSync.decide_behavior = None
+
+    # Clear any cached arcjet modules that might have imported protobuf already
+    # This prevents cross-contamination when tests run in different orders
+    modules_to_clear = [
+        key
+        for key in list(sys.modules.keys())
+        if key.startswith("arcjet") and not key.startswith("arcjet.proto")
+    ]
+    for module_name in modules_to_clear:
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
 
     yield {
         "pb2": mod_pb2,

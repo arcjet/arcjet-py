@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import types
 
-from arcjet.decision import Decision, RuleResult as SDKRuleResult, is_spoofed_bot
+from arcjet.decision import Decision, is_spoofed_bot
+from arcjet.decision import RuleResult as SDKRuleResult
 
 
 def test_decision_and_reason_helpers(mock_protobuf_modules):

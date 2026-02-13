@@ -52,10 +52,8 @@ dev = [
 ]
 
 [tool.pytest]
-# The tests/mocked test monkeypatch various internal SDK things and need to be
-# isolated (read: run entirely seperately) from the other tests. Run them with
-# `uv run pytest tests/mocked`.
-addopts = ["--ignore=tests/mocked", "-q"]
+# All tests can now run together with the fixture-based approach
+addopts = ["-q"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
@@ -65,14 +63,6 @@ exclude = [
   "src/arcjet/proto",
   # TODO: re-enable once we fix the issues
   "examples",
-  "tests/mocked/conftest.py",
-  "tests/mocked/test_cache.py",
-  "tests/mocked/test_client_sync.py",
-  "tests/mocked/test_context.py",
-  "tests/mocked/test_decision.py",
-  "tests/mocked/test_enums.py",
-  "tests/mocked/test_logging.py",
-  "tests/mocked/test_rules.py",
 ]
 
 [tool.ruff.lint]

@@ -27,7 +27,7 @@ __all__ = [
 @pytest.fixture
 def dev_environment(monkeypatch: pytest.MonkeyPatch):
     """Set up development environment for tests.
-    
+
     This fixture sets ARCJET_ENV=development which provides
     sensible defaults for testing (e.g., 127.0.0.1 for missing IPs).
     """
