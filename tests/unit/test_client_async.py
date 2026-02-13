@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 
-def test_fail_open_false_raises(mock_protobuf_modules):
+def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=False raises ArcjetTransportError on network error."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetTransportError
@@ -18,8 +18,9 @@ def test_fail_open_false_raises(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("network down")
 
-    # type: ignore[attr-defined]
-    DecideServiceClient.decide_behavior = raise_decide
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", raise_decide, raising=False
+    )
     aj = arcjet(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -44,7 +45,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
         asyncio.run(aj.protect({"headers": [], "type": "http"}))
 
 
-def test_fail_open_true_allows(mock_protobuf_modules):
+def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True allows request on network error."""
     from arcjet import arcjet
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
@@ -53,8 +54,9 @@ def test_fail_open_true_allows(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("boom")
 
-    # type: ignore[attr-defined]
-    DecideServiceClient.decide_behavior = raise_decide
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", raise_decide, raising=False
+    )
     aj = arcjet(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -69,7 +71,10 @@ def test_fail_open_true_allows(mock_protobuf_modules):
 
 
 def test_requested_default_and_characteristics_in_extra(
-    mock_protobuf_modules, make_allow_decision, dev_environment
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that requested default and characteristics are passed in extra metadata."""
     from arcjet import arcjet
@@ -83,21 +88,26 @@ def test_requested_default_and_characteristics_in_extra(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    # type: ignore[attr-defined]
-    DecideServiceClient.decide_behavior = capture_decide
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", capture_decide, raising=False
+    )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules)
     import asyncio
 
     asyncio.run(
-        aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
+        aj.protect({"headers": [], "type": "http"},
+                   characteristics={"uid": "123"})
     )
     assert captured["extra"]["requested"] == "1"
     assert captured["extra"]["uid"] == "123"
 
 
 def test_ip_override_with_ip_src(
-    mock_protobuf_modules, make_allow_decision, dev_environment
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that ip_src overrides automatic IP detection when configured."""
     from arcjet import arcjet
@@ -111,10 +121,12 @@ def test_ip_override_with_ip_src(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    # type: ignore[attr-defined]
-    DecideServiceClient.decide_behavior = capture_decide
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", capture_decide, raising=False
+    )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+    aj = arcjet(key="ajkey_x", rules=rules,
+                disable_automatic_ip_detection=True)
     import asyncio
 
     ctx = {
@@ -134,7 +146,8 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     from arcjet.rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+    aj = arcjet(key="ajkey_x", rules=rules,
+                disable_automatic_ip_detection=True)
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src is required"):
@@ -157,7 +170,8 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        asyncio.run(aj.protect(
+            {"headers": [], "type": "http"}, ip_src="8.8.8.8"))
 
 
 def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_modules):
@@ -174,4 +188,5 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        asyncio.run(aj.protect(
+            {"headers": [], "type": "http"}, ip_src="8.8.8.8"))

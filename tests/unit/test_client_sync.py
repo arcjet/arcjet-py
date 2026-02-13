@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 
-def test_fail_open_false_raises(mock_protobuf_modules):
+def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=False raises ArcjetTransportError on network error."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetTransportError
@@ -18,8 +18,9 @@ def test_fail_open_false_raises(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("network down")
 
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = raise_decide
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", raise_decide, raising=False
+    )
     aj = arcjet_sync(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -40,7 +41,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
         aj.protect({"headers": [], "type": "http"})
 
 
-def test_fail_open_true_allows(mock_protobuf_modules):
+def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True allows request on network error."""
     from arcjet import arcjet_sync
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
@@ -49,8 +50,9 @@ def test_fail_open_true_allows(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("boom")
 
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = raise_decide
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", raise_decide, raising=False
+    )
     aj = arcjet_sync(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -63,7 +65,10 @@ def test_fail_open_true_allows(mock_protobuf_modules):
 
 
 def test_requested_default_and_characteristics_in_extra(
-    mock_protobuf_modules, make_allow_decision, dev_environment
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that requested default and characteristics are passed in extra metadata."""
     from arcjet import arcjet_sync
@@ -77,8 +82,9 @@ def test_requested_default_and_characteristics_in_extra(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = capture_decide
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", capture_decide, raising=False
+    )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
@@ -88,7 +94,10 @@ def test_requested_default_and_characteristics_in_extra(
 
 
 def test_caching_hits_trigger_background_report(
-    mock_protobuf_modules, make_allow_decision, dev_environment
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that cache hits don't trigger additional decide() calls.
 
@@ -111,22 +120,26 @@ def test_caching_hits_trigger_background_report(
         decision = make_allow_decision(ttl=ttl)
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = decide_once
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", decide_once, raising=False
+    )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
-    ctx = {"type": "http", "headers": [(b"host", b"ex")], "client": ("203.0.113.5", 1)}
+    ctx = {"type": "http", "headers": [
+        (b"host", b"ex")], "client": ("203.0.113.5", 1)}
     aj.protect(ctx)
     aj.protect(ctx)
 
     # Only one decide() call should be made; second call uses cache
-    # type: ignore[attr-defined]
-    assert DecideServiceClientSync.decide_calls == 1
+    assert calls["n"] == 1
 
 
 def test_ip_override_with_ip_src(
-    mock_protobuf_modules, make_allow_decision, dev_environment
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that ip_src overrides automatic IP detection when configured."""
     from arcjet import arcjet_sync
@@ -140,10 +153,12 @@ def test_ip_override_with_ip_src(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    # type: ignore[attr-defined]
-    DecideServiceClientSync.decide_behavior = capture_decide
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", capture_decide, raising=False
+    )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+    aj = arcjet_sync(key="ajkey_x", rules=rules,
+                     disable_automatic_ip_detection=True)
 
     ctx = {
         "type": "http",
@@ -162,7 +177,8 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     from arcjet.rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+    aj = arcjet_sync(key="ajkey_x", rules=rules,
+                     disable_automatic_ip_detection=True)
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src is required"):
         aj.protect({"headers": [], "type": "http"})

@@ -35,8 +35,9 @@ def test_env_log_level_numeric(monkeypatch):
 
 def test_env_log_level_invalid_numeric(monkeypatch):
     """Test that invalid numeric values fall back to default."""
-    from arcjet._logging import _env_log_level
     import logging
+
+    from arcjet._logging import _env_log_level
 
     # Set an invalid numeric value (this shouldn't happen, but test the exception path)
     monkeypatch.setenv("ARCJET_LOG_LEVEL", "not_a_number_but_isdigit_false")
@@ -47,8 +48,9 @@ def test_env_log_level_invalid_numeric(monkeypatch):
 
 def test_env_log_level_exception_in_int_conversion(monkeypatch):
     """Test exception handling in int conversion."""
-    from arcjet._logging import _env_log_level
     import logging
+
+    from arcjet._logging import _env_log_level
 
     # This tests the exception path in lines 26-27
     # We need a value that passes isdigit() but fails int()

@@ -77,8 +77,8 @@ def test_validate_email_coercion_and_proto(mock_protobuf_modules):
 
 def test_rule_spec_get_characteristics_with_non_tuple():
     """Test get_characteristics with non-tuple characteristics."""
-    from arcjet.rules import RuleSpec, Mode
     from arcjet.proto.decide.v1alpha1 import decide_pb2
+    from arcjet.rules import Mode, RuleSpec
 
     # Create a mock RuleSpec subclass with non-tuple characteristics
     class TestRule(RuleSpec):
@@ -98,8 +98,8 @@ def test_rule_spec_get_characteristics_with_non_tuple():
 
 def test_rule_spec_get_characteristics_with_invalid_items():
     """Test get_characteristics filters out invalid items."""
-    from arcjet.rules import RuleSpec
     from arcjet.proto.decide.v1alpha1 import decide_pb2
+    from arcjet.rules import RuleSpec
 
     class TestRule(RuleSpec):
         def __init__(self):
@@ -117,8 +117,8 @@ def test_rule_spec_get_characteristics_with_invalid_items():
 
 def test_rule_spec_get_characteristics_conversion_fails():
     """Test get_characteristics when conversion to tuple fails."""
-    from arcjet.rules import RuleSpec
     from arcjet.proto.decide.v1alpha1 import decide_pb2
+    from arcjet.rules import RuleSpec
 
     class NonIterableCharacteristics:
         def __iter__(self):

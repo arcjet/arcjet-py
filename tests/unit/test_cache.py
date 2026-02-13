@@ -75,10 +75,11 @@ def test_cache_set_with_zero_ttl():
 
 def test_cache_expired_entry_removal_exception():
     """Test that exceptions during expired entry removal are handled."""
+    import time
+
     from arcjet.cache import DecisionCache
     from arcjet.decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
-    import time
 
     cache = DecisionCache()
     d = Decision(
@@ -110,7 +111,7 @@ def test_make_cache_key_with_empty_characteristic():
     """Test cache key generation with empty characteristic value."""
     from arcjet.cache import make_cache_key
     from arcjet.context import RequestContext
-    from arcjet.rules import shield, Mode
+    from arcjet.rules import Mode, shield
 
     # Context with empty characteristic value
     ctx = RequestContext(ip="1.2.3.4", extra={"user_id": ""})
@@ -127,7 +128,7 @@ def test_make_cache_key_with_non_mapping_extra():
     """Test cache key generation when ctx.extra is not a Mapping."""
     from arcjet.cache import make_cache_key
     from arcjet.context import RequestContext
-    from arcjet.rules import shield, Mode
+    from arcjet.rules import Mode, shield
 
     # Context with non-mapping extra (tests line 78)
     ctx = RequestContext(ip="1.2.3.4", extra=None)

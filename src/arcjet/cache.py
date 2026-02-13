@@ -48,7 +48,7 @@ class DecisionCache:
                 return None
             return entry.decision
 
-    def set(self, key: str, decision: Decision, ttl_seconds: int) -> None:
+    def set(self, key: str, decision: Decision, ttl_seconds: int | float) -> None:
         if ttl_seconds <= 0:
             return
         expires_at = time.monotonic() + float(ttl_seconds)
