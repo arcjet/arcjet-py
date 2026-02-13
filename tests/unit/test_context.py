@@ -1,3 +1,9 @@
+"""Unit tests for request context utilities.
+
+Tests IP extraction from headers, request context coercion from different
+frameworks, and protobuf conversion utilities.
+"""
+
 from __future__ import annotations
 
 import pytest

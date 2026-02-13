@@ -86,7 +86,15 @@ def test_requested_default_and_characteristics_in_extra(
 def test_caching_hits_trigger_background_report(
     mock_protobuf_modules, make_allow_decision, dev_environment
 ):
-    """Test that cache hits trigger background report calls."""
+    """Test that cache hits don't trigger additional decide() calls.
+    
+    When a decision is cached, subsequent protect() calls should use the cache
+    instead of calling decide() again. This test verifies that only one decide()
+    call is made for two protect() calls with the same context.
+    
+    Note: Background report() calls for cache hits happen asynchronously in the
+    real implementation and are not easily testable with sync stubs.
+    """
     from arcjet import arcjet_sync
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
     from arcjet.rules import token_bucket
@@ -107,6 +115,7 @@ def test_caching_hits_trigger_background_report(
     d1 = aj.protect(ctx)
     d2 = aj.protect(ctx)
 
+    # Only one decide() call should be made; second call uses cache
     assert DecideServiceClientSync.decide_calls == 1
 
 
