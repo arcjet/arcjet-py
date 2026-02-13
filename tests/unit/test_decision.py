@@ -31,7 +31,8 @@ def test_decision_and_reason_helpers(mock_protobuf_modules):
         id="d1",
         conclusion=decide_pb2.CONCLUSION_DENY,
         ttl=42,
-        reason=decide_pb2.Reason(bot_v2=types.SimpleNamespace(spoofed=True)),  # type: ignore[arg-type]
+        reason=decide_pb2.Reason(bot_v2=types.SimpleNamespace(
+            spoofed=True)),  # type: ignore[arg-type]
         rule_results=[rr_pb],
     )
     d = Decision(dec_pb)
