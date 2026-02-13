@@ -46,15 +46,19 @@ dev = [
   "httpx>=0.28.1",                   # Used by FastAPI tests
   "pyright==1.1.408",
   "pytest==9.0.2",
+  "pytest-cov>=7.0.0",
   "ruff==0.14.10",
   "ty==0.0.8",
   "types-protobuf==6.32.1.20251210",
 ]
 
 [tool.pytest]
-addopts = ["-q"]
+addopts = ["-q", "--cov=src/arcjet", "--cov-report=term-missing"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.coverage.run]
+omit = ["src/arcjet/proto/*"]
 
 [tool.ruff]
 exclude = [
