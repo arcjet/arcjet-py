@@ -235,3 +235,60 @@ def test_converting_shield_reason_not_triggered() -> None:
     assert isinstance(reason, ShieldReason)
     assert reason.type == "SHIELD"
     assert reason.shield_triggered == False
+
+
+def test_converting_email_type_free() -> None:
+    from arcjet._convert import _email_type_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    email_type = _email_type_from_proto(decide_pb2.EmailType.EMAIL_TYPE_FREE)
+    assert email_type == "FREE"
+
+
+def test_converting_email_type_invalid() -> None:
+    from arcjet._convert import _email_type_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    email_type = _email_type_from_proto(decide_pb2.EmailType.EMAIL_TYPE_INVALID)
+    assert email_type == "INVALID"
+
+
+def test_converting_email_type_no_gravatar() -> None:
+    from arcjet._convert import _email_type_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    email_type = _email_type_from_proto(decide_pb2.EmailType.EMAIL_TYPE_NO_GRAVATAR)
+    assert email_type == "NO_GRAVATAR"
+
+
+def test_converting_email_type_no_mx_records() -> None:
+    from arcjet._convert import _email_type_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    email_type = _email_type_from_proto(decide_pb2.EmailType.EMAIL_TYPE_NO_MX_RECORDS)
+    assert email_type == "NO_MX_RECORDS"
+
+
+def test_converting_email_type_unspecified() -> None:
+    from arcjet._convert import _email_type_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    # Test with EMAIL_TYPE_UNSPECIFIED (value 0)
+    email_type = _email_type_from_proto(decide_pb2.EmailType.EMAIL_TYPE_UNSPECIFIED)
+    assert email_type == "UNSPECIFIED"
+
+
+def test_converting_unsupported_reason_type() -> None:
+    """Test that unsupported reason types return ErrorReason."""
+    from arcjet._convert import _reason_from_proto
+    from arcjet.dataclasses import ErrorReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    # Create a Reason with no fields set
+    proto_reason = decide_pb2.Reason()
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, ErrorReason)
+    assert reason.type == "ERROR"
+    assert "unsupported" in reason.message.lower()

@@ -73,3 +73,66 @@ def test_validate_email_coercion_and_proto(mock_protobuf_modules):
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_NO_MX_RECORDS in pb.email.allow
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_FREE in pb.email.allow
     assert pb.email.deny == []
+
+
+def test_rule_spec_get_characteristics_with_non_tuple():
+    """Test get_characteristics with non-tuple characteristics."""
+    from arcjet.rules import RuleSpec, Mode
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    # Create a mock RuleSpec subclass with non-tuple characteristics
+    class TestRule(RuleSpec):
+        def __init__(self):
+            self.characteristics = ["user_id", "session_id"]  # List instead of tuple
+
+        def to_proto(self) -> decide_pb2.Rule:
+            return decide_pb2.Rule()
+
+    rule = TestRule()
+    chars = rule.get_characteristics()
+
+    # Should convert to tuple
+    assert isinstance(chars, tuple)
+    assert chars == ("user_id", "session_id")
+
+
+def test_rule_spec_get_characteristics_with_invalid_items():
+    """Test get_characteristics filters out invalid items."""
+    from arcjet.rules import RuleSpec
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    class TestRule(RuleSpec):
+        def __init__(self):
+            self.characteristics = ("valid", 123, "", None, "another_valid")
+
+        def to_proto(self) -> decide_pb2.Rule:
+            return decide_pb2.Rule()
+
+    rule = TestRule()
+    chars = rule.get_characteristics()
+
+    # Should only include valid strings
+    assert chars == ("valid", "another_valid")
+
+
+def test_rule_spec_get_characteristics_conversion_fails():
+    """Test get_characteristics when conversion to tuple fails."""
+    from arcjet.rules import RuleSpec
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    class NonIterableCharacteristics:
+        def __iter__(self):
+            raise TypeError("Not iterable")
+
+    class TestRule(RuleSpec):
+        def __init__(self):
+            self.characteristics = NonIterableCharacteristics()
+
+        def to_proto(self) -> decide_pb2.Rule:
+            return decide_pb2.Rule()
+
+    rule = TestRule()
+    chars = rule.get_characteristics()
+
+    # Should return empty tuple on exception
+    assert chars == ()
