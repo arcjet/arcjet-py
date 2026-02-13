@@ -85,7 +85,7 @@ def test_requested_default_and_characteristics_in_extra(
     aj = arcjet(key="ajkey_x", rules=rules)
     import asyncio
 
-    d = asyncio.run(
+    asyncio.run(
         aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
     )
     assert captured["extra"]["requested"] == "1"

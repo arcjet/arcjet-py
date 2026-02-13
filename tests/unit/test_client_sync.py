@@ -78,7 +78,7 @@ def test_requested_default_and_characteristics_in_extra(
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
-    d = aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
+    aj.protect({"headers": [], "type": "http"}, characteristics={"uid": "123"})
     assert captured["extra"]["requested"] == "1"
     assert captured["extra"]["uid"] == "123"
 
@@ -87,11 +87,11 @@ def test_caching_hits_trigger_background_report(
     mock_protobuf_modules, make_allow_decision, dev_environment
 ):
     """Test that cache hits don't trigger additional decide() calls.
-    
+
     When a decision is cached, subsequent protect() calls should use the cache
     instead of calling decide() again. This test verifies that only one decide()
     call is made for two protect() calls with the same context.
-    
+
     Note: Background report() calls for cache hits happen asynchronously in the
     real implementation and are not easily testable with sync stubs.
     """
@@ -112,8 +112,8 @@ def test_caching_hits_trigger_background_report(
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
     ctx = {"type": "http", "headers": [(b"host", b"ex")], "client": ("203.0.113.5", 1)}
-    d1 = aj.protect(ctx)
-    d2 = aj.protect(ctx)
+    aj.protect(ctx)
+    aj.protect(ctx)
 
     # Only one decide() call should be made; second call uses cache
     assert DecideServiceClientSync.decide_calls == 1

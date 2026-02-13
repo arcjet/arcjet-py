@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 from arcjet._logging import _env_log_level
 
 

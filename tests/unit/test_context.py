@@ -6,8 +6,6 @@ frameworks, and protobuf conversion utilities.
 
 from __future__ import annotations
 
-import pytest
-
 from arcjet.context import (
     RequestContext,
     coerce_request_context,
