@@ -64,6 +64,21 @@ class StubRequestDetails:
         self.headers: dict[str, str] = {}
         self.extra: dict[str, str] = {}
 
+    def _as_dict(self) -> dict:
+        """Convert to dict for MessageToDict compatibility."""
+        return {
+            "ip": self.ip,
+            "method": self.method,
+            "protocol": self.protocol,
+            "host": self.host,
+            "path": self.path,
+            "cookies": self.cookies,
+            "query": self.query,
+            "email": self.email,
+            "headers": dict(self.headers),
+            "extra": dict(self.extra),
+        }
+
 
 class StubShieldRule:
     """Stub for protobuf ShieldRule message."""
@@ -427,6 +442,11 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):
         "DecideServiceClientSync": StubDecideServiceClientSync,
     }
 
+    # Reset client state after test to prevent cross-contamination
+    StubDecideServiceClient.decide_calls = 0
+    StubDecideServiceClient.decide_behavior = None
+    StubDecideServiceClientSync.decide_calls = 0
+    StubDecideServiceClientSync.decide_behavior = None
     # Cleanup happens automatically via monkeypatch
 
 
