@@ -18,7 +18,7 @@ def test_fail_open_false_raises(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("network down")
 
-    DecideServiceClient.decide_behavior = raise_decide
+    DecideServiceClient.decide_behavior = raise_decide  # type: ignore[attr-defined]
     aj = arcjet(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -52,7 +52,7 @@ def test_fail_open_true_allows(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("boom")
 
-    DecideServiceClient.decide_behavior = raise_decide
+    DecideServiceClient.decide_behavior = raise_decide  # type: ignore[attr-defined]
     aj = arcjet(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -80,7 +80,7 @@ def test_requested_default_and_characteristics_in_extra(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    DecideServiceClient.decide_behavior = capture_decide
+    DecideServiceClient.decide_behavior = capture_decide  # type: ignore[attr-defined]
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules)
     import asyncio
@@ -107,7 +107,7 @@ def test_ip_override_with_ip_src(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    DecideServiceClient.decide_behavior = capture_decide
+    DecideServiceClient.decide_behavior = capture_decide  # type: ignore[attr-defined]
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
     import asyncio

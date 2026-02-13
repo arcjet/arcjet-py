@@ -18,7 +18,7 @@ def test_fail_open_false_raises(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("network down")
 
-    DecideServiceClientSync.decide_behavior = raise_decide
+    DecideServiceClientSync.decide_behavior = raise_decide  # type: ignore[attr-defined]
     aj = arcjet_sync(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -48,7 +48,7 @@ def test_fail_open_true_allows(mock_protobuf_modules):
     def raise_decide(req):
         raise RuntimeError("boom")
 
-    DecideServiceClientSync.decide_behavior = raise_decide
+    DecideServiceClientSync.decide_behavior = raise_decide  # type: ignore[attr-defined]
     aj = arcjet_sync(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
@@ -74,7 +74,7 @@ def test_requested_default_and_characteristics_in_extra(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    DecideServiceClientSync.decide_behavior = capture_decide
+    DecideServiceClientSync.decide_behavior = capture_decide  # type: ignore[attr-defined]
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
@@ -107,7 +107,7 @@ def test_caching_hits_trigger_background_report(
         decision = make_allow_decision(ttl=ttl)
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    DecideServiceClientSync.decide_behavior = decide_once
+    DecideServiceClientSync.decide_behavior = decide_once  # type: ignore[attr-defined]
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
 
@@ -116,7 +116,7 @@ def test_caching_hits_trigger_background_report(
     aj.protect(ctx)
 
     # Only one decide() call should be made; second call uses cache
-    assert DecideServiceClientSync.decide_calls == 1
+    assert DecideServiceClientSync.decide_calls == 1  # type: ignore[attr-defined]
 
 
 def test_ip_override_with_ip_src(
@@ -134,7 +134,7 @@ def test_ip_override_with_ip_src(
         decision = make_allow_decision()
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    DecideServiceClientSync.decide_behavior = capture_decide
+    DecideServiceClientSync.decide_behavior = capture_decide  # type: ignore[attr-defined]
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
 

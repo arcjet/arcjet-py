@@ -136,7 +136,7 @@ def test_coerce_asgi_scope_and_plain_mapping(monkeypatch):
     ctx2 = coerce_request_context(mapping)
     assert ctx2.ip == "203.0.113.7"
     assert ctx2.method == "POST"
-    assert ctx2.headers["X"] == "Y"
+    assert ctx2.headers["X"] == "Y"  # type: ignore[index]
 
 
 def test_request_details_from_context_normalizes_headers_and_extra():

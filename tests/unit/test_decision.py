@@ -19,14 +19,14 @@ def test_decision_and_reason_helpers(mock_protobuf_modules):
     rr_pb = decide_pb2.RuleResult(
         rule_id="r1",
         conclusion=decide_pb2.CONCLUSION_DENY,
-        reason=decide_pb2.Reason(bot_v2=object()),
+        reason=decide_pb2.Reason(bot_v2=object()),  # type: ignore[arg-type]
         fingerprint="fp1",
     )
     dec_pb = decide_pb2.Decision(
         id="d1",
         conclusion=decide_pb2.CONCLUSION_DENY,
         ttl=42,
-        reason=decide_pb2.Reason(bot_v2=types.SimpleNamespace(spoofed=True)),
+        reason=decide_pb2.Reason(bot_v2=types.SimpleNamespace(spoofed=True)),  # type: ignore[arg-type]
         rule_results=[rr_pb],
     )
     d = Decision(dec_pb)
@@ -53,7 +53,7 @@ def test_is_spoofed_bot_helper(mock_protobuf_modules):
     rr_pb = decide_pb2.RuleResult(
         rule_id="r1",
         conclusion=decide_pb2.CONCLUSION_DENY,
-        reason=decide_pb2.Reason(bot_v2=bot_v2),
+        reason=decide_pb2.Reason(bot_v2=bot_v2),  # type: ignore[arg-type]
     )
     rr = SDKRuleResult(rr_pb)
     assert is_spoofed_bot(rr) is True
