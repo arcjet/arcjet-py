@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from arcjet.decision import Decision, is_spoofed_bot
 from arcjet.decision import RuleResult as SDKRuleResult
 
@@ -42,7 +44,8 @@ def test_decision_and_reason_helpers(mock_protobuf_modules):
     assert results[0].is_denied() is True
 
     # Test reason helpers
-    assert d.reason.is_bot() is True
+    with pytest.warns(DeprecationWarning, match="Use `reason_v2` property instead"):
+        assert d.reason.is_bot() is True
 
 
 def test_is_spoofed_bot_helper(mock_protobuf_modules):
