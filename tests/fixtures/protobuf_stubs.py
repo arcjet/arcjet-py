@@ -366,15 +366,24 @@ class StubDecideServiceClientSync:
         pass
 
 
+def _is_default_bool(value: Any) -> bool:
+    """Check if value is a boolean set to False (default value)."""
+    return isinstance(value, bool) and value is False
+
+
 def _message_to_dict(x: Any, preserving_proto_field_name: bool = True) -> dict:
-    """Stub for MessageToDict function."""
+    """Stub for MessageToDict function.
+
+    Mimics real protobuf MessageToDict behavior by omitting fields with default values,
+    including boolean fields set to False.
+    """
     if hasattr(x, "_as_dict"):
         return x._as_dict()
     if hasattr(x, "__dict__"):
         return {
             k: v
             for k, v in vars(x).items()
-            if not k.startswith("_") and not callable(v)
+            if not k.startswith("_") and not callable(v) and not _is_default_bool(v)
         }
     return {}
 
