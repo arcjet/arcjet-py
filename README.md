@@ -117,8 +117,8 @@ aj = arcjet(
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
                 # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
-                # BotCategory.MONITOR", # Uptime monitoring services
-                # BotCategory.PREVIEW", # Link previews e.g. Slack, Discord
+                # BotCategory.MONITOR, # Uptime monitoring services
+                # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
             ]
         ),
         # Create a token bucket rate limit. Other algorithms are supported
@@ -255,7 +255,7 @@ For example, to
 allow all search engines and OpenAI crawler bots, but deny all other bots:
 
 ```py
-from arcjet import arcjet, Mode, BotCategory
+from arcjet import arcjet, Mode, BotCategory, detect_bot
 
 aj = arcjet(
     key=arcjet_key,
@@ -325,8 +325,8 @@ aj = arcjet_sync(
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
                 # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
-                # BotCategory.MONITOR", # Uptime monitoring services
-                # BotCategory.PREVIEW", # Link previews e.g. Slack, Discord
+                # BotCategory.MONITOR, # Uptime monitoring services
+                # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
             ],
         ),
         # Create a token bucket rate limit. Other algorithms are supported
