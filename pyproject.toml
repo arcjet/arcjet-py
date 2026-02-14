@@ -9,7 +9,7 @@ license = { text = "Apache-2.0" }
 dependencies = [
   "connect-python>=0.8.1",
   "pyqwest>=0.3.3",
-  # Explaination of upper bound:
+  # Explanation of upper bound:
   # https://github.com/arcjet/arcjet-py/issues/2
   "typeid-python>=0.3.3,<0.3.7",
 ]
