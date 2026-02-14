@@ -352,9 +352,9 @@ class Arcjet:
                 else 0.0
             )
             if self._fail_open:
-                # Fail open: allow the request and record the error in the decision reason.
+                # Fail open: return an error decision instead of raising an exception.
                 logger.warning(
-                    "arcjet fail_open allow due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+                    "arcjet fail_open error due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                     str(e),
                     round(api_ms, 3),
                     round(prepare_ms, 3),
@@ -405,7 +405,7 @@ class Arcjet:
             )
             if self._fail_open:
                 logger.warning(
-                    "arcjet fail_open allow due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+                    "arcjet fail_open error due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                     "missing decision in response",
                     round(api_ms, 3),
                     round(prepare_ms, 3),
@@ -709,7 +709,7 @@ class ArcjetSync:
             )
             if self._fail_open:
                 logger.warning(
-                    "arcjet fail_open allow due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+                    "arcjet fail_open error due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                     str(e),
                     round(api_ms, 3),
                     round(prepare_ms, 3),
@@ -760,7 +760,7 @@ class ArcjetSync:
             )
             if self._fail_open:
                 logger.warning(
-                    "arcjet fail_open allow due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+                    "arcjet fail_open error due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                     "missing decision in response",
                     round(api_ms, 3),
                     round(prepare_ms, 3),
@@ -875,7 +875,7 @@ def arcjet(
     Parameters:
     - `base_url`: Defaults to `ARCJET_BASE_URL` env var, then Fly.io internal URL when `FLY_APP_NAME` is set, otherwise the public Decide endpoint.
     - `timeout_ms`: Defaults to 1000ms in development and 500ms otherwise.
-    - `fail_open`: When True (default), transport errors yield ALLOW decisions with an error reason instead of raising.
+    - `fail_open`: When True (default), transport errors yield ERROR decisions with an error reason instead of raising an exception.
     - `disable_automatic_ip_detection`: When True, automatic IP detection from the request is disabled, and `ip_src` must be provided to `.protect(...)`. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `ip_src` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
     """
     if not key:
