@@ -56,6 +56,11 @@ async def hello(request: Request):
         requested=5,  # Deduct 5 tokens from the bucket
     )
 
+    # Typed IP details are available directly on decision.ip_details
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        print(f"Request from {ip.city}, {ip.country_name}")
+
     # Handle denied requests
     if decision.is_denied():
         status = 429 if decision.reason.is_rate_limit() else 403
@@ -75,10 +80,5 @@ async def hello(request: Request):
             {"error": "Denied from hosting IP"},
             status_code=403,
         )
-
-    # Typed IP details are available directly on decision.ip_details
-    ip = decision.ip_details
-    if ip and ip.city and ip.country_name:
-        print(f"Request from {ip.city}, {ip.country_name}")
 
     return {"message": "Hello world", "decision": decision.to_dict()}

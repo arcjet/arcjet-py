@@ -227,8 +227,8 @@ def hello():
         return jsonify(error="Hosting IP blocked"), 403
 
     ip = decision.ip_details
-    if ip and ip.asn_name:
-        app.logger.info("ASN: %s", ip.asn_name)
+    if ip and ip.city and ip.country_name:
+        print(f"Request from {ip.city}, {ip.country_name}")
 
     if any(is_spoofed_bot(r) for r in decision.results):
         return jsonify(error="Spoofed bot"), 403

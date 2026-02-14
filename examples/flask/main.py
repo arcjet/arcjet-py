@@ -57,6 +57,11 @@ def hello():
         requested=5,  # Deduct 5 tokens from the bucket
     )
 
+    # Typed IP details are available directly on decision.ip_details
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        app.logger.info("Request from %s, %s", ip.city, ip.country_name)
+
     # Handle denied requests
     if decision.is_denied():
         status = 429 if decision.reason.is_rate_limit() else 403
@@ -70,11 +75,6 @@ def hello():
         # https://docs.arcjet.com/blueprints/vpn-proxy-detection
 
         return jsonify(error="Hosting IP blocked"), 403
-
-    # Typed IP details are available directly on decision.ip_details
-    ip = decision.ip_details
-    if ip and ip.city and ip.country_name:
-        app.logger.info("Request from %s, %s", ip.city, ip.country_name)
 
     return jsonify(message="Hello world", decision=decision.to_dict())
 

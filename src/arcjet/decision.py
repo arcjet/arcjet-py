@@ -210,10 +210,16 @@ class Decision:
 
     @property
     def ip_details(self) -> arcjet.dataclasses.IpDetails | None:
-        """Typed IP enrichment fields when present.
+        """IP analysis details when available.
 
-        This is the typed alternative to reading ``ip_details`` from
-        ``Decision.to_dict()``.
+        - Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`,
+          `postal_code`, `city`, `region`, `country`, `country_name`,
+          `continent`, `continent_name`
+        - ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp,
+          hosting, business, education), `asn_country`
+        - Reputation / service: service name (when present) and boolean
+          indicators for `is_vpn`, `is_proxy`, `is_tor`, `is_hosting`,
+          `is_relay`
         """
         return self.ip.details
 
