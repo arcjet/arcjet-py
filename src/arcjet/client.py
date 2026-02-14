@@ -371,7 +371,7 @@ class Arcjet:
                 )
                 d = decide_pb2.Decision(
                     id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
                     reason=decide_pb2.Reason(
                         error=decide_pb2.ErrorReason(message=str(e))
                     ),
@@ -422,7 +422,7 @@ class Arcjet:
                 )
                 d = decide_pb2.Decision(
                     id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
                     reason=decide_pb2.Reason(
                         error=decide_pb2.ErrorReason(
                             message="missing decision in response"
@@ -726,7 +726,7 @@ class ArcjetSync:
                 )
                 d = decide_pb2.Decision(
                     id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
                     reason=decide_pb2.Reason(
                         error=decide_pb2.ErrorReason(message=str(e))
                     ),
@@ -777,7 +777,7 @@ class ArcjetSync:
                 )
                 d = decide_pb2.Decision(
                     id="",
-                    conclusion=decide_pb2.CONCLUSION_ALLOW,
+                    conclusion=decide_pb2.CONCLUSION_ERROR,
                     reason=decide_pb2.Reason(
                         error=decide_pb2.ErrorReason(
                             message="missing decision in response"

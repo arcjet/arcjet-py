@@ -46,7 +46,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
 
 
 def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
-    """Test that fail_open=True allows request on network error."""
+    """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet.rules import token_bucket
@@ -65,7 +65,7 @@ def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.Monkey
     import asyncio
 
     d = asyncio.run(aj.protect({"headers": [], "type": "http"}))
-    assert d.is_allowed()
+    assert d.is_error()
     with pytest.warns(DeprecationWarning, match="Use `reason_v2` property instead"):
         assert d.reason.is_error()
 
