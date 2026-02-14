@@ -175,11 +175,33 @@ class StubReason:
 class StubIpDetails:
     """Stub for protobuf IpDetails message."""
 
-    def __init__(self) -> None:
-        self.is_hosting = False
-        self.is_vpn = False
-        self.is_proxy = False
-        self.is_tor = False
+    def __init__(self, **kwargs: Any) -> None:
+        # Initialize all known fields with default values
+        self.latitude: float | None = None
+        self.longitude: float | None = None
+        self.accuracy_radius: int | None = None
+        self.timezone: str | None = None
+        self.postal_code: str | None = None
+        self.city: str | None = None
+        self.region: str | None = None
+        self.country: str | None = None
+        self.country_name: str | None = None
+        self.continent: str | None = None
+        self.continent_name: str | None = None
+        self.asn: str | None = None
+        self.asn_name: str | None = None
+        self.asn_domain: str | None = None
+        self.asn_type: str | None = None
+        self.asn_country: str | None = None
+        self.service: str | None = None
+        self.is_hosting: bool = False
+        self.is_vpn: bool = False
+        self.is_proxy: bool = False
+        self.is_tor: bool = False
+        self.is_relay: bool = False
+        # Set any provided kwargs
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
 
 class StubRuleResult:
