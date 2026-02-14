@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Generator
 from typing import Any, Callable, Optional
 
 import pytest
@@ -245,6 +246,7 @@ class StubEmailType(int):
     EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS
     EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR
     EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID
+    EMAIL_TYPE_UNSPECIFIED = EMAIL_TYPE_UNSPECIFIED
 
 
 class StubDecideResponse:
@@ -298,7 +300,7 @@ class StubDecideServiceClient:
     """
 
     decide_calls = 0
-    decide_behavior: Optional[Callable[[Any], Any]] = None
+    decide_behavior: Optional[Callable[[Any], StubDecideResponse]] = None
 
     def __init__(self, base_url: str, **kwargs: Any) -> None:
         self.base_url = base_url
@@ -306,8 +308,9 @@ class StubDecideServiceClient:
     async def decide(self, request: Any, **kwargs: Any) -> StubDecideResponse:
         """Async decide method."""
         type(self).decide_calls += 1
-        if callable(type(self).decide_behavior):
-            return type(self).decide_behavior(request)  # type: ignore[misc]
+        behavior = type(self).decide_behavior
+        if behavior is not None:
+            return behavior(request)
         return StubDecideResponse(
             StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
@@ -321,7 +324,7 @@ class StubDecideServiceClientSync:
     """Stub for sync DecideServiceClient."""
 
     decide_calls = 0
-    decide_behavior: Optional[Callable[[Any], Any]] = None
+    decide_behavior: Optional[Callable[[Any], StubDecideResponse]] = None
 
     def __init__(self, base_url: str, **kwargs: Any) -> None:
         self.base_url = base_url
@@ -329,8 +332,9 @@ class StubDecideServiceClientSync:
     def decide(self, request: Any, **kwargs: Any) -> StubDecideResponse:
         """Sync decide method."""
         type(self).decide_calls += 1
-        if callable(type(self).decide_behavior):
-            return type(self).decide_behavior(request)  # type: ignore[misc]
+        behavior = type(self).decide_behavior
+        if behavior is not None:
+            return behavior(request)
         return StubDecideResponse(
             StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
@@ -353,8 +357,16 @@ def _message_to_dict(x: Any, preserving_proto_field_name: bool = True) -> dict:
     return {}
 
 
+def _set_module_attrs(module: types.ModuleType, **attrs: Any) -> None:
+    """Populate a module object with dynamic attributes."""
+    for name, value in attrs.items():
+        setattr(module, name, value)
+
+
 @pytest.fixture(scope="function")
-def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):  # type: ignore[misc]
+def mock_protobuf_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[dict[str, Any], None, None]:
     """Fixture to mock protobuf modules for a single test.
 
     This fixture creates and installs stub protobuf modules into sys.modules
@@ -371,7 +383,7 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):  # type: ignore[misc
     mod_google = types.ModuleType("google")
     mod_protobuf = types.ModuleType("google.protobuf")
     mod_json_format = types.ModuleType("google.protobuf.json_format")
-    mod_json_format.MessageToDict = _message_to_dict  # type: ignore[attr-defined]
+    _set_module_attrs(mod_json_format, MessageToDict=_message_to_dict)
 
     mod_proto = types.ModuleType("arcjet.proto")
     mod_decide = types.ModuleType("arcjet.proto.decide")
@@ -380,42 +392,47 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):  # type: ignore[misc
     mod_connect = types.ModuleType("arcjet.proto.decide.v1alpha1.decide_connect")
 
     # Populate decide_pb2 module
-    # Type checkers don't understand dynamic module attribute assignment
-    mod_pb2.MODE_DRY_RUN = MODE_DRY_RUN  # type: ignore[attr-defined]
-    mod_pb2.MODE_LIVE = MODE_LIVE  # type: ignore[attr-defined]
-    mod_pb2.SDK_STACK_PYTHON = SDK_STACK_PYTHON  # type: ignore[attr-defined]
-    mod_pb2.CONCLUSION_ALLOW = CONCLUSION_ALLOW  # type: ignore[attr-defined]
-    mod_pb2.CONCLUSION_DENY = CONCLUSION_DENY  # type: ignore[attr-defined]
-    mod_pb2.CONCLUSION_CHALLENGE = CONCLUSION_CHALLENGE  # type: ignore[attr-defined]
-    mod_pb2.CONCLUSION_ERROR = CONCLUSION_ERROR  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_DISPOSABLE = EMAIL_TYPE_DISPOSABLE  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_FREE = EMAIL_TYPE_FREE  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID  # type: ignore[attr-defined]
-    mod_pb2.EMAIL_TYPE_UNSPECIFIED = EMAIL_TYPE_UNSPECIFIED  # type: ignore[attr-defined]
-    mod_pb2.RATE_LIMIT_ALGORITHM_TOKEN_BUCKET = RATE_LIMIT_ALGORITHM_TOKEN_BUCKET  # type: ignore[attr-defined]
-    mod_pb2.RATE_LIMIT_ALGORITHM_FIXED_WINDOW = RATE_LIMIT_ALGORITHM_FIXED_WINDOW  # type: ignore[attr-defined]
-    mod_pb2.RATE_LIMIT_ALGORITHM_SLIDING_WINDOW = RATE_LIMIT_ALGORITHM_SLIDING_WINDOW  # type: ignore[attr-defined]
-    mod_pb2.Conclusion = _Conclusion  # type: ignore[attr-defined]
-    mod_pb2.RequestDetails = StubRequestDetails  # type: ignore[attr-defined]
-    mod_pb2.ShieldRule = StubShieldRule  # type: ignore[attr-defined]
-    mod_pb2.BotV2Rule = StubBotV2Rule  # type: ignore[attr-defined]
-    mod_pb2.RateLimitRule = StubRateLimitRule  # type: ignore[attr-defined]
-    mod_pb2.EmailRule = StubEmailRule  # type: ignore[attr-defined]
-    mod_pb2.Rule = StubRule  # type: ignore[attr-defined]
-    mod_pb2.ErrorReason = StubErrorReason  # type: ignore[attr-defined]
-    mod_pb2.Reason = StubReason  # type: ignore[attr-defined]
-    mod_pb2.IpDetails = StubIpDetails  # type: ignore[attr-defined]
-    mod_pb2.RuleResult = StubRuleResult  # type: ignore[attr-defined]
-    mod_pb2.Decision = StubDecision  # type: ignore[attr-defined]
-    mod_pb2.DecideRequest = StubDecideRequest  # type: ignore[attr-defined]
-    mod_pb2.ReportRequest = StubReportRequest  # type: ignore[attr-defined]
-    mod_pb2.EmailType = StubEmailType  # type: ignore[attr-defined]
+    _set_module_attrs(
+        mod_pb2,
+        MODE_DRY_RUN=MODE_DRY_RUN,
+        MODE_LIVE=MODE_LIVE,
+        SDK_STACK_PYTHON=SDK_STACK_PYTHON,
+        CONCLUSION_ALLOW=CONCLUSION_ALLOW,
+        CONCLUSION_DENY=CONCLUSION_DENY,
+        CONCLUSION_CHALLENGE=CONCLUSION_CHALLENGE,
+        CONCLUSION_ERROR=CONCLUSION_ERROR,
+        EMAIL_TYPE_DISPOSABLE=EMAIL_TYPE_DISPOSABLE,
+        EMAIL_TYPE_FREE=EMAIL_TYPE_FREE,
+        EMAIL_TYPE_NO_MX_RECORDS=EMAIL_TYPE_NO_MX_RECORDS,
+        EMAIL_TYPE_NO_GRAVATAR=EMAIL_TYPE_NO_GRAVATAR,
+        EMAIL_TYPE_INVALID=EMAIL_TYPE_INVALID,
+        EMAIL_TYPE_UNSPECIFIED=EMAIL_TYPE_UNSPECIFIED,
+        RATE_LIMIT_ALGORITHM_TOKEN_BUCKET=RATE_LIMIT_ALGORITHM_TOKEN_BUCKET,
+        RATE_LIMIT_ALGORITHM_FIXED_WINDOW=RATE_LIMIT_ALGORITHM_FIXED_WINDOW,
+        RATE_LIMIT_ALGORITHM_SLIDING_WINDOW=RATE_LIMIT_ALGORITHM_SLIDING_WINDOW,
+        Conclusion=_Conclusion,
+        RequestDetails=StubRequestDetails,
+        ShieldRule=StubShieldRule,
+        BotV2Rule=StubBotV2Rule,
+        RateLimitRule=StubRateLimitRule,
+        EmailRule=StubEmailRule,
+        Rule=StubRule,
+        ErrorReason=StubErrorReason,
+        Reason=StubReason,
+        IpDetails=StubIpDetails,
+        RuleResult=StubRuleResult,
+        Decision=StubDecision,
+        DecideRequest=StubDecideRequest,
+        ReportRequest=StubReportRequest,
+        EmailType=StubEmailType,
+    )
 
     # Populate decide_connect module
-    mod_connect.DecideServiceClient = StubDecideServiceClient  # type: ignore[attr-defined]
-    mod_connect.DecideServiceClientSync = StubDecideServiceClientSync  # type: ignore[attr-defined]
+    _set_module_attrs(
+        mod_connect,
+        DecideServiceClient=StubDecideServiceClient,
+        DecideServiceClientSync=StubDecideServiceClientSync,
+    )
 
     # Install modules using monkeypatch for automatic cleanup
     monkeypatch.setitem(sys.modules, "google", mod_google)
