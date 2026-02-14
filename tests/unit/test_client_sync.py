@@ -41,7 +41,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
         aj.protect({"headers": [], "type": "http"})
 
 
-def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
+def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet_sync
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
