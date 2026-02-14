@@ -230,3 +230,23 @@ def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
     )
     # Access the internal client to verify the base_url
     assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+
+
+def test_default_base_url_trailing_slash_is_stripped_from_env(
+    mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that DEFAULT_BASE_URL strips trailing slashes from ARCJET_BASE_URL."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    # Set environment variable with trailing slash
+    monkeypatch.setenv("ARCJET_BASE_URL", "https://example.com/")
+
+    # Create client without explicitly passing base_url so DEFAULT_BASE_URL is used
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+    )
+
+    # Access the internal client to verify the base_url from DEFAULT_BASE_URL
+    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
