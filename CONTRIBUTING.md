@@ -31,17 +31,18 @@ uv run pytest
 
 - Set `ARCJET_LOG_LEVEL=debug` to see detailed debug logs during development.
 
-### Mocked tests
+### Test Organization
 
-Mocked tests stub the Decide API protobufs and clients, so no network access is
-required.
+All tests (unit and integration) run together in a single test suite:
 
-_The mocked test monkeypatch various internal SDK things and need to be
-isolated (read: run entirely seperately) from the other tests._
+- **Unit tests** (in `tests/unit/`): Use pytest fixtures to mock protobuf
+  dependencies without permanent module stubbing
+- **Integration tests** (in `tests/fastapi/`, `tests/flask/`, etc.): Test with
+  real framework integrations
+- **Fixtures** (in `tests/fixtures/`): Shared test fixtures and protobuf stubs
 
-```sh
-uv run pytest tests/mocked
-```
+The fixture-based approach prevents cross-contamination between tests while
+allowing them to run in a single pytest invocation.
 
 ## Breaking changes
 
@@ -63,8 +64,10 @@ breaking changes.
 1. Create a new branch `git checkout -b release-0.1.0`
 2. Bump the version using `uv version --bump` e.g. `uv version --bump patch`.
 3. Commit and push the changes to GitHub, then open a PR.
-4. Once merged to `main`, create a new Git tag with the new version e.g. `git tag -a v0.1.0 -m v0.1.0`
+4. Once merged to `main`, create a new Git tag with the new version e.g. `git
+   tag -a v0.1.0 -m v0.1.0`
 5. Push the tag to GitHub e.g. `git push --tags`
-6. The release workflow will be triggered automatically and must be approved by another member of the team.
+6. The release workflow will be triggered automatically and must be approved by
+   another member of the team.
 7. Once approved, the package will be pushed to PyPI
 8. Create a new release in GitHub and link the release to the newly created tag.

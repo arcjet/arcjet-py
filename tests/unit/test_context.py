@@ -1,14 +1,17 @@
+"""Unit tests for request context utilities.
+
+Tests IP extraction from headers, request context coercion from different
+frameworks, and protobuf conversion utilities.
+"""
+
 from __future__ import annotations
 
 from arcjet.context import (
-    extract_ip_from_headers,
-    coerce_request_context,
-    request_details_from_context,
     RequestContext,
+    coerce_request_context,
+    extract_ip_from_headers,
+    request_details_from_context,
 )
-
-
-import pytest
 
 
 def test_extract_ip_xff_skips_trusted_proxy_literal():
@@ -31,7 +34,8 @@ def test_extract_ip_xff_ignores_invalid_proxy_entries():
     assert extract_ip_from_headers(headers, proxies=[1234]) == "3.3.3.3"  # type: ignore
 
 
-def test_extract_ip_dev_override_wins(monkeypatch):
+def test_extract_ip_dev_override_wins(dev_environment):
+    """Test that X-Arcjet-Ip header overrides other IP detection in dev mode."""
     headers = {"X-Arcjet-Ip": "10.0.0.1"}
     assert extract_ip_from_headers(headers) == "10.0.0.1"
 
@@ -132,7 +136,7 @@ def test_coerce_asgi_scope_and_plain_mapping(monkeypatch):
     ctx2 = coerce_request_context(mapping)
     assert ctx2.ip == "203.0.113.7"
     assert ctx2.method == "POST"
-    assert ctx2.headers["X"] == "Y"
+    assert ctx2.headers["X"] == "Y"  # type: ignore[index]
 
 
 def test_request_details_from_context_normalizes_headers_and_extra():

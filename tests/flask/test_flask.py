@@ -8,7 +8,6 @@ def create_app() -> Flask:
     app = Flask(__name__)
 
     arcjet = arcjet_flask(
-        # TODO: figure out why `invalid.local` causes tests to take minutes.
         base_url="https://invalid.test",  # Intentional invalid URL for testing
         key="ajkey_dummy",
         rules=[],

@@ -46,18 +46,23 @@ dev = [
   "httpx>=0.28.1",                   # Used by FastAPI tests
   "pyright==1.1.408",
   "pytest==9.0.2",
+  "pytest-cov>=7.0.0",
   "ruff==0.14.10",
   "ty==0.0.8",
   "types-protobuf==6.32.1.20251210",
 ]
 
-[tool.pytest]
-# The tests/mocked test monkeypatch various internal SDK things and need to be
-# isolated (read: run entirely seperately) from the other tests. Run them with
-# `uv run pytest tests/mocked`.
-addopts = ["--ignore=tests/mocked", "-q"]
+[tool.pytest.ini_options]
+addopts = ["-q", "--cov=src/arcjet", "--cov-report=term-missing"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.coverage.run]
+omit = ["src/arcjet/proto/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
 
 [tool.ruff]
 exclude = [
@@ -65,14 +70,6 @@ exclude = [
   "src/arcjet/proto",
   # TODO: re-enable once we fix the issues
   "examples",
-  "tests/mocked/conftest.py",
-  "tests/mocked/test_cache.py",
-  "tests/mocked/test_client_sync.py",
-  "tests/mocked/test_context.py",
-  "tests/mocked/test_decision.py",
-  "tests/mocked/test_enums.py",
-  "tests/mocked/test_logging.py",
-  "tests/mocked/test_rules.py",
 ]
 
 [tool.ruff.lint]
