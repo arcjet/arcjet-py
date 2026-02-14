@@ -1,4 +1,4 @@
-# Arcjet Python SDK Example FastAPI Application
+# Arcjet Python SDK Example Flask Application
 
 ## Setup
 
@@ -9,6 +9,6 @@ Assumes running inside the devcontainer:
 export ARCJET_KEY="ajkey_..."
 export ARCJET_ENV=development
 
-# Run the FastAPI application
+# Run the Flask application
 uv run python main.py
 ```
