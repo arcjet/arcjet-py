@@ -199,7 +199,7 @@ def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
         base_url="https://example.com/",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
 
 
 def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
@@ -214,7 +214,7 @@ def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
         base_url="https://example.com///",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
 
 
 def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
@@ -229,24 +229,25 @@ def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
         base_url="https://example.com",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
 
 
-def test_default_base_url_trailing_slash_is_stripped_from_env(
+def test_default_base_url_from_env_trailing_slash_is_stripped(
     mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
 ):
-    """Test that DEFAULT_BASE_URL strips trailing slashes from ARCJET_BASE_URL."""
-    from arcjet import arcjet
+    """Test DEFAULT_BASE_URL strips trailing slash from ARCJET_BASE_URL env var."""
+    import importlib
+
+    import arcjet.client as client_module
     from arcjet.rules import token_bucket
 
-    # Set environment variable with trailing slash
-    monkeypatch.setenv("ARCJET_BASE_URL", "https://example.com/")
+    with monkeypatch.context() as m:
+        m.setenv("ARCJET_BASE_URL", "https://example.com/")
+        reloaded_module = importlib.reload(client_module)
+        aj = reloaded_module.arcjet(
+            key="ajkey_x",
+            rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        )
+        assert getattr(aj._client, "base_url") == "https://example.com"
 
-    # Create client without explicitly passing base_url so DEFAULT_BASE_URL is used
-    aj = arcjet(
-        key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
-    )
-
-    # Access the internal client to verify the base_url from DEFAULT_BASE_URL
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    importlib.reload(client_module)
