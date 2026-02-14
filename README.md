@@ -25,7 +25,8 @@ packages for Python.
 Arcjet security features for protecting Python apps:
 
 - 🤖 [Bot protection](https://docs.arcjet.com/bot-protection) - manage traffic
-  by automated clients and bots.
+  by automated clients and bots, with [verification and
+  categorization](https://docs.arcjet.com/bot-protection/identifying-bots).
 - 🛑 [Rate limiting](https://docs.arcjet.com/rate-limiting) - limit the number
   of requests a client can make.
 - 🛡️ [Shield WAF](https://docs.arcjet.com/shield) - protect your application
@@ -100,8 +101,13 @@ from arcjet import (
 
 app = FastAPI()
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError(
+        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet(
-    key=os.environ["ARCJET_KEY"],  # Get your key from https://app.arcjet.com
+    key=arcjet_key,  # Get your key from https://app.arcjet.com
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
@@ -110,9 +116,9 @@ aj = arcjet(
             mode=Mode.LIVE, allow=[
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
-                # See the full list at https://arcjet.com/bot-list
-                # BotCategory.MONITOR", // Uptime monitoring services
-                # BotCategory.PREVIEW", // Link previews e.g. Slack, Discord
+                # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                # BotCategory.MONITOR", # Uptime monitoring services
+                # BotCategory.PREVIEW", # Link previews e.g. Slack, Discord
             ]
         ),
         # Create a token bucket rate limit. Other algorithms are supported
@@ -123,7 +129,7 @@ aj = arcjet(
             mode=Mode.LIVE,
             refill_rate=5,  # Refill 5 tokens per interval
             interval=10,  # Refill every 10 seconds
-            capacity=10  # Bucket capacity of 10 tokens
+            capacity=10,  # Bucket capacity of 10 tokens
         ),
     ],
 )
@@ -183,8 +189,13 @@ from arcjet import (
 
 app = Flask(__name__)
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError(
+        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet_sync(
-    key=os.environ["ARCJET_KEY"],
+    key=arcjet_key,
     rules=[
         shield(mode=Mode.LIVE),
         detect_bot(
@@ -200,27 +211,81 @@ aj = arcjet_sync(
 
 @app.route("/")
 def hello():
-  # requested is optional; only relevant for token bucket rules (default: 1)
-  # email is only required if validate_email() is configured
-  decision = aj.protect(request, requested=1, email="example@arcjet.com")
+    # requested is optional; only relevant for token bucket rules (default: 1)
+    # email is only required if validate_email() is configured
+    decision = aj.protect(request, requested=1, email="example@arcjet.com")
 
-  if decision.is_denied():
-    status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-    return jsonify(error="Denied", reason=decision.reason_v2), status
+    if decision.is_denied():
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+        return jsonify(error="Denied", reason=decision.reason_v2), status
 
-  if decision.ip.is_hosting():
-    return jsonify(error="Hosting IP blocked"), 403
+    if decision.ip.is_hosting():
+        return jsonify(error="Hosting IP blocked"), 403
 
-  if any(is_spoofed_bot(r) for r in decision.results):
-    return jsonify(error="Spoofed bot"), 403
+    if any(is_spoofed_bot(r) for r in decision.results):
+        return jsonify(error="Spoofed bot"), 403
 
-  return jsonify(message="Hello world", decision=decision.to_dict())
+    return jsonify(message="Hello world", decision=decision.to_dict())
 
 if __name__ == "__main__":
-  app.run(debug=True)
+    app.run(debug=True)
 ```
 
-### Custom characteristics
+## Identifying bots
+
+Arcjet allows you to configure a list of bots to allow or deny. To construct the
+list, you can [specify individual
+bots](https://github.com/arcjet/arcjet-js/blob/main/protocol/well-known-bots.ts#L4)
+and/or use
+[categories](https://docs.arcjet.com/bot-protection/identifying-bots#bot-categories)
+to allow or deny all
+bots in a category.
+
+If you specify a list of bots to allow, then all other bots will be denied. An
+empty allow list means all bots are denied. The opposite applies for deny lists,
+if you specify bots to deny then all other bots will be allowed.
+
+### Bot categories
+
+Bots can be configured by
+[category](https://docs.arcjet.com/bot-protection/identifying-bots#bot-categories)
+and/or by [specific bot
+name](https://github.com/arcjet/arcjet-js/blob/main/protocol/well-known-bots.ts#L4).
+For example, to
+allow all search engines and OpenAI crawler bots, but deny all other bots:
+
+```py
+from arcjet import arcjet, Mode, BotCategory
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        detect_bot(
+            mode=Mode.LIVE, 
+            allow=[
+                BotCategory.SEARCH_ENGINE, 
+                "OPENAI_CRAWLER_SEARCH",
+            ]
+        ),
+    ],
+)
+```
+
+The identifiers on the bot list are generated from a [collection of known
+bots](https://github.com/arcjet/well-known-bots) which includes details of their
+owner and any variations.
+
+If a bot is detected but cannot be identified as a known bot, it will be labeled
+as `UNKNOWN_BOT`. This is separate from the `CATEGORY:UNKNOWN` category, which
+is for bots that cannot be classified into any category but can still be
+identified as a specific bot. You can see a list of these named, but
+unclassified bots in the bot list.
+
+Detections returned as `UNKNOWN_BOT` happen if the bot is new or hides itself.
+It’s a bot with no name. Arcjet uses various techniques to detect these bots,
+including analyzing request patterns and tracking IP addresses.
+
+## Custom characteristics
 
 Each client is tracked by IP address by default. To customize client
 fingerprinting you can configure custom characteristics:
@@ -243,8 +308,13 @@ from arcjet import (
 
 app = Flask(__name__)
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError(
+        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet_sync(
-    key=os.environ["ARCJET_KEY"],  # Get your key from https://app.arcjet.com
+    key=arcjet_key,  # Get your key from https://app.arcjet.com
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
@@ -254,9 +324,9 @@ aj = arcjet_sync(
             allow=[
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
-                # See the full list at https://arcjet.com/bot-list
-                # BotCategory.MONITOR", // Uptime monitoring services
-                # BotCategory.PREVIEW", // Link previews e.g. Slack, Discord
+                # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                # BotCategory.MONITOR", # Uptime monitoring services
+                # BotCategory.PREVIEW", # Link previews e.g. Slack, Discord
             ],
         ),
         # Create a token bucket rate limit. Other algorithms are supported
@@ -304,7 +374,7 @@ if __name__ == "__main__":
 
 ```
 
-### Trusted proxies
+## Trusted proxies
 
 When your app runs behind one or more reverse proxies or a load balancer, pass
 their IPs or CIDR ranges so Arcjet can correctly resolve the real client IP from
@@ -314,7 +384,7 @@ their IPs or CIDR ranges so Arcjet can correctly resolve the real client IP from
 from arcjet import arcjet
 
 aj = arcjet(
-    key=os.environ["ARCJET_KEY"],
+    key=arcjet_key,
     rules=[...],
     proxies=["10.0.0.0/8", "192.168.0.1"],
 )
@@ -324,7 +394,7 @@ Only globally routable IPs are accepted for client identification; private,
 loopback, link-local, and addresses matching `proxies` are ignored during IP
 extraction.
 
-### Overriding automatic IP detection
+## Overriding automatic IP detection
 
 By default, Arcjet automatically detects the client IP from the request using
  `X-Forwarded-For`. We recommend leaving this enabled in most cases and
@@ -346,20 +416,20 @@ creating the Arcjet client, and then provide the `ip_src` parameter to
 ```py
 from arcjet import arcjet
 aj = arcjet(
-    key=os.environ["ARCJET_KEY"],
+    key=arcjet_key,
     rules=[...],
     disable_automatic_ip_detection=True,
 )
 
 # ...
 
-decision = aj.protect(
+decision = await aj.protect(
     request,
     ip_src="8.8.8.8",  # provide the client IP here
 )
 ```
 
-### Logging
+## Logging
 
 Enable debug logging to troubleshoot issues with Arcjet integration.
 
@@ -377,8 +447,8 @@ environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
 ## Accessing decision details
 
 Arcjet returns per-rule `rule_results` and a top-level `decision.reason_v2`. To
-make a simple decision about allowing or denying a request you can check `if
-decision.is_denied():`. For more details, inspect the rule results.
+make a simple decision about allowing or denying a request you can check 
+`if decision.is_denied():`. For more details, inspect the rule results.
 
 ### Getting bot detection details
 
@@ -389,6 +459,53 @@ if decision.reason_v2.type == "BOT":
    denied = decision.reason_v2.denied
 
    print("Denied bots:", ", ".join(denied) if denied else "none")
+```
+
+### Verified vs spoofed bots
+
+Bots claiming to be certain well-known bots (e.g. Googlebot) are verified by
+checking their IP address against the known IP ranges for that bot. If a bot
+claims to be a certain bot but fails verification, it is labeled as a spoofed
+bot. You can check for spoofed bots with the `is_spoofed_bot()` helper:
+
+```py
+from arcjet import is_spoofed_bot
+
+# ... after calling aj.protect() and getting a decision
+
+if any(is_spoofed_bot(r) for r in decision.results):
+    return jsonify(error="Spoofed bot"), 403
+```
+
+The decision reason will also indicate whether a bot was verified or spoofed:
+
+```py
+if decision.reason_v2.type == "BOT":
+    print("Spoofed:", decision.reason_v2.spoofed)
+    print("Verified:", decision.reason_v2.verified)
+
+    # Example policy decisions
+    if decision.reason_v2.spoofed:
+        return jsonify(error="Spoofed bot"), 403
+
+    if decision.reason_v2.verified:
+        print("Known bot verified by Arcjet")
+```
+
+If you want to inspect bot results at the per-rule level, iterate through
+`decision.results` and read `reason.spoofed` / `reason.verified` on BOT reasons:
+
+```py
+for result in decision.results:
+    reason = result.reason
+    if reason.type != "BOT":
+        continue
+
+    if reason.spoofed:
+        return jsonify(error="Spoofed bot"), 403
+
+    if reason.verified:
+        print("Verified bot traffic")
 ```
 
 ## IP analysis
