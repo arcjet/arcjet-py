@@ -1,6 +1,7 @@
 import os
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from dataclasses import asdict
+
+from fastapi import FastAPI, HTTPException, Request
 
 from arcjet import (
     arcjet,
@@ -13,8 +14,13 @@ from arcjet import (
 
 app = FastAPI()
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError(
+        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet(
-    key=os.environ["ARCJET_KEY"],  # Get your key from https://app.arcjet.com
+    key=arcjet_key,
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
@@ -25,8 +31,8 @@ aj = arcjet(
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
                 # See the full list at https://arcjet.com/bot-list
-                # BotCategory.MONITOR", // Uptime monitoring services
-                # BotCategory.PREVIEW", // Link previews e.g. Slack, Discord
+                # BotCategory.MONITOR,  # Uptime monitoring services
+                # BotCategory.PREVIEW,  # Link previews e.g. Slack, Discord
             ],
         ),
         # Create a token bucket rate limit. Other algorithms are supported
@@ -43,6 +49,10 @@ aj = arcjet(
 )
 
 
+def denial_status_code(reason_type: str) -> int:
+    return 429 if reason_type == "RATE_LIMIT" else 403
+
+
 @app.get("/")
 async def hello(request: Request):
     # Call protect() to evaluate the request against the rules
@@ -53,10 +63,9 @@ async def hello(request: Request):
 
     # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason.is_rate_limit() else 403
-        return JSONResponse(
-            {"error": "Denied", "reason": decision.reason.to_dict()},
-            status_code=status,
+        raise HTTPException(
+            status_code=denial_status_code(decision.reason_v2.type),
+            detail={"error": "Denied", "reason": asdict(decision.reason_v2)},
         )
 
     # Check IP metadata (VPNs, hosting, geolocation, etc)
@@ -66,9 +75,7 @@ async def hello(request: Request):
         # then hosting IPs might be legitimate.
         # https://docs.arcjet.com/blueprints/vpn-proxy-detection
 
-        return JSONResponse(
-            {"error": "Denied from hosting IP"},
-            status_code=403,
-        )
+        raise HTTPException(status_code=403, detail={
+                            "error": "Denied from hosting IP"})
 
     return {"message": "Hello world", "decision": decision.to_dict()}

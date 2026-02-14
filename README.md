@@ -76,9 +76,6 @@ This example implements Arcjet bot protection, rate limiting, email validation,
 and Shield WAF in a FastAPI application. Requests from bots not in the allow
 list will be blocked with a 403 Forbidden response.
 
-The example email is invalid so an error will be returned - change the email to
-see different results.
-
 ### FastAPI
 
 An asynchronous example using FastAPI with the Arcjet async client.
@@ -86,8 +83,9 @@ An asynchronous example using FastAPI with the Arcjet async client.
 ```py
 # main.py
 import os
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from dataclasses import asdict
+
+from fastapi import FastAPI, HTTPException, Request
 
 from arcjet import (
     arcjet,
@@ -100,20 +98,25 @@ from arcjet import (
 
 app = FastAPI()
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet(
-    key=os.environ["ARCJET_KEY"],  # Get your key from https://app.arcjet.com
+    key=arcjet_key,
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
         # Create a bot detection rule
         detect_bot(
-            mode=Mode.LIVE, allow=[
+            mode=Mode.LIVE,
+            allow=[
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
                 # See the full list at https://arcjet.com/bot-list
-                # BotCategory.MONITOR", // Uptime monitoring services
-                # BotCategory.PREVIEW", // Link previews e.g. Slack, Discord
-            ]
+                # BotCategory.MONITOR,  # Uptime monitoring services
+                # BotCategory.PREVIEW,  # Link previews e.g. Slack, Discord
+            ],
         ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
@@ -123,25 +126,26 @@ aj = arcjet(
             mode=Mode.LIVE,
             refill_rate=5,  # Refill 5 tokens per interval
             interval=10,  # Refill every 10 seconds
-            capacity=10  # Bucket capacity of 10 tokens
+            capacity=10,  # Bucket capacity of 10 tokens
         ),
     ],
 )
 
 
+def denial_status_code(reason_type: str) -> int:
+    return 429 if reason_type == "RATE_LIMIT" else 403
+
+
 @app.get("/")
 async def hello(request: Request):
     # Call protect() to evaluate the request against the rules
-    decision = await aj.protect(
-        request, requested=5  # Deduct 5 tokens from the bucket
-    )
+    decision = await aj.protect(request, requested=5)  # Deduct 5 tokens from the bucket
 
     # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return JSONResponse(
-            {"error": "Denied", "reason": decision.reason_v2},
-            status_code=status,
+        raise HTTPException(
+            status_code=denial_status_code(decision.reason_v2.type),
+            detail={"error": "Denied", "reason": asdict(decision.reason_v2)},
         )
 
     # Check IP metadata (VPNs, hosting, geolocation, etc)
@@ -151,10 +155,7 @@ async def hello(request: Request):
         # then hosting IPs might be legitimate.
         # https://docs.arcjet.com/blueprints/vpn-proxy-detection
 
-        return JSONResponse(
-            {"error": "Denied from hosting IP"},
-            status_code=403,
-        )
+        raise HTTPException(status_code=403, detail={"error": "Denied from hosting IP"})
 
     return {"message": "Hello world", "decision": decision.to_dict()}
 
@@ -166,30 +167,34 @@ A synchronous example using Flask with the sync client.
 
 ```py
 # main.py
-from flask import Flask, request, jsonify
 import os
+from dataclasses import asdict
+
+from flask import Flask, jsonify, request
 
 from arcjet import (
-  arcjet_sync,
-  shield,
-  detect_bot,
-  token_bucket,
-  validate_email,
-  is_spoofed_bot,
-  Mode,
-  BotCategory,
-  EmailType,
+    BotCategory,
+    EmailType,
+    Mode,
+    arcjet_sync,
+    detect_bot,
+    is_spoofed_bot,
+    shield,
+    token_bucket,
+    validate_email,
 )
 
 app = Flask(__name__)
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
 aj = arcjet_sync(
-    key=os.environ["ARCJET_KEY"],
+    key=arcjet_key,
     rules=[
         shield(mode=Mode.LIVE),
-        detect_bot(
-            mode=Mode.LIVE, allow=[BotCategory.SEARCH_ENGINE, "OPENAI_CRAWLER_SEARCH"]
-        ),
+        detect_bot(mode=Mode.LIVE, allow=[BotCategory.SEARCH_ENGINE]),
         token_bucket(mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
         validate_email(
             mode=Mode.LIVE,
@@ -198,27 +203,36 @@ aj = arcjet_sync(
     ],
 )
 
+
+def denial_status_code(reason_type: str) -> int:
+    return 429 if reason_type == "RATE_LIMIT" else 403
+
 @app.route("/")
 def hello():
-  # requested is optional; only relevant for token bucket rules (default: 1)
-  # email is only required if validate_email() is configured
-  decision = aj.protect(request, requested=1, email="example@arcjet.com")
+    # requested is optional; only relevant for token bucket rules (default: 1)
+    # email is only required if validate_email() is configured
+    decision = aj.protect(request, requested=1, email="example@arcjet.com")
 
-  if decision.is_denied():
-    status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-    return jsonify(error="Denied", reason=decision.reason_v2), status
+    if decision.is_denied():
+        return (
+            jsonify(error="Denied", reason=asdict(decision.reason_v2)),
+            denial_status_code(decision.reason_v2.type),
+        )
 
-  if decision.ip.is_hosting():
-    return jsonify(error="Hosting IP blocked"), 403
+    if decision.ip.is_hosting():
+        return jsonify(error="Hosting IP blocked"), 403
 
-  if any(is_spoofed_bot(r) for r in decision.results):
-    return jsonify(error="Spoofed bot"), 403
+    if any(is_spoofed_bot(r) for r in decision.results):
+        return jsonify(error="Spoofed bot"), 403
 
-  return jsonify(message="Hello world", decision=decision.to_dict())
+    return jsonify(message="Hello world", decision=decision.to_dict())
 
 if __name__ == "__main__":
-  app.run(debug=True)
+    app.run(debug=True)
 ```
+
+You can also pass custom bot identifiers as strings when needed (for example,
+`"OPENAI_CRAWLER_SEARCH"`) in the `allow` list.
 
 ### Custom characteristics
 
@@ -227,9 +241,10 @@ fingerprinting you can configure custom characteristics:
 
 ```py
 # main.py
-from flask import Flask, request, jsonify
 import os
-import logging
+from dataclasses import asdict
+
+from flask import Flask, jsonify, request
 
 from arcjet import (
     arcjet_sync,
@@ -238,13 +253,20 @@ from arcjet import (
     token_bucket,
     Mode,
     BotCategory,
-    EmailType,
 )
 
 app = Flask(__name__)
 
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
+
+def denial_status_code(reason_type: str) -> int:
+    return 429 if reason_type == "RATE_LIMIT" else 403
+
 aj = arcjet_sync(
-    key=os.environ["ARCJET_KEY"],  # Get your key from https://app.arcjet.com
+    key=arcjet_key,
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
@@ -255,8 +277,8 @@ aj = arcjet_sync(
                 BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
                 # Uncomment to allow these other common bot categories
                 # See the full list at https://arcjet.com/bot-list
-                # BotCategory.MONITOR", // Uptime monitoring services
-                # BotCategory.PREVIEW", // Link previews e.g. Slack, Discord
+                # BotCategory.MONITOR,  # Uptime monitoring services
+                # BotCategory.PREVIEW,  # Link previews e.g. Slack, Discord
             ],
         ),
         # Create a token bucket rate limit. Other algorithms are supported
@@ -283,8 +305,10 @@ def hello():
 
     # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return jsonify(error="Denied", reason=decision.reason_v2), status
+        return (
+            jsonify(error="Denied", reason=asdict(decision.reason_v2)),
+            denial_status_code(decision.reason_v2.type),
+        )
 
     # Check IP metadata (VPNs, hosting, geolocation, etc)
     if decision.ip.is_hosting():
@@ -344,6 +368,8 @@ creating the Arcjet client, and then provide the `ip_src` parameter to
 `.protect(...)`.
 
 ```py
+import os
+
 from arcjet import arcjet
 aj = arcjet(
     key=os.environ["ARCJET_KEY"],
@@ -353,7 +379,7 @@ aj = arcjet(
 
 # ...
 
-decision = aj.protect(
+decision = await aj.protect(
     request,
     ip_src="8.8.8.8",  # provide the client IP here
 )
@@ -385,10 +411,12 @@ decision.is_denied():`. For more details, inspect the rule results.
 To find out which bots were detected (if any):
 
 ```py
-if decision.reason_v2.type == "BOT":
-   denied = decision.reason_v2.denied
-
-   print("Denied bots:", ", ".join(denied) if denied else "none")
+match decision.reason_v2.type:
+    case "BOT":
+        denied = decision.reason_v2.denied
+        print("Denied bots:", ", ".join(denied) if denied else "none")
+    case "RATE_LIMIT":
+        print("Remaining requests:", decision.reason_v2.remaining)
 ```
 
 ## IP analysis
