@@ -367,14 +367,18 @@ class StubDecideServiceClientSync:
 
 
 def _message_to_dict(x: Any, preserving_proto_field_name: bool = True) -> dict:
-    """Stub for MessageToDict function."""
+    """Stub for MessageToDict function.
+    
+    Mimics real protobuf MessageToDict behavior by omitting fields with default values,
+    including boolean fields set to False.
+    """
     if hasattr(x, "_as_dict"):
         return x._as_dict()
     if hasattr(x, "__dict__"):
         return {
             k: v
             for k, v in vars(x).items()
-            if not k.startswith("_") and not callable(v)
+            if not k.startswith("_") and not callable(v) and not (isinstance(v, bool) and v is False)
         }
     return {}
 
