@@ -213,3 +213,48 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
         aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8")
+
+
+def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
+    """Test that base_url parameter strips trailing slashes."""
+    from arcjet import arcjet_sync
+    from arcjet.rules import token_bucket
+
+    # Create client with trailing slash in base_url
+    aj = arcjet_sync(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com/",
+    )
+    # Access the internal client to verify the base_url
+    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+
+
+def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
+    """Test that base_url parameter strips multiple trailing slashes."""
+    from arcjet import arcjet_sync
+    from arcjet.rules import token_bucket
+
+    # Create client with multiple trailing slashes
+    aj = arcjet_sync(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com///",
+    )
+    # Access the internal client to verify the base_url
+    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+
+
+def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
+    """Test that base_url without trailing slash is unchanged."""
+    from arcjet import arcjet_sync
+    from arcjet.rules import token_bucket
+
+    # Create client without trailing slash
+    aj = arcjet_sync(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com",
+    )
+    # Access the internal client to verify the base_url
+    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
