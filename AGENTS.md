@@ -52,25 +52,23 @@ uv run pyright
 
 ### Testing
 
-**Important**: Tests are split into two categories:
+Run all tests with a single command:
 
-1. **Standard tests** - Integration tests with real protobuf dependencies:
-   ```bash
-   uv run pytest
-   ```
+```bash
+uv run pytest
+```
 
-2. **Mocked tests** - Tests that stub protobuf and decide clients (must run
-   separately):
-   ```bash
-   uv run pytest tests/mocked
-   ```
+This runs both unit tests (in `tests/unit/`) and integration tests (in
+`tests/fastapi/`, `tests/flask/`, etc.) together.
 
-**Critical**: The mocked tests in `tests/mocked/` monkeypatch internal SDK
-components and **must be run entirely separately** from other tests. Do NOT run
-them together with the main test suite.
+**Test Organization**: Tests use pytest fixtures for protobuf mocking, allowing
+all tests to run together without cross-contamination. The `tests/unit/`
+directory contains unit tests with mocked dependencies, while
+`tests/fastapi/`, `tests/flask/`, etc. contain integration tests.
 
-Configuration note: `pyproject.toml` has `addopts = ["--ignore=tests/mocked",
-"-q"]` to exclude mocked tests from the default pytest run.
+Configuration note: `pyproject.toml` has `addopts = ["-q", "--cov=src/arcjet",
+"--cov-report=term-missing"]` for test coverage reporting with an 80% minimum
+threshold.
 
 ### Linting and Formatting
 
@@ -90,8 +88,8 @@ uv run pyright                      # Pyright type checker
 ```
 
 **Note**: Some files are excluded from linting/type checking (see
-`pyproject.toml` for exclusions, including `examples/` and some
-`tests/mocked/*.py` files).
+`pyproject.toml` for exclusions, including `examples/` and generated protobuf
+code in `src/arcjet/proto/`).
 
 ### API Breaking Change Detection
 
@@ -99,10 +97,10 @@ Before merging PRs, check for API breaking changes:
 
 ```bash
 # Check against main branch
-uv run griffe check arcjet --search src --against origin/main
+uv run griffe check arcjet -s src --against origin/main
 
 # Check against most recent tag (default)
-uv run griffe check arcjet --search src
+uv run griffe check arcjet -s src
 ```
 
 PRs with breaking changes must be labeled with `breaking` label to be merged.
@@ -138,11 +136,21 @@ src/arcjet/
 
 ```
 tests/
+├── conftest.py          # Shared fixtures for all tests
+├── helpers.py           # Test utility functions
+├── fixtures/            # Pytest fixtures and test data
+│   ├── protobuf_stubs.py  # Protobuf mocking fixtures
+│   └── __init__.py
+├── unit/                # Unit tests with mocked dependencies
+│   ├── conftest.py      # Makes protobuf mocking autouse for unit tests
+│   ├── test_client_async.py
+│   ├── test_client_sync.py
+│   └── test_*.py        # Other unit tests
 ├── fastapi/             # FastAPI integration tests
+│   ├── test_fastapi.py
+│   └── test_reason_v2.py
 ├── flask/               # Flask integration tests
-├── mocked/              # Mocked tests with stubbed dependencies
-│   ├── conftest.py      # Stubs for protobuf and clients
-│   └── test_*.py        # Mocked unit tests
+│   └── test_flask.py
 └── test_convert.py      # Conversion utility tests
 ```
 
@@ -199,38 +207,7 @@ The SDK supports these environment variables:
 
 ## Common Errors and Workarounds
 
-### 1. Mocked Test Failures
-
-**Error**: Tests fail when running `uv run pytest` with both standard and mocked
-tests together.
-
-**Cause**: Mocked tests stub protobuf modules which conflicts with real protobuf
-imports in standard tests.
-
-**Solution**: Always run mocked tests separately:
-```bash
-# Run standard tests
-uv run pytest
-
-# Run mocked tests separately
-uv run pytest tests/mocked
-```
-
-### 2. Import Errors in Mocked Tests
-
-**Error**: `ImportError` when mocked tests try to import helper functions from
-`tests.helpers`.
-
-**Cause**: Mocked tests use their own `conftest.py` with stub dependencies and
-helper functions.
-
-**Solution**: Import helper functions from `.conftest` in mocked tests:
-```python
-# In tests/mocked/test_*.py
-from .conftest import make_allow_decision, make_deny_decision, ...
-```
-
-### 3. uv Command Not Found
+### 1. uv Command Not Found
 
 **Error**: `bash: uv: command not found`
 
@@ -239,7 +216,7 @@ from .conftest import make_allow_decision, make_deny_decision, ...
 pip install uv
 ```
 
-### 4. Breaking Change CI Failure
+### 2. Breaking Change CI Failure
 
 **Error**: Griffe check fails on PR due to API breaking changes.
 
@@ -252,7 +229,7 @@ pip install uv
   existing APIs. Provide clear migration paths if breaking changes are
   necessary.
 
-### 5. Type Check Failures
+### 3. Type Check Failures
 
 **Error**: Pyright or ty reports type errors.
 
@@ -293,14 +270,17 @@ elsewhere.
 
 ## Testing Best Practices
 
-### When to Use Mocked Tests
+### When to Use Unit Tests
 
-Use `tests/mocked/` for:
+Use `tests/unit/` for:
 - Testing internal SDK logic without network calls
 - Testing error handling and edge cases
 - Fast unit tests that don't require the Decide API
 
-### When to Use Standard Tests
+Unit tests use pytest fixtures (`mock_protobuf_modules`) to mock protobuf
+dependencies, providing automatic cleanup and preventing cross-contamination.
+
+### When to Use Integration Tests
 
 Use `tests/fastapi/`, `tests/flask/`, etc. for:
 - Integration testing with real protobuf dependencies
@@ -309,7 +289,19 @@ Use `tests/fastapi/`, `tests/flask/`, etc. for:
 
 ### Writing New Tests
 
-**For standard tests**:
+**For unit tests**:
+```python
+# tests/unit/test_feature.py
+import pytest
+from arcjet import arcjet_sync
+
+def test_something():
+    # Protobuf modules are automatically mocked via autouse fixture
+    aj = arcjet_sync(key="test_key", rules=[...])
+    # Test logic
+```
+
+**For integration tests**:
 ```python
 # tests/fastapi/test_feature.py
 import pytest
@@ -320,16 +312,14 @@ async def test_something():
     # Test logic
 ```
 
-**For mocked tests**:
+**Using test helpers**:
 ```python
-# tests/mocked/test_feature.py
-from .conftest import make_allow_decision, StubDecideClient
-import pytest
+# Import helpers from conftest or fixtures
+from conftest import make_allow_decision, make_deny_decision
 
-def test_something():
-    # Use stubs from conftest
+def test_with_decision():
     decision = make_allow_decision()
-    # Test logic
+    assert decision.is_allowed()
 ```
 
 ## Summary Checklist for New Changes
@@ -339,11 +329,10 @@ Before submitting a PR:
 - [ ] Run `uv run ruff format` to format code
 - [ ] Run `uv run ruff check` to check for lint errors
 - [ ] Run `uv run ty check` and `uv run pyright` for type checking
-- [ ] Run `uv run pytest` for standard tests
-- [ ] Run `uv run pytest tests/mocked` for mocked tests
+- [ ] Run `uv run pytest` for all tests (unit and integration)
 - [ ] Run `uv run griffe check arcjet -s src --against origin/main` to check for
   breaking changes
 - [ ] Add `breaking` label if introducing intentional API breaking changes
 - [ ] Update documentation, including docstrings and AGENTS.md if necessary
 - [ ] Ensure all new code is fully type-annotated and follows coding conventions
-- [ ] Add new tests to aim for 100% coverage
+- [ ] Add new tests to aim for 80%+ coverage (current threshold)
