@@ -111,3 +111,35 @@ Reason = (
     | ShieldReason
 )
 """Reason returned by a rule."""
+
+
+@dataclass(frozen=True, slots=True)
+class IpDetails:
+    """Typed IP enrichment details from Arcjet decisions.
+
+    Fields may be ``None`` when Arcjet did not provide that value for a
+    specific IP.
+    """
+
+    latitude: float | None = None
+    longitude: float | None = None
+    accuracy_radius: int | None = None
+    timezone: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    country_name: str | None = None
+    continent: str | None = None
+    continent_name: str | None = None
+    asn: str | None = None
+    asn_name: str | None = None
+    asn_domain: str | None = None
+    asn_type: str | None = None
+    asn_country: str | None = None
+    service: str | None = None
+    is_hosting: bool | None = None
+    is_vpn: bool | None = None
+    is_proxy: bool | None = None
+    is_tor: bool | None = None
+    is_relay: bool | None = None

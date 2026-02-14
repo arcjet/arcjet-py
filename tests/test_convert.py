@@ -278,6 +278,42 @@ def test_converting_email_type_unspecified() -> None:
     assert email_type == "UNSPECIFIED"
 
 
+def test_converting_ip_details() -> None:
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.dataclasses import IpDetails
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_ip = decide_pb2.IpDetails(
+        latitude=37.7749,
+        longitude=-122.4194,
+        asn="AS15169",
+        asn_name="Google LLC",
+        service="google",
+        is_hosting=True,
+        is_vpn=False,
+        is_proxy=False,
+        is_tor=False,
+        is_relay=False,
+    )
+
+    ip = _ip_details_from_proto(proto_ip)
+
+    assert isinstance(ip, IpDetails)
+    assert ip.latitude == 37.7749
+    assert ip.longitude == -122.4194
+    assert ip.asn == "AS15169"
+    assert ip.asn_name == "Google LLC"
+    assert ip.service == "google"
+    assert ip.is_hosting is True
+    assert ip.is_vpn is None
+
+
+def test_converting_missing_ip_details() -> None:
+    from arcjet._convert import _ip_details_from_proto
+
+    assert _ip_details_from_proto(None) is None
+
+
 def test_converting_unsupported_reason_type() -> None:
     """Test that unsupported reason types return ErrorReason."""
     from arcjet._convert import _reason_from_proto

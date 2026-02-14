@@ -76,4 +76,9 @@ async def hello(request: Request):
             status_code=403,
         )
 
+    # Typed IP details are available directly on decision.ip_details
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        print(f"Request from {ip.city}, {ip.country_name}")
+
     return {"message": "Hello world", "decision": decision.to_dict()}

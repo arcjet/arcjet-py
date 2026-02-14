@@ -71,6 +71,11 @@ def hello():
 
         return jsonify(error="Hosting IP blocked"), 403
 
+    # Typed IP details are available directly on decision.ip_details
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        app.logger.info("Request from %s, %s", ip.city, ip.country_name)
+
     return jsonify(message="Hello world", decision=decision.to_dict())
 
 

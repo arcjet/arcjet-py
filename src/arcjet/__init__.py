@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._enums import Mode
 from .client import Arcjet, ArcjetSync, arcjet, arcjet_sync
+from .dataclasses import IpDetails
 from .decision import (
     Decision,
     IpInfo,
@@ -32,6 +33,7 @@ __all__ = [
     "EmailType",
     "fixed_window",
     "IpInfo",
+    "IpDetails",
     "is_spoofed_bot",
     "Mode",
     "Reason",
