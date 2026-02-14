@@ -5,6 +5,8 @@ Tests the sync protect() behavior without requiring real protobuf dependencies.
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 
@@ -227,7 +229,7 @@ def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
         base_url="https://example.com/",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
 
 
 def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
@@ -242,7 +244,7 @@ def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
         base_url="https://example.com///",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
 
 
 def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
@@ -257,4 +259,18 @@ def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
         base_url="https://example.com",
     )
     # Access the internal client to verify the base_url
-    assert aj._client.base_url == "https://example.com"  # type: ignore[attr-defined]
+    assert getattr(aj._client, "base_url") == "https://example.com"
+
+
+def test_default_base_url_from_env_trailing_slash_is_stripped(
+    mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
+):
+    """Test DEFAULT_BASE_URL strips trailing slash from ARCJET_BASE_URL env var."""
+    import arcjet.client as client_module
+
+    with monkeypatch.context() as m:
+        m.setenv("ARCJET_BASE_URL", "https://example.com/")
+        reloaded_module = importlib.reload(client_module)
+        assert reloaded_module.DEFAULT_BASE_URL == "https://example.com"
+
+    importlib.reload(client_module)
