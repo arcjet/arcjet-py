@@ -66,6 +66,8 @@ def test_fail_open_true_allows(mock_protobuf_modules, monkeypatch: pytest.Monkey
 
     d = asyncio.run(aj.protect({"headers": [], "type": "http"}))
     assert d.is_error()
+    assert not d.is_allowed()
+    assert not d.is_denied()
     with pytest.warns(DeprecationWarning, match="Use `reason_v2` property instead"):
         assert d.reason.is_error()
 
