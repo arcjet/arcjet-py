@@ -103,7 +103,9 @@ class FilterComponent:
 
 
 if __name__ == "__main__":
-    wasm = os.path.join(os.path.dirname(__file__), "arcjet_analyze_js_req.component.wasm")
+    wasm = os.path.join(
+        os.path.dirname(__file__), "arcjet_analyze_js_req.component.wasm"
+    )
     fc = FilterComponent(wasm)
 
     def print_result(label: str, result: Result) -> None:
