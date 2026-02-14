@@ -312,8 +312,7 @@ class StubDecideServiceClient:
         if behavior is not None:
             return behavior(request)
         return StubDecideResponse(
-            StubDecision(id="test_decision",
-                         conclusion=CONCLUSION_ALLOW, ttl=0)
+            StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
 
     async def report(self, request: StubReportRequest, **kwargs: Any) -> None:
@@ -337,8 +336,7 @@ class StubDecideServiceClientSync:
         if behavior is not None:
             return behavior(request)
         return StubDecideResponse(
-            StubDecision(id="test_decision",
-                         conclusion=CONCLUSION_ALLOW, ttl=0)
+            StubDecision(id="test_decision", conclusion=CONCLUSION_ALLOW, ttl=0)
         )
 
     def report(self, request: StubReportRequest, **kwargs: Any) -> None:
@@ -391,8 +389,7 @@ def mock_protobuf_modules(
     mod_decide = types.ModuleType("arcjet.proto.decide")
     mod_v1 = types.ModuleType("arcjet.proto.decide.v1alpha1")
     mod_pb2 = types.ModuleType("arcjet.proto.decide.v1alpha1.decide_pb2")
-    mod_connect = types.ModuleType(
-        "arcjet.proto.decide.v1alpha1.decide_connect")
+    mod_connect = types.ModuleType("arcjet.proto.decide.v1alpha1.decide_connect")
 
     # Populate decide_pb2 module
     _set_module_attrs(
@@ -440,13 +437,11 @@ def mock_protobuf_modules(
     # Install modules using monkeypatch for automatic cleanup
     monkeypatch.setitem(sys.modules, "google", mod_google)
     monkeypatch.setitem(sys.modules, "google.protobuf", mod_protobuf)
-    monkeypatch.setitem(
-        sys.modules, "google.protobuf.json_format", mod_json_format)
+    monkeypatch.setitem(sys.modules, "google.protobuf.json_format", mod_json_format)
     monkeypatch.setitem(sys.modules, "arcjet.proto", mod_proto)
     monkeypatch.setitem(sys.modules, "arcjet.proto.decide", mod_decide)
     monkeypatch.setitem(sys.modules, "arcjet.proto.decide.v1alpha1", mod_v1)
-    monkeypatch.setitem(
-        sys.modules, "arcjet.proto.decide.v1alpha1.decide_pb2", mod_pb2)
+    monkeypatch.setitem(sys.modules, "arcjet.proto.decide.v1alpha1.decide_pb2", mod_pb2)
     monkeypatch.setitem(
         sys.modules, "arcjet.proto.decide.v1alpha1.decide_connect", mod_connect
     )
