@@ -26,6 +26,7 @@ EMAIL_TYPE_FREE = 2
 EMAIL_TYPE_NO_MX_RECORDS = 3
 EMAIL_TYPE_NO_GRAVATAR = 4
 EMAIL_TYPE_INVALID = 5
+EMAIL_TYPE_UNSPECIFIED = 0
 
 RATE_LIMIT_ALGORITHM_TOKEN_BUCKET = 1
 RATE_LIMIT_ALGORITHM_FIXED_WINDOW = 2
@@ -392,6 +393,7 @@ def mock_protobuf_modules(monkeypatch: pytest.MonkeyPatch):  # type: ignore[misc
     mod_pb2.EMAIL_TYPE_NO_MX_RECORDS = EMAIL_TYPE_NO_MX_RECORDS  # type: ignore[attr-defined]
     mod_pb2.EMAIL_TYPE_NO_GRAVATAR = EMAIL_TYPE_NO_GRAVATAR  # type: ignore[attr-defined]
     mod_pb2.EMAIL_TYPE_INVALID = EMAIL_TYPE_INVALID  # type: ignore[attr-defined]
+    mod_pb2.EMAIL_TYPE_UNSPECIFIED = EMAIL_TYPE_UNSPECIFIED  # type: ignore[attr-defined]
     mod_pb2.RATE_LIMIT_ALGORITHM_TOKEN_BUCKET = RATE_LIMIT_ALGORITHM_TOKEN_BUCKET  # type: ignore[attr-defined]
     mod_pb2.RATE_LIMIT_ALGORITHM_FIXED_WINDOW = RATE_LIMIT_ALGORITHM_FIXED_WINDOW  # type: ignore[attr-defined]
     mod_pb2.RATE_LIMIT_ALGORITHM_SLIDING_WINDOW = RATE_LIMIT_ALGORITHM_SLIDING_WINDOW  # type: ignore[attr-defined]

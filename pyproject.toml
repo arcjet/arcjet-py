@@ -52,7 +52,7 @@ dev = [
   "types-protobuf==6.32.1.20251210",
 ]
 
-[tool.pytest]
+[tool.pytest.ini_options]
 addopts = ["-q", "--cov=src/arcjet", "--cov-report=term-missing"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
