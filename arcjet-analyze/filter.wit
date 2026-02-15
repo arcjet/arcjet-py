@@ -1,0 +1,17 @@
+package arcjet:filter;
+
+interface filter-overrides {
+  ip-lookup: func(ip: string) -> option<string>;
+}
+
+world filter {
+  import filter-overrides;
+
+  record filter-result {
+    allowed: bool,
+    matched-expressions: list<string>,
+    undetermined-expressions: list<string>,
+  }
+
+  export match-filters: func(request: string, expressions: list<string>, allow-if-match: bool) -> result<filter-result, string>;
+}
