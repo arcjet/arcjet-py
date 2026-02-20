@@ -556,7 +556,7 @@ if ip:
     lon = ip.longitude
     asn = ip.asn
     asn_name = ip.asn_name
-    service = ip.service  # Optional[str]
+    service = ip.service  # str | None
 else:
     # ip details not present
 ```
