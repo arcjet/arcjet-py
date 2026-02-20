@@ -78,11 +78,14 @@ def _default_timeout_ms() -> int:
     return 1000 if env == "development" else 500
 
 
-DEFAULT_BASE_URL = os.getenv("ARCJET_BASE_URL") or (
-    "https://fly.decide.arcjet.com"
-    if os.getenv("FLY_APP_NAME")
-    else "https://decide.arcjet.com"
-)
+DEFAULT_BASE_URL = (
+    os.getenv("ARCJET_BASE_URL")
+    or (
+        "https://fly.decide.arcjet.com"
+        if os.getenv("FLY_APP_NAME")
+        else "https://decide.arcjet.com"
+    )
+).rstrip("/")
 
 
 def _auth_headers(
@@ -882,7 +885,9 @@ def arcjet(
         raise ArcjetMisconfiguration("Arcjet key is required.")
     # Always enable HTTP/2 by default.
     transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
-    client = DecideServiceClient(base_url, http_client=pyqwest.Client(transport))
+    client = DecideServiceClient(
+        base_url.rstrip("/"), http_client=pyqwest.Client(transport)
+    )
     return Arcjet(
         _key=key,
         _rules=tuple(rules),
@@ -919,7 +924,7 @@ def arcjet_sync(
     # Always enable HTTP/2 by default.
     transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClientSync(
-        base_url, http_client=pyqwest.SyncClient(transport)
+        base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
     )
 
     return ArcjetSync(

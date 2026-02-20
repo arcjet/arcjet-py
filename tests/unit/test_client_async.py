@@ -187,3 +187,69 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
 
     with pytest.raises(ArcjetMisconfiguration, match="ip_src cannot be set"):
         asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+
+
+def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
+    """Test that base_url parameter strips trailing slashes."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    # Create client with trailing slash in base_url
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com/",
+    )
+    # Access the internal client to verify the base_url
+    assert getattr(aj._client, "base_url") == "https://example.com"
+
+
+def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
+    """Test that base_url parameter strips multiple trailing slashes."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    # Create client with multiple trailing slashes
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com///",
+    )
+    # Access the internal client to verify the base_url
+    assert getattr(aj._client, "base_url") == "https://example.com"
+
+
+def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
+    """Test that base_url without trailing slash is unchanged."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    # Create client without trailing slash
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        base_url="https://example.com",
+    )
+    # Access the internal client to verify the base_url
+    assert getattr(aj._client, "base_url") == "https://example.com"
+
+
+def test_default_base_url_from_env_trailing_slash_is_stripped(
+    mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
+):
+    """Test DEFAULT_BASE_URL strips trailing slash from ARCJET_BASE_URL env var."""
+    import importlib
+
+    import arcjet.client as client_module
+    from arcjet.rules import token_bucket
+
+    with monkeypatch.context() as m:
+        m.setenv("ARCJET_BASE_URL", "https://example.com/")
+        reloaded_module = importlib.reload(client_module)
+        aj = reloaded_module.arcjet(
+            key="ajkey_x",
+            rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        )
+        assert getattr(aj._client, "base_url") == "https://example.com"
+
+    importlib.reload(client_module)
