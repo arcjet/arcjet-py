@@ -162,6 +162,10 @@ async def hello(request: Request):
             status_code=403,
         )
 
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        print(f"Request from {ip.city}, {ip.country_name}")
+
     return {"message": "Hello world", "decision": decision.to_dict()}
 
 ```
@@ -221,6 +225,10 @@ def hello():
 
     if decision.ip.is_hosting():
         return jsonify(error="Hosting IP blocked"), 403
+
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        print(f"Request from {ip.city}, {ip.country_name}")
 
     if any(is_spoofed_bot(r) for r in decision.results):
         return jsonify(error="Spoofed bot"), 403
@@ -364,6 +372,10 @@ def hello():
         # https://docs.arcjet.com/blueprints/vpn-proxy-detection
 
         return jsonify(error="Hosting IP blocked"), 403
+
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        app.logger.info("Request from %s, %s", ip.city, ip.country_name)
 
     return jsonify(message="Hello world", decision=decision.to_dict())
 
@@ -511,10 +523,11 @@ for result in decision.results:
 ## IP analysis
 
 Arcjet returns an `ip_details` object as part of a `Decision` from
-`aj.protect(...)`. There are two ways to inspect that data:
+`aj.protect(...)`. There are several ways to inspect that data:
 
 1. high-level helpers for common reputation checks.
-2. the full raw fields via `Decision.to_dict()`.
+2. typed fields via `Decision.ip_details`.
+3. raw fields via `Decision.to_dict()`.
 
 ### IP analysis helpers
 
@@ -534,22 +547,21 @@ if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
 
 ### IP analysis fields
 
-To access all the fields, convert the decision to a dict and then access the
-fields directly. A future SDK release will include more helpers to access this
-data:
+Use `decision.ip_details` for typed field access:
 
 ```py
-d = decision.to_dict()
-ip = d.get("ip_details")
+ip = decision.ip_details
 if ip:
-    lat = ip.get("latitude")
-    lon = ip.get("longitude")
-    asn = ip.get("asn")
-    asn_name = ip.get("asn_name")
-    service = ip.get("service")  # may be missing
+    lat = ip.latitude
+    lon = ip.longitude
+    asn = ip.asn
+    asn_name = ip.asn_name
+    service = ip.service  # str | None
 else:
     # ip details not present
 ```
+
+`Decision.to_dict()` also includes `ip_details` as a raw dictionary shape.
 
 These are the available fields, although not all may be present for every IP:
 
@@ -559,7 +571,7 @@ These are the available fields, although not all may be present for every IP:
 - ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp, hosting,
   business, education), `asn_country`
 - Reputation / service: service name (when present) and boolean indicators for
-  `vpn`, `proxy`, `tor`, `hosting`, `relay`
+    `is_vpn`, `is_proxy`, `is_tor`, `is_hosting`, `is_relay`
 
 ## Support
 

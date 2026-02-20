@@ -86,6 +86,52 @@ def test_decision_with_ip_details(mock_protobuf_modules):
     assert decision.ip.is_tor() is False
 
 
+def test_decision_ip_details_typed_access(mock_protobuf_modules):
+    """Test typed access for IP details fields."""
+    from arcjet.decision import Decision
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    ip_details = decide_pb2.IpDetails()
+    ip_details.latitude = 51.5
+    ip_details.longitude = -0.12
+    ip_details.asn = "AS12345"
+    ip_details.asn_name = "Example ASN"
+    ip_details.service = "example-service"
+    ip_details.is_hosting = True
+    ip_details.is_vpn = False
+
+    dec = decide_pb2.Decision(
+        id="typed", conclusion=decide_pb2.CONCLUSION_ALLOW, ip_details=ip_details
+    )
+    decision = Decision(dec)
+
+    typed = decision.ip_details
+    assert typed is not None
+    assert typed.latitude == 51.5
+    assert typed.longitude == -0.12
+    assert typed.asn == "AS12345"
+    assert typed.asn_name == "Example ASN"
+    assert typed.service == "example-service"
+    assert typed.is_hosting is True
+    assert typed.is_vpn in (False, None)
+
+    # Alias via decision.ip.details should match the same typed values.
+    assert decision.ip.details == typed
+
+
+def test_decision_without_ip_details_typed_access(mock_protobuf_modules):
+    """Test typed access returns None when IP details are absent."""
+    from arcjet.decision import Decision
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    decision = Decision(
+        decide_pb2.Decision(id="no-ip", conclusion=decide_pb2.CONCLUSION_ALLOW)
+    )
+
+    assert decision.ip_details is None
+    assert decision.ip.details is None
+
+
 def test_reason_which_method(mock_protobuf_modules):
     """Test dataclass reason fields."""
     from arcjet.dataclasses import ErrorReason

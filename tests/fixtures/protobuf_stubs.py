@@ -175,11 +175,33 @@ class StubReason:
 class StubIpDetails:
     """Stub for protobuf IpDetails message."""
 
-    def __init__(self) -> None:
-        self.is_hosting = False
-        self.is_vpn = False
-        self.is_proxy = False
-        self.is_tor = False
+    def __init__(self, **kwargs: Any) -> None:
+        # Initialize all known fields with default values
+        self.latitude: float | None = None
+        self.longitude: float | None = None
+        self.accuracy_radius: int | None = None
+        self.timezone: str | None = None
+        self.postal_code: str | None = None
+        self.city: str | None = None
+        self.region: str | None = None
+        self.country: str | None = None
+        self.country_name: str | None = None
+        self.continent: str | None = None
+        self.continent_name: str | None = None
+        self.asn: str | None = None
+        self.asn_name: str | None = None
+        self.asn_domain: str | None = None
+        self.asn_type: str | None = None
+        self.asn_country: str | None = None
+        self.service: str | None = None
+        self.is_hosting: bool = False
+        self.is_vpn: bool = False
+        self.is_proxy: bool = False
+        self.is_tor: bool = False
+        self.is_relay: bool = False
+        # Set any provided kwargs
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
 
 class StubRuleResult:
@@ -344,15 +366,24 @@ class StubDecideServiceClientSync:
         pass
 
 
+def _is_default_bool(value: Any) -> bool:
+    """Check if value is a boolean set to False (default value)."""
+    return isinstance(value, bool) and value is False
+
+
 def _message_to_dict(x: Any, preserving_proto_field_name: bool = True) -> dict:
-    """Stub for MessageToDict function."""
+    """Stub for MessageToDict function.
+
+    Mimics real protobuf MessageToDict behavior by omitting fields with default values,
+    including boolean fields set to False.
+    """
     if hasattr(x, "_as_dict"):
         return x._as_dict()
     if hasattr(x, "__dict__"):
         return {
             k: v
             for k, v in vars(x).items()
-            if not k.startswith("_") and not callable(v)
+            if not k.startswith("_") and not callable(v) and not _is_default_bool(v)
         }
     return {}
 

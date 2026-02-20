@@ -1,5 +1,8 @@
 from collections.abc import Sequence
 from datetime import timedelta, timezone
+from typing import Any
+
+from google.protobuf.json_format import MessageToDict
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -9,6 +12,7 @@ from .dataclasses import (
     EmailType,
     ErrorReason,
     FilterReason,
+    IpDetails,
     RateLimitReason,
     Reason,
     ShieldReason,
@@ -106,4 +110,43 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
         )
     return ErrorReason(
         message="decide_pb2.Reason(type=unknown) is unsupported.",
+    )
+
+
+def _ip_details_from_proto(proto: decide_pb2.IpDetails | None) -> IpDetails | None:
+    """Convert protobuf IpDetails to typed IpDetails.
+
+    Returns ``None`` when no IP details are present.
+    """
+    if proto is None:
+        return None
+
+    data: dict[str, Any] = MessageToDict(
+        proto,
+        preserving_proto_field_name=True,
+    )
+
+    return IpDetails(
+        latitude=data.get("latitude"),
+        longitude=data.get("longitude"),
+        accuracy_radius=data.get("accuracy_radius"),
+        timezone=data.get("timezone"),
+        postal_code=data.get("postal_code"),
+        city=data.get("city"),
+        region=data.get("region"),
+        country=data.get("country"),
+        country_name=data.get("country_name"),
+        continent=data.get("continent"),
+        continent_name=data.get("continent_name"),
+        asn=data.get("asn"),
+        asn_name=data.get("asn_name"),
+        asn_domain=data.get("asn_domain"),
+        asn_type=data.get("asn_type"),
+        asn_country=data.get("asn_country"),
+        service=data.get("service"),
+        is_hosting=data.get("is_hosting"),
+        is_vpn=data.get("is_vpn"),
+        is_proxy=data.get("is_proxy"),
+        is_tor=data.get("is_tor"),
+        is_relay=data.get("is_relay"),
     )

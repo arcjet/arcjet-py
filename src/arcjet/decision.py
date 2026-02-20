@@ -21,7 +21,7 @@ from google.protobuf.json_format import MessageToDict
 from typing_extensions import deprecated
 
 import arcjet.dataclasses
-from arcjet._convert import _reason_from_proto
+from arcjet._convert import _ip_details_from_proto, _reason_from_proto
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
@@ -49,6 +49,11 @@ class IpInfo:
     def is_tor(self) -> bool:
         """True if the IP is a Tor exit node."""
         return bool(self._ip and self._ip.is_tor)
+
+    @property
+    def details(self) -> arcjet.dataclasses.IpDetails | None:
+        """Typed IP enrichment fields when present."""
+        return _ip_details_from_proto(self._ip)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +207,21 @@ class Decision:
     @property
     def ip(self) -> IpInfo:
         return IpInfo(self._d.ip_details if self._d.HasField("ip_details") else None)
+
+    @property
+    def ip_details(self) -> arcjet.dataclasses.IpDetails | None:
+        """IP analysis details when available.
+
+        - Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`,
+          `postal_code`, `city`, `region`, `country`, `country_name`,
+          `continent`, `continent_name`
+        - ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp,
+          hosting, business, education), `asn_country`
+        - Reputation / service: service name (when present) and boolean
+          indicators for `is_vpn`, `is_proxy`, `is_tor`, `is_hosting`,
+          `is_relay`
+        """
+        return self.ip.details
 
     @property
     def results(self) -> tuple[RuleResult, ...]:

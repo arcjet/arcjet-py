@@ -278,6 +278,82 @@ def test_converting_email_type_unspecified() -> None:
     assert email_type == "UNSPECIFIED"
 
 
+def test_converting_ip_details() -> None:
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.dataclasses import IpDetails
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_ip = decide_pb2.IpDetails(
+        latitude=37.7749,
+        longitude=-122.4194,
+        asn="AS15169",
+        asn_name="Google LLC",
+        service="google",
+        is_hosting=True,
+        is_vpn=False,
+        is_proxy=False,
+        is_tor=False,
+        is_relay=False,
+    )
+
+    ip = _ip_details_from_proto(proto_ip)
+
+    assert isinstance(ip, IpDetails)
+    assert ip.latitude == 37.7749
+    assert ip.longitude == -122.4194
+    assert ip.asn == "AS15169"
+    assert ip.asn_name == "Google LLC"
+    assert ip.service == "google"
+    assert ip.is_hosting is True
+    # The converter intentionally treats boolean IP flags that are False or unset
+    # in the protobuf as "unknown" and represents them as None in the dataclass.
+    # This test asserts that behavior for is_vpn, even though the protobuf field
+    # is explicitly set to False.
+    assert ip.is_vpn is None
+
+
+def test_ip_details_boolean_flag_conversion() -> None:
+    """
+    Document and verify that _ip_details_from_proto converts False boolean flags
+    (or unset fields) from the protobuf into None in the IpDetails dataclass,
+    while preserving True values.
+    """
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.dataclasses import IpDetails
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_ip = decide_pb2.IpDetails(
+        latitude=0.0,
+        longitude=0.0,
+        asn="AS0",
+        asn_name="Example",
+        service="example",
+        is_hosting=True,
+        is_vpn=False,
+        is_proxy=False,
+        is_tor=False,
+        is_relay=False,
+    )
+
+    ip = _ip_details_from_proto(proto_ip)
+
+    assert isinstance(ip, IpDetails)
+    # True values are preserved.
+    assert ip.is_hosting is True
+    # False values are normalized to None to represent "no signal"/unknown,
+    # rather than a strong negative assertion.
+    assert ip.is_vpn is None
+    assert getattr(ip, "is_proxy", None) is None
+    assert getattr(ip, "is_tor", None) is None
+    assert getattr(ip, "is_relay", None) is None
+
+
+def test_converting_missing_ip_details() -> None:
+    from arcjet._convert import _ip_details_from_proto
+
+    assert _ip_details_from_proto(None) is None
+
+
 def test_converting_unsupported_reason_type() -> None:
     """Test that unsupported reason types return ErrorReason."""
     from arcjet._convert import _reason_from_proto

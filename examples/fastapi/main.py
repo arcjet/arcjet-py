@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+import logging
 
 from arcjet import (
     arcjet,
@@ -12,6 +13,9 @@ from arcjet import (
 )
 
 app = FastAPI()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
@@ -55,6 +59,11 @@ async def hello(request: Request):
         request,
         requested=5,  # Deduct 5 tokens from the bucket
     )
+
+    # Typed IP details are available directly on decision.ip_details
+    ip = decision.ip_details
+    if ip and ip.city and ip.country_name:
+        logger.info("Request from %s, %s", ip.city, ip.country_name)
 
     # Handle denied requests
     if decision.is_denied():
