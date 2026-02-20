@@ -91,11 +91,10 @@ def test_basic_get_no_rules():
 
     response = client.get("/shield")
 
-    assert response.status_code == 200, f"Unexpected status: {response.text}"
-    assert response.json() == {
-        "message": "missing decision in response",
-        "type": "ERROR",
-    }
+    # With fail_open=True and a None decision, we get an ERROR decision
+    assert response.status_code == 500, f"Unexpected status: {response.text}"
+    # The error message is returned as plain text, not JSON
+    assert "missing decision in response" in response.text
 
 
 def test_basic_get_reason_v2():
