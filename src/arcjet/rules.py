@@ -55,12 +55,12 @@ from ._enums import Mode, _mode_to_proto
 
 
 class RuleSpec:
-    """User-facing rule definition.
+    """Base class for Arcjet rule definitions.
 
-    Subclasses encapsulate validation and `to_proto()` conversion to the
-    Decide API format. Prefer using the factory functions such as `shield()` or
-    `token_bucket()` instead of constructing subclasses directly, as they
-    provide clearer error messages and defaults.
+    Do not instantiate this class directly. Use the provided factory functions
+    — ``shield()``, ``detect_bot()``, ``token_bucket()``, ``fixed_window()``,
+    ``sliding_window()``, and ``validate_email()`` — to create rule instances,
+    then pass them in the ``rules`` list of ``arcjet()`` / ``arcjet_sync()``.
     """
 
     def to_proto(self) -> decide_pb2.Rule:
@@ -86,9 +86,9 @@ class RuleSpec:
 
 @dataclass(frozen=True, slots=True)
 class Shield(RuleSpec):
-    """Block or monitor access to sensitive areas.
+    """Shield WAF rule configuration.
 
-    Prefer using `shield(...)` helper
+    Prefer the ``shield()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -111,34 +111,100 @@ class Shield(RuleSpec):
 
 
 class BotCategory(str, Enum):
-    """Known bot categories you can allow or deny.
+    """Known bot categories for use with ``detect_bot()``.
 
-    You can also pass arbitrary bot names as strings to `detect_bot(...)`.
+    Pass category values in the ``allow`` or ``deny`` lists of ``detect_bot()``
+    to match entire families of bots at once. You can also mix these with
+    individual bot-name strings (e.g. ``"GOOGLE_CRAWLER"``).
 
-    See https://docs.arcjet.com/bot-protection/identifying-bots for the full
-    list.
+    See https://docs.arcjet.com/bot-protection/identifying-bots for the
+    complete list of categories and named bots.
+
+    The identifiers on the bot list are generated from a collection of known
+    bots at https://github.com/arcjet/well-known-bots which includes details of
+    their owner and any variations.
+
+    If a bot is detected but cannot be identified as a known bot, it will be
+    labeled as ``UNKNOWN_BOT``. This is separate from the ``CATEGORY:UNKNOWN``
+    category, which is for bots that cannot be classified into any category but
+    can still be identified as a specific bot.
+
+    If you configure an allow rule and do not include ``UNKNOWN_BOT``, then
+    detected bots that cannot be identified will be blocked. This is the
+    default behavior to protect against new and rapidly evolving bots.
+
+    Example::
+
+        from arcjet import detect_bot, BotCategory, Mode
+
+        rules = [
+            detect_bot(
+                mode=Mode.LIVE, # Allow search engines, uptime monitors, and
+                CURL; block all other bots allow=[BotCategory.SEARCH_ENGINE,
+                BotCategory.MONITOR, "CURL"],
+            )
+        ]
     """
 
     ACADEMIC = "CATEGORY:ACADEMIC"
+    """Scrape data for research purposes."""
+
     ADVERTISING = "CATEGORY:ADVERTISING"
+    """Advertising and ad-verification bots."""
+
     AI = "CATEGORY:AI"
+    """AI training and data-collection bots."""
+
     AMAZON = "CATEGORY:AMAZON"
+    """Amazon-operated bots (e.g. Alexa)."""
+
     ARCHIVE = "CATEGORY:ARCHIVE"
+    """Web archiving bots (e.g. Internet Archive / Wayback Machine)."""
+
     FEEDFETCHER = "CATEGORY:FEEDFETCHER"
+    """RSS/Atom feed readers."""
+
     GOOGLE = "CATEGORY:GOOGLE"
+    """Google-operated bots (e.g. Googlebot)."""
+
     META = "CATEGORY:META"
+    """Meta/Facebook-operated bots."""
+
     MICROSOFT = "CATEGORY:MICROSOFT"
+    """Microsoft-operated bots (e.g. Bingbot)."""
+
     MONITOR = "CATEGORY:MONITOR"
+    """Uptime-monitoring and health-check services."""
+
     OPTIMIZER = "CATEGORY:OPTIMIZER"
+    """Page-speed and SEO optimization crawlers."""
+
     PREVIEW = "CATEGORY:PREVIEW"
+    """Link-preview bots (e.g. Slack, Discord, Twitter card fetchers)."""
+
     PROGRAMMATIC = "CATEGORY:PROGRAMMATIC"
+    """Headless browsers and programmatic HTTP clients."""
+
     SEARCH_ENGINE = "CATEGORY:SEARCH_ENGINE"
+    """Search-engine indexers (e.g. Google, Bing, DuckDuckGo)."""
+
     SLACK = "CATEGORY:SLACK"
+    """Slack-operated bots."""
+
     SOCIAL = "CATEGORY:SOCIAL"
+    """Social-media crawlers."""
+
     TOOL = "CATEGORY:TOOL"
+    """Developer tools and CLI utilities."""
+
     UNKNOWN = "CATEGORY:UNKNOWN"
+    """Bots that are detected but cannot be classified into another category."""
+
     VERCEL = "CATEGORY:VERCEL"
+    """Vercel-operated bots."""
+
     YAHOO = "CATEGORY:YAHOO"
+    """Yahoo-operated bots."""
 
 
 def _bot_category_to_proto(value: Union[BotCategory, str]) -> str:
@@ -154,9 +220,9 @@ BotSpecifier = Union[BotCategory, str]
 
 @dataclass(frozen=True, slots=True)
 class BotDetection(RuleSpec):
-    """Detects bot traffic with allow/deny lists.
+    """Bot detection rule configuration.
 
-    Prefer using `detect_bot(...)` helper.
+    Prefer the ``detect_bot()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -220,9 +286,9 @@ def _rate_limit_algorithm_to_proto(
 
 @dataclass(frozen=True, slots=True)
 class TokenBucket(RuleSpec):
-    """Token bucket rate limiting.
+    """Token bucket rate limiting rule configuration.
 
-    Prefer using `token_bucket(...)` helper.
+    Prefer the ``token_bucket()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -264,9 +330,9 @@ class TokenBucket(RuleSpec):
 
 @dataclass(frozen=True, slots=True)
 class FixedWindow(RuleSpec):
-    """Fixed window rate limiting.
+    """Fixed window rate limiting rule configuration.
 
-    Prefer using `fixed_window(...)` helper.
+    Prefer the ``fixed_window()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -307,9 +373,9 @@ class FixedWindow(RuleSpec):
 
 @dataclass(frozen=True, slots=True)
 class SlidingWindow(RuleSpec):
-    """Sliding window rate limiting.
+    """Sliding window rate limiting rule configuration.
 
-    Prefer using `sliding_window(...)` helper.
+    Prefer the ``sliding_window()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -346,20 +412,44 @@ class SlidingWindow(RuleSpec):
 
 
 class EmailType(str, Enum):
-    """Email classifier types used by the email validation rule."""
+    """Email address classifier types used by ``validate_email()``.
+
+    Pass these values in the ``allow`` or ``deny`` lists of
+    ``validate_email()`` to filter email addresses by type.
+
+    Example::
+
+        from arcjet import validate_email, EmailType, Mode
+
+        rules = [
+            validate_email(
+                mode=Mode.LIVE,
+                deny=[EmailType.DISPOSABLE, EmailType.INVALID],
+            )
+        ]
+    """
 
     DISPOSABLE = "DISPOSABLE"
+    """Addresses from temporary or throw-away email providers."""
+
     FREE = "FREE"
+    """Addresses from free email providers (e.g. Gmail, Yahoo Mail)."""
+
     NO_MX_RECORDS = "NO_MX_RECORDS"
+    """Domains with no valid MX DNS records — mail cannot be delivered."""
+
     NO_GRAVATAR = "NO_GRAVATAR"
+    """Addresses with no associated Gravatar profile."""
+
     INVALID = "INVALID"
+    """Addresses that fail syntax or format validation."""
 
 
 @dataclass(frozen=True, slots=True)
 class EmailValidation(RuleSpec):
-    """Validate email addresses using multiple signals.
+    """Email validation rule configuration.
 
-    Prefer using `validate_email(...)` helper.
+    Prefer the ``validate_email()`` factory function over constructing this directly.
     """
 
     mode: Mode
@@ -436,10 +526,30 @@ def _coerce_mode(mode: Union[str, Mode]) -> Mode:
 def shield(
     *, mode: Union[str, Mode] = Mode.LIVE, characteristics: Sequence[str] = ()
 ) -> Shield:
-    """Construct a `Shield` rule.
+    """Protect your app against common attacks such as SQL injection, XSS, and CSRF.
 
-    Example:
-        rules = [shield(mode=Mode.LIVE)]
+    Shield analyzes each request server-side and blocks those that match known
+    attack patterns. It requires no additional configuration beyond setting the
+    enforcement mode.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        characteristics: Request attributes used to fingerprint the client
+            (e.g. ``["ip.src"]``). Defaults to IP address.
+
+    Returns:
+        A ``Shield`` rule to include in the ``rules`` list of ``arcjet()``.
+
+    Example::
+
+        from arcjet import arcjet, shield, Mode
+
+        aj = arcjet(
+            key="ajkey_...",
+            rules=[shield(mode=Mode.LIVE)],
+        )
     """
     return Shield(mode=_coerce_mode(mode), characteristics=tuple(characteristics))
 
@@ -469,11 +579,43 @@ def detect_bot(
     allow: Sequence[Union[str, BotCategory]] = (),
     deny: Sequence[Union[str, BotCategory]] = (),
 ) -> BotDetection:
-    """Construct a `BotDetection` rule.
+    """Detect and filter automated bot traffic.
 
-    Examples:
-        detect_bot(allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"))
-        detect_bot(deny=("OPENAI_CRAWLER",))
+    Configure an allowlist or a denylist of bot categories and/or named bots:
+
+    - If ``allow`` is non-empty: only the listed bots are permitted; all other
+      bots are denied.
+    - If ``deny`` is non-empty: only the listed bots are blocked; all other
+      bots are allowed.
+    - Both lists accept ``BotCategory`` enum values and arbitrary bot-name
+      strings (e.g. ``"CURL"``). See
+      https://docs.arcjet.com/bot-protection/identifying-bots for the full
+      list of named bots.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        allow: Bots to permit. All other bots are denied. Do not combine
+            with ``deny``.
+        deny: Bots to block. All other bots are allowed. Do not combine
+            with ``allow``.
+
+    Returns:
+        A ``BotDetection`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import detect_bot, BotCategory, Mode
+
+        rules = [
+            detect_bot(
+                mode=Mode.LIVE,
+                # Allow search engines and a specific AI bot; block everything else
+                allow=[BotCategory.SEARCH_ENGINE, "CURL"],
+            )
+        ]
     """
     return BotDetection(
         mode=_coerce_mode(mode),
@@ -490,10 +632,45 @@ def token_bucket(
     capacity: int,
     characteristics: Sequence[str] = (),
 ) -> TokenBucket:
-    """Construct a `TokenBucket` rate limit rule.
+    """Rate-limit requests using the token bucket algorithm.
 
-    Example:
-        token_bucket(refill_rate=10, interval=60, capacity=20)
+    Each client starts with a full bucket of tokens. Every call to
+    ``protect(..., requested=N)`` consumes N tokens. Tokens are replenished at
+    ``refill_rate`` per ``interval`` seconds up to ``capacity``. Requests are
+    denied when the bucket is empty.
+
+    When this rule is configured, pass ``requested=N`` to ``protect()`` to
+    specify how many tokens each request costs (defaults to 1).
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        refill_rate: Number of tokens added to the bucket each interval.
+        interval: How often (in seconds) tokens are refilled.
+        capacity: Maximum number of tokens the bucket can hold.
+        characteristics: Request attributes used to identify the client for
+            per-client tracking (e.g. ``["ip.src"]``). Defaults to IP
+            address. See https://docs.arcjet.com/fingerprints.
+
+    Returns:
+        A ``TokenBucket`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import token_bucket, Mode
+
+        rules = [
+            token_bucket(
+                mode=Mode.LIVE,
+                refill_rate=5,   # add 5 tokens every 10 seconds
+                interval=10,
+                capacity=10,     # max 10 tokens in the bucket
+            )
+        ]
+        # Then call protect() with a cost per request:
+        # decision = await aj.protect(request, requested=1)
     """
     # Basic validation before constructing dataclass for clearer errors
     for name, val in (
@@ -520,10 +697,32 @@ def fixed_window(
     window: int,
     characteristics: Sequence[str] = (),
 ) -> FixedWindow:
-    """Construct a `FixedWindow` rate limit rule.
+    """Rate-limit requests using the fixed window algorithm.
 
-    Example:
-        fixed_window(max=100, window=60)
+    Counts requests in fixed time windows of ``window`` seconds. Once a client
+    reaches ``max`` requests within a window, subsequent requests are denied
+    until the window resets. Note that request bursts can occur at window
+    boundaries — use ``sliding_window()`` to avoid this.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        max: Maximum number of requests allowed per window.
+        window: Window duration in seconds.
+        characteristics: Request attributes used to identify the client for
+            per-client tracking (e.g. ``["ip.src"]``). Defaults to IP
+            address. See https://docs.arcjet.com/fingerprints.
+
+    Returns:
+        A ``FixedWindow`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import fixed_window, Mode
+
+        rules = [fixed_window(mode=Mode.LIVE, max=100, window=60)]
     """
     if not isinstance(max, int) or max <= 0:
         raise ValueError("fixed_window: max must be a positive integer")
@@ -545,10 +744,31 @@ def sliding_window(
     interval: int,
     characteristics: Sequence[str] = (),
 ) -> SlidingWindow:
-    """Construct a `SlidingWindow` rate limit rule.
+    """Rate-limit requests using the sliding window algorithm.
 
-    Example:
-        sliding_window(max=100, interval=60)
+    Counts requests in a rolling time window of ``interval`` seconds. Unlike
+    ``fixed_window()``, the window slides continuously which prevents request
+    bursts at window boundaries.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        max: Maximum number of requests allowed per window.
+        interval: Window duration in seconds.
+        characteristics: Request attributes used to identify the client for
+            per-client tracking (e.g. ``["ip.src"]``). Defaults to IP
+            address. See https://docs.arcjet.com/fingerprints.
+
+    Returns:
+        A ``SlidingWindow`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import sliding_window, Mode
+
+        rules = [sliding_window(mode=Mode.LIVE, max=100, interval=60)]
     """
     if not isinstance(max, int) or max <= 0:
         raise ValueError("sliding_window: max must be a positive integer")
@@ -592,12 +812,43 @@ def validate_email(
     require_top_level_domain: bool = True,
     allow_domain_literal: bool = False,
 ) -> EmailValidation:
-    """Validate & verify email addresses.
+    """Validate and verify email addresses on signup or form submission.
 
-    Examples:
-        validate_email(deny=(EmailType.DISPOSABLE, EmailType.INVALID))
+    Checks the email passed to ``protect(email=...)`` against configurable
+    criteria. Use ``deny`` to block specific email types (e.g. disposable
+    addresses), or ``allow`` to restrict to only certain types.
 
-    When this rule is configured, pass `email=...` to `aj.protect(...)`.
+    When this rule is configured, you **must** pass ``email=...`` to every
+    ``protect()`` call, otherwise an ``ArcjetMisconfiguration`` is raised.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        deny: Email types to reject. Common choices: ``EmailType.DISPOSABLE``,
+            ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``.
+        allow: Email types to permit. All other types are rejected.
+        require_top_level_domain: Reject addresses without a valid TLD.
+            Defaults to ``True``.
+        allow_domain_literal: Allow IP-literal domain addresses such as
+            ``user@[192.0.2.1]``. Defaults to ``False``.
+
+    Returns:
+        An ``EmailValidation`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import validate_email, EmailType, Mode
+
+        rules = [
+            validate_email(
+                mode=Mode.LIVE,
+                deny=[EmailType.DISPOSABLE, EmailType.INVALID],
+            )
+        ]
+        # Then pass the email address on each protect() call:
+        # decision = await aj.protect(request, email="alice@example.com")
     """
     return EmailValidation(
         mode=_coerce_mode(mode),
