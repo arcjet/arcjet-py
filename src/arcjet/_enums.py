@@ -28,7 +28,7 @@ class Mode(str, Enum):
             shield(mode=Mode.LIVE),
             # Detect bot runs in DRY_RUN mode
             detect_bot(
-                mode=Mode.DRY_RUN, 
+                mode=Mode.DRY_RUN,
                 allow=[
                     BotCategory.SEARCH_ENGINE,
                 ]

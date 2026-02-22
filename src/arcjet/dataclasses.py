@@ -216,7 +216,7 @@ class IpDetails:
     """Geographic longitude of the IP address."""
 
     accuracy_radius: int | None = None
-    """Estimated accuracy radius in kilometres for the geolocation coordinates."""
+    """Estimated accuracy radius in kilometers for the geolocation coordinates."""
 
     timezone: str | None = None
     """IANA timezone identifier for the IP's region (e.g. ``"America/New_York"``)."""

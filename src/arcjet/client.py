@@ -71,9 +71,11 @@ class ProtectOptions(TypedDict, total=False):
     Defaults to 1 when a token bucket rule is configured."""
 
     characteristics: Mapping[str, Any]
-    """Custom key/value pairs for client fingerprinting. Defaults to the client IP address. Keys must match
-    characteristic names configured on your rules.
-    Example: ``{"user_id": "123"}``. See https://docs.arcjet.com/fingerprints."""
+    """Custom key/value pairs for client fingerprinting.
+
+    Defaults to the client IP address. Keys must match characteristic names
+    configured on your rules. Example: ``{"user_id": "123"}``.
+    See https://docs.arcjet.com/fingerprints."""
 
     email: str
     """Email address to validate when a ``validate_email()`` rule is configured."""
@@ -197,6 +199,7 @@ class Arcjet:
         )
 
         # Inside an async route handler:
+        # FastAPI: from fastapi.responses import JSONResponse
         decision = await aj.protect(request, requested=1)
         if decision.is_denied():
             return JSONResponse({"error": "Forbidden"}, status_code=403)
@@ -232,19 +235,20 @@ class Arcjet:
         tells you whether to allow or deny the request.
 
         Args:
-            ``request``: The incoming HTTP request. Accepts ASGI scope dicts,
+            request: The incoming HTTP request. Accepts ASGI scope dicts,
                 Flask/Werkzeug ``Request`` objects, Django ``HttpRequest``
                 objects, or a ``RequestContext`` built manually.
-            ``requested``: Number of tokens to consume for this request when a
+            requested: Number of tokens to consume for this request when a
                 ``token_bucket()`` rule is configured. Defaults to 1.
-            ``characteristics``: Custom key/value pairs for client fingerprinting. Defaults to the client IP address.
-                Keys must match characteristic names configured on your rules.
+            characteristics: Custom key/value pairs for client fingerprinting.
+                Defaults to the client IP address. Keys must match
+                characteristic names configured on your rules.
                 Example: ``{"user_id": current_user.id}``.
-            ``email``: Email address to validate when a ``validate_email()`` rule
+            email: Email address to validate when a ``validate_email()`` rule
                 is configured. Required if email validation is active.
-            ``extra``: Additional key/value pairs forwarded verbatim to the Arcjet
+            extra: Additional key/value pairs forwarded verbatim to the Arcjet
                 Decide API. Useful for custom metadata or debugging.
-            ``ip_src``: Override the detected client IP. Only valid when
+            ip_src: Override the detected client IP. Only valid when
                 ``disable_automatic_ip_detection=True`` was set on the client.
                 **Caution:** only pass IPs from sources you trust. See
                 https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
@@ -263,6 +267,7 @@ class Arcjet:
 
         Example::
 
+            # FastAPI: from fastapi.responses import JSONResponse
             decision = await aj.protect(request, requested=1)
             if decision.is_denied():
                 status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
@@ -657,6 +662,7 @@ class ArcjetSync:
         )
 
         # Inside a route handler:
+        # Flask: from flask import jsonify
         decision = aj.protect(request)
         if decision.is_denied():
             return jsonify(error="Forbidden"), 403
@@ -1024,23 +1030,24 @@ def arcjet(
     """Create an async Arcjet client.
 
     Args:
-        ``key``: Your Arcjet site key from https://app.arcjet.com. Keep this
+        key: Your Arcjet site key from https://app.arcjet.com. Keep this
             secret — store it in an environment variable, never in source code.
-        ``rules``: One or more rule specs created by ``shield()``, ``detect_bot()``,
+        rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
-        ``base_url``: Override the Arcjet Decide API endpoint. Only set this if directed by Arcjet support.
-        ``timeout_ms``: Request timeout in milliseconds. Defaults to 1000 ms in
+        base_url: Override the Arcjet Decide API endpoint. Only set this if
+            directed by Arcjet support.
+        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
             development and 500 ms in production.
-        ``fail_open``: When ``True`` (default), transport errors produce an ERROR
+        fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
             to raise ``ArcjetTransportError`` on network failures instead.
-        ``proxies``: IP addresses or CIDR ranges of trusted reverse proxies or
+        proxies: IP addresses or CIDR ranges of trusted reverse proxies or
             load balancers sitting in front of your app. Arcjet skips these
             when resolving the real client IP from ``X-Forwarded-For``.
             Example: ``["10.0.0.0/8", "192.168.1.1"]``.
-        ``disable_automatic_ip_detection``: Set to ``True`` to disable automatic
+        disable_automatic_ip_detection: Set to ``True`` to disable automatic
             IP extraction from request headers and supply the client IP
             yourself via ``ip_src`` on each ``protect()`` call. Only use this
             when you have your own validated IP-extraction logic. See
@@ -1137,23 +1144,24 @@ def arcjet_sync(
     not support ``async/await`` such as Flask or Django.
 
     Args:
-        ``key``: Your Arcjet site key from https://app.arcjet.com. Keep this
+        key: Your Arcjet site key from https://app.arcjet.com. Keep this
             secret — store it in an environment variable, never in source code.
-        ``rules``: One or more rule specs created by ``shield()``, ``detect_bot()``,
+        rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
-        ``base_url``: Override the Arcjet Decide API endpoint. Only set this if directed by Arcjet support.
-        ``timeout_ms``: Request timeout in milliseconds. Defaults to 1000 ms in
+        base_url: Override the Arcjet Decide API endpoint. Only set this if
+            directed by Arcjet support.
+        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
             development and 500 ms in production.
-        ``fail_open``: When ``True`` (default), transport errors produce an ERROR
+        fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
             to raise ``ArcjetTransportError`` on network failures instead.
-        ``proxies``: IP addresses or CIDR ranges of trusted reverse proxies or
+        proxies: IP addresses or CIDR ranges of trusted reverse proxies or
             load balancers sitting in front of your app. Arcjet skips these
             when resolving the real client IP from ``X-Forwarded-For``.
             Example: ``["10.0.0.0/8", "192.168.1.1"]``.
-        ``disable_automatic_ip_detection``: Set to ``True`` to disable automatic
+        disable_automatic_ip_detection: Set to ``True`` to disable automatic
             IP extraction from request headers and supply the client IP
             yourself via ``ip_src`` on each ``protect()`` call. Only use this
             when you have your own validated IP-extraction logic. See
