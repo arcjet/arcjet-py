@@ -143,7 +143,7 @@ def _sdk_version(default: str = "0.0.0") -> str:
 class Arcjet:
     """Async Arcjet client.
 
-    Evaluates HTTP requests against a configured set of security rules by.
+    Evaluates HTTP requests against a configured set of security rules.
     Results are returned as a ``Decision`` object you can inspect to allow or
     deny the request.
 

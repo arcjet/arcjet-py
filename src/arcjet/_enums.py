@@ -12,7 +12,7 @@ class Mode(str, Enum):
     - Use ``DRY_RUN`` to observe rule results - useful for testing a new rule
     before enabling enforcement.
 
-    In ``DRY_RUN`` mode, individual rule results will return as if there in
+    In ``DRY_RUN`` mode, individual rule results will return as if they were in
     ``LIVE`` mode (e.g. a rule match will return a conclusion of DENY), but the
     top level conclusion will always be ``ALLOW`` and ``is_denied()`` will
     return ``False``. Log or loop through the rule results to see which rules

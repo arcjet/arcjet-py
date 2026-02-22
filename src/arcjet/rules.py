@@ -139,9 +139,13 @@ class BotCategory(str, Enum):
 
         rules = [
             detect_bot(
-                mode=Mode.LIVE, # Allow search engines, uptime monitors, and
-                CURL; block all other bots allow=[BotCategory.SEARCH_ENGINE,
-                BotCategory.MONITOR, "CURL"],
+                mode=Mode.LIVE,
+                # Allow search engines, uptime monitors, and CURL; block all other bots.
+                allow=[
+                    BotCategory.SEARCH_ENGINE,
+                    BotCategory.MONITOR,
+                    "CURL",
+                ],
             )
         ]
     """
