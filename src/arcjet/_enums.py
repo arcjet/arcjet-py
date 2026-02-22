@@ -20,7 +20,7 @@ class Mode(str, Enum):
 
     Example::
 
-        from arcjet import Mode, shield, token_bucket
+        from arcjet import Mode, shield, detect_bot, BotCategory
 
         # ...
         rules = [
@@ -28,7 +28,8 @@ class Mode(str, Enum):
             shield(mode=Mode.LIVE),
             # Detect bot runs in DRY_RUN mode
             detect_bot(
-                mode=Mode.DRY_RUN, allow=[
+                mode=Mode.DRY_RUN, 
+                allow=[
                     BotCategory.SEARCH_ENGINE,
                 ]
             ),
