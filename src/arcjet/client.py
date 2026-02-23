@@ -60,16 +60,28 @@ def _new_local_request_id() -> str:
 
 
 class ProtectOptions(TypedDict, total=False):
-    """Optional per-request options for `protect`.
+    """Optional per-request keyword arguments for ``protect()``.
 
-    These are typically passed as keyword arguments to `Arcjet.protect` or
-    `ArcjetSync.protect`.
+    All fields are optional. Pass them as keyword arguments directly to
+    ``Arcjet.protect()`` or ``ArcjetSync.protect()``.
     """
 
     requested: int
+    """Number of tokens to consume from the token bucket for this request.
+    Defaults to 1 when a token bucket rule is configured."""
+
     characteristics: Mapping[str, Any]
+    """Custom key/value pairs for client fingerprinting.
+
+    Defaults to the client IP address. Keys must match characteristic names
+    configured on your rules. Example: ``{"user_id": "123"}``.
+    See https://docs.arcjet.com/fingerprints."""
+
     email: str
+    """Email address to validate when a ``validate_email()`` rule is configured."""
+
     extra: Mapping[str, str]
+    """Arbitrary key/value pairs forwarded verbatim to the Arcjet Decide API."""
 
 
 def _default_timeout_ms() -> int:
@@ -131,18 +143,66 @@ def _sdk_version(default: str = "0.0.0") -> str:
 
 @dataclass(slots=True)
 class Arcjet:
-    """Arcjet client (async).
+    """Async Arcjet client.
 
-    Typical usage:
-    ```python
-    aj = arcjet(key="ajkey_...", rules=[...])
-    decision = await aj.protect(request, requested=5)
-    if decision.is_denied():
-        ...
-    ```
+    Evaluates HTTP requests against a configured set of security rules.
+    Results are returned as a ``Decision`` object you can inspect to allow or
+    deny the request.
 
-    Attributes are considered internal; prefer using the `arcjet(...)` factory
-    to construct an instance with the right defaults.
+    Do not instantiate this class directly - use the ``arcjet()`` factory
+    function instead, which sets sensible defaults for the API endpoint,
+    timeout, and transport.
+
+    Example::
+
+        import os
+        from arcjet import (
+            arcjet,
+            shield,
+            detect_bot,
+            token_bucket,
+            Mode,
+            BotCategory,
+        )
+
+        arcjet_key = os.getenv("ARCJET_KEY")
+        if not arcjet_key:
+            raise RuntimeError(
+                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
+        aj = arcjet(
+            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            rules=[
+                # Shield protects your app from common attacks e.g. SQL injection
+                shield(mode=Mode.LIVE),
+                # Create a bot detection rule
+                detect_bot(
+                    mode=Mode.LIVE, allow=[
+                        BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
+                        # Uncomment to allow these other common bot categories
+                        # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                        # BotCategory.MONITOR, # Uptime monitoring services
+                        # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
+                    ]
+                ),
+                # Create a token bucket rate limit. Other algorithms are supported
+                token_bucket(
+                    # Tracked by IP address by default, but this can be customized
+                    # See https://docs.arcjet.com/fingerprints
+                    # characteristics: ["ip.src"],
+                    mode=Mode.LIVE,
+                    refill_rate=5,  # Refill 5 tokens per interval
+                    interval=10,  # Refill every 10 seconds
+                    capacity=10,  # Bucket capacity of 10 tokens
+                ),
+            ],
+        )
+
+        # Inside an async route handler:
+        # FastAPI: from fastapi.responses import JSONResponse
+        decision = await aj.protect(request, requested=1)
+        if decision.is_denied():
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
     """
 
     _key: str
@@ -168,22 +228,53 @@ class Arcjet:
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
-        """Evaluate configured rules for a given request.
+        """Evaluate the configured security rules against an incoming request.
 
-        Parameters:
-        - `request`: A framework request (ASGI scope dict, Flask `Request`, Django `HttpRequest`) or a pre-built `RequestContext`.
-        - `requested`: For token bucket rate limits, the request's cost (defaults to 1 when a token bucket rule is present).
-        - `characteristics`: Configuration for how to track the client across requests.
-        - `email`: Email address to validate when an email rule is configured.
-        - `extra`: Arbitrary key/value pairs forwarded to the Decide API.
-        - `ip_src`: When set, overrides automatic IP detection. `disable_automatic_ip_detection` must be enabled on the client to use this parameter. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `ip_src` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
+        Call this once per request, typically at the start of your route
+        handler before running any application logic. The returned ``Decision``
+        tells you whether to allow or deny the request.
+
+        Args:
+            request: The incoming HTTP request. Accepts ASGI scope dicts,
+                Flask/Werkzeug ``Request`` objects, Django ``HttpRequest``
+                objects, or a ``RequestContext`` built manually.
+            requested: Number of tokens to consume for this request when a
+                ``token_bucket()`` rule is configured. Defaults to 1.
+            characteristics: Custom key/value pairs for client fingerprinting.
+                Defaults to the client IP address. Keys must match
+                characteristic names configured on your rules.
+                Example: ``{"user_id": current_user.id}``.
+            email: Email address to validate when a ``validate_email()`` rule
+                is configured. Required if email validation is active.
+            extra: Additional key/value pairs forwarded verbatim to the Arcjet
+                Decide API. Useful for custom metadata or debugging.
+            ip_src: Override the detected client IP. Only valid when
+                ``disable_automatic_ip_detection=True`` was set on the client.
+                **Caution:** only pass IPs from sources you trust. See
+                https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
 
         Returns:
-        - `Decision`: a convenience wrapper around the protobuf response with helpers like `.is_allowed()` and `.reason`.
+            A ``Decision`` containing the overall conclusion and per-rule
+            results. Use ``decision.is_denied()`` for a quick allow/block
+            check, or inspect ``decision.reason_v2`` and ``decision.results``
+            for per-rule detail.
 
         Raises:
-        - `ArcjetMisconfiguration` when required context (e.g. `email`) is missing for the configured rules.
-        - `ArcjetTransportError` for transport issues when `fail_open=False`.
+            ArcjetMisconfiguration: When required context (e.g. ``email``) is
+                missing for the configured rules, or when ``ip_src`` is used
+                inconsistently with ``disable_automatic_ip_detection``.
+            ArcjetTransportError: On network errors when ``fail_open=False``.
+
+        Example::
+
+            # FastAPI: from fastapi.responses import JSONResponse
+            decision = await aj.protect(request, requested=1)
+            if decision.is_denied():
+                status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+                return JSONResponse({"error": "Forbidden"}, status_code=status)
+
+            if decision.ip.is_hosting():
+                return JSONResponse({"error": "Blocked"}, status_code=403)
         """
         t0 = time.perf_counter()
         if self._disable_automatic_ip_detection and not ip_src:
@@ -515,10 +606,66 @@ class Arcjet:
 
 @dataclass(slots=True)
 class ArcjetSync:
-    """Arcjet client (sync).
+    """Sync Arcjet client.
 
-    Synchronous variant exposing the same `.protect(...)` shape as `Arcjet`.
-    Prefer this when your application stack is synchronous.
+    Synchronous counterpart to ``Arcjet``. Use this with synchronous
+    frameworks such as Flask or Django when you cannot use ``await``. The
+    ``.protect()`` method signature is identical to the async version.
+
+    Do not instantiate this class directly - use the ``arcjet_sync()`` factory
+    function instead, which sets sensible defaults for the API endpoint,
+    timeout, and transport.
+
+    Example::
+
+        import os
+        from arcjet import (
+            arcjet_sync,
+            shield,
+            detect_bot,
+            token_bucket,
+            Mode,
+            BotCategory,
+        )
+
+        arcjet_key = os.getenv("ARCJET_KEY")
+        if not arcjet_key:
+            raise RuntimeError(
+                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
+        aj = arcjet_sync(
+            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            rules=[
+                # Shield protects your app from common attacks e.g. SQL injection
+                shield(mode=Mode.LIVE),
+                # Create a bot detection rule
+                detect_bot(
+                    mode=Mode.LIVE, allow=[
+                        BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
+                        # Uncomment to allow these other common bot categories
+                        # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                        # BotCategory.MONITOR, # Uptime monitoring services
+                        # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
+                    ]
+                ),
+                # Create a token bucket rate limit. Other algorithms are supported
+                token_bucket(
+                    # Tracked by IP address by default, but this can be customized
+                    # See https://docs.arcjet.com/fingerprints
+                    # characteristics: ["ip.src"],
+                    mode=Mode.LIVE,
+                    refill_rate=5,  # Refill 5 tokens per interval
+                    interval=10,  # Refill every 10 seconds
+                    capacity=10,  # Bucket capacity of 10 tokens
+                ),
+            ],
+        )
+
+        # Inside a route handler:
+        # Flask: from flask import jsonify
+        decision = aj.protect(request)
+        if decision.is_denied():
+            return jsonify(error="Forbidden"), 403
     """
 
     _key: str
@@ -544,9 +691,16 @@ class ArcjetSync:
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
-        """Evaluate configured rules for a given request (sync).
+        """Evaluate the configured security rules against an incoming request (sync).
 
-        See `Arcjet.protect` for parameter and behavior details.
+        Synchronous counterpart to ``Arcjet.protect()``. See that method's
+        documentation for full parameter, return value, and error details.
+
+        Example::
+
+            decision = aj.protect(request, requested=1, email="user@example.com")
+            if decision.is_denied():
+                return jsonify(error="Forbidden"), 403
         """
         t0 = time.perf_counter()
         if self._disable_automatic_ip_detection and not ip_src:
@@ -875,11 +1029,80 @@ def arcjet(
 ) -> Arcjet:
     """Create an async Arcjet client.
 
-    Parameters:
-    - `base_url`: Defaults to `ARCJET_BASE_URL` env var, then Fly.io internal URL when `FLY_APP_NAME` is set, otherwise the public Decide endpoint.
-    - `timeout_ms`: Defaults to 1000ms in development and 500ms otherwise.
-    - `fail_open`: When True (default), transport errors yield ERROR decisions with an error reason instead of raising an exception.
-    - `disable_automatic_ip_detection`: When True, automatic IP detection from the request is disabled, and `ip_src` must be provided to `.protect(...)`. Passing the client IP with proper parsing is dangerous. Ensure you trust the source of `ip_src` (e.g. from a trusted proxy header). See https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For for guidance.
+    Args:
+        key: Your Arcjet site key from https://app.arcjet.com. Keep this
+            secret — store it in an environment variable, never in source code.
+        rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
+            ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
+            ``validate_email()``.
+        base_url: Override the Arcjet Decide API endpoint. Only set this if
+            directed by Arcjet support.
+        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
+            development and 500 ms in production.
+        fail_open: When ``True`` (default), transport errors produce an ERROR
+            decision instead of raising an exception, so your app stays
+            available if Arcjet is temporarily unreachable. Set to ``False``
+            to raise ``ArcjetTransportError`` on network failures instead.
+        proxies: IP addresses or CIDR ranges of trusted reverse proxies or
+            load balancers sitting in front of your app. Arcjet skips these
+            when resolving the real client IP from ``X-Forwarded-For``.
+            Example: ``["10.0.0.0/8", "192.168.1.1"]``.
+        disable_automatic_ip_detection: Set to ``True`` to disable automatic
+            IP extraction from request headers and supply the client IP
+            yourself via ``ip_src`` on each ``protect()`` call. Only use this
+            when you have your own validated IP-extraction logic. See
+            https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
+
+    Returns:
+        An ``Arcjet`` async client instance.
+
+    Raises:
+        ArcjetMisconfiguration: If ``key`` is empty.
+
+    Example::
+
+        import os
+        from arcjet import (
+            arcjet,
+            shield,
+            detect_bot,
+            token_bucket,
+            Mode,
+            BotCategory,
+        )
+
+        arcjet_key = os.getenv("ARCJET_KEY")
+        if not arcjet_key:
+            raise RuntimeError(
+                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
+        aj = arcjet(
+            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            rules=[
+                # Shield protects your app from common attacks e.g. SQL injection
+                shield(mode=Mode.LIVE),
+                # Create a bot detection rule
+                detect_bot(
+                    mode=Mode.LIVE, allow=[
+                        BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
+                        # Uncomment to allow these other common bot categories
+                        # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                        # BotCategory.MONITOR, # Uptime monitoring services
+                        # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
+                    ]
+                ),
+                # Create a token bucket rate limit. Other algorithms are supported
+                token_bucket(
+                    # Tracked by IP address by default, but this can be customized
+                    # See https://docs.arcjet.com/fingerprints
+                    # characteristics: ["ip.src"],
+                    mode=Mode.LIVE,
+                    refill_rate=5,  # Refill 5 tokens per interval
+                    interval=10,  # Refill every 10 seconds
+                    capacity=10,  # Bucket capacity of 10 tokens
+                ),
+            ],
+        )
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
@@ -917,7 +1140,83 @@ def arcjet_sync(
 ) -> ArcjetSync:
     """Create a sync Arcjet client.
 
-    See `arcjet(...)` for parameter details and default behavior.
+    Synchronous counterpart to ``arcjet()``. Use this with frameworks that do
+    not support ``async/await`` such as Flask or Django.
+
+    Args:
+        key: Your Arcjet site key from https://app.arcjet.com. Keep this
+            secret — store it in an environment variable, never in source code.
+        rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
+            ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
+            ``validate_email()``.
+        base_url: Override the Arcjet Decide API endpoint. Only set this if
+            directed by Arcjet support.
+        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
+            development and 500 ms in production.
+        fail_open: When ``True`` (default), transport errors produce an ERROR
+            decision instead of raising an exception, so your app stays
+            available if Arcjet is temporarily unreachable. Set to ``False``
+            to raise ``ArcjetTransportError`` on network failures instead.
+        proxies: IP addresses or CIDR ranges of trusted reverse proxies or
+            load balancers sitting in front of your app. Arcjet skips these
+            when resolving the real client IP from ``X-Forwarded-For``.
+            Example: ``["10.0.0.0/8", "192.168.1.1"]``.
+        disable_automatic_ip_detection: Set to ``True`` to disable automatic
+            IP extraction from request headers and supply the client IP
+            yourself via ``ip_src`` on each ``protect()`` call. Only use this
+            when you have your own validated IP-extraction logic. See
+            https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
+
+    Returns:
+        An ``ArcjetSync`` sync client instance.
+
+    Raises:
+        ArcjetMisconfiguration: If ``key`` is empty.
+
+    Example::
+
+        import os
+        from arcjet import (
+            arcjet_sync,
+            shield,
+            detect_bot,
+            token_bucket,
+            Mode,
+            BotCategory,
+        )
+
+        arcjet_key = os.getenv("ARCJET_KEY")
+        if not arcjet_key:
+            raise RuntimeError(
+                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+
+        aj = arcjet_sync(
+            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            rules=[
+                # Shield protects your app from common attacks e.g. SQL injection
+                shield(mode=Mode.LIVE),
+                # Create a bot detection rule
+                detect_bot(
+                    mode=Mode.LIVE, allow=[
+                        BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
+                        # Uncomment to allow these other common bot categories
+                        # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
+                        # BotCategory.MONITOR, # Uptime monitoring services
+                        # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
+                    ]
+                ),
+                # Create a token bucket rate limit. Other algorithms are supported
+                token_bucket(
+                    # Tracked by IP address by default, but this can be customized
+                    # See https://docs.arcjet.com/fingerprints
+                    # characteristics: ["ip.src"],
+                    mode=Mode.LIVE,
+                    refill_rate=5,  # Refill 5 tokens per interval
+                    interval=10,  # Refill every 10 seconds
+                    capacity=10,  # Bucket capacity of 10 tokens
+                ),
+            ],
+        )
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
