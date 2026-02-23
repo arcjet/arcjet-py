@@ -36,7 +36,7 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "connect-python" },
@@ -56,8 +56,10 @@ dev = [
     { name = "fastapi", specifier = "==0.128.0" },
     { name = "flask", specifier = "==3.1.2" },
     { name = "griffe", specifier = "==1.15.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pyright", specifier = "==1.1.408" },
     { name = "pytest", specifier = "==9.0.2" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = "==0.0.8" },
     { name = "types-protobuf", specifier = "==6.32.1.20251210" },
