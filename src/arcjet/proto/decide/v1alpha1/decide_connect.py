@@ -11,39 +11,20 @@ from connectrpc.errors import ConnectError
 from connectrpc.interceptor import Interceptor, InterceptorSync
 from connectrpc.method import IdempotencyLevel, MethodInfo
 from connectrpc.request import Headers, RequestContext
-from connectrpc.server import (
-    ConnectASGIApplication,
-    ConnectWSGIApplication,
-    Endpoint,
-    EndpointSync,
-)
+from connectrpc.server import ConnectASGIApplication, ConnectWSGIApplication, Endpoint, EndpointSync
 import arcjet.proto.decide.v1alpha1.decide_pb2 as proto_dot_decide_dot_v1alpha1_dot_decide__pb2
 
 
 class DecideService(Protocol):
-    async def decide(
-        self,
-        request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideRequest,
-        ctx: RequestContext,
-    ) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideResponse:
+    async def decide(self, request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideRequest, ctx: RequestContext) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
-    async def report(
-        self,
-        request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportRequest,
-        ctx: RequestContext,
-    ) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportResponse:
+    async def report(self, request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportRequest, ctx: RequestContext) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
 
 class DecideServiceASGIApplication(ConnectASGIApplication[DecideService]):
-    def __init__(
-        self,
-        service: DecideService | AsyncGenerator[DecideService],
-        *,
-        interceptors: Iterable[Interceptor] = (),
-        read_max_bytes: int | None = None,
-    ) -> None:
+    def __init__(self, service: DecideService | AsyncGenerator[DecideService], *, interceptors: Iterable[Interceptor]=(), read_max_bytes: int | None = None) -> None:
         super().__init__(
             service=service,
             endpoints=lambda svc: {
@@ -121,28 +102,14 @@ class DecideServiceClient(ConnectClient):
 
 
 class DecideServiceSync(Protocol):
-    def decide(
-        self,
-        request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideRequest,
-        ctx: RequestContext,
-    ) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideResponse:
+    def decide(self, request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideRequest, ctx: RequestContext) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.DecideResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
-
-    def report(
-        self,
-        request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportRequest,
-        ctx: RequestContext,
-    ) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportResponse:
+    def report(self, request: proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportRequest, ctx: RequestContext) -> proto_dot_decide_dot_v1alpha1_dot_decide__pb2.ReportResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
 
 class DecideServiceWSGIApplication(ConnectWSGIApplication):
-    def __init__(
-        self,
-        service: DecideServiceSync,
-        interceptors: Iterable[InterceptorSync] = (),
-        read_max_bytes: int | None = None,
-    ) -> None:
+    def __init__(self, service: DecideServiceSync, interceptors: Iterable[InterceptorSync]=(), read_max_bytes: int | None = None) -> None:
         super().__init__(
             endpoints={
                 "/proto.decide.v1alpha1.DecideService/Decide": EndpointSync.unary(
