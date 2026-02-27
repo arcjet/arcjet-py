@@ -13,6 +13,7 @@ from .dataclasses import (
     ErrorReason,
     FilterReason,
     IpDetails,
+    PromptInjectionDetectionReason,
     RateLimitReason,
     Reason,
     ShieldReason,
@@ -90,6 +91,13 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
 
         return ShieldReason(
             shield_triggered=shield.shield_triggered,
+        )
+    if proto.HasField("prompt_injection_detection"):
+        pid = proto.prompt_injection_detection
+
+        return PromptInjectionDetectionReason(
+            injection_detected=pid.injection_detected,
+            score=pid.score,
         )
 
     # Handle unexpected reason types by returning an ErrorReason

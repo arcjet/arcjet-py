@@ -43,7 +43,7 @@ from .context import (
     request_details_from_context,
 )
 from .decision import Decision
-from .rules import EmailValidation, RuleSpec, TokenBucket
+from .rules import EmailValidation, PromptInjectionDetection, RuleSpec, TokenBucket
 
 
 def _new_local_request_id() -> str:
@@ -213,6 +213,7 @@ class Arcjet:
     _timeout_ms: int | None
     _fail_open: bool
     _needs_email: bool = False
+    _needs_message: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
     _disable_automatic_ip_detection: bool = False
@@ -225,6 +226,7 @@ class Arcjet:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
@@ -294,11 +296,18 @@ class Arcjet:
 
         if email:
             ctx = replace(ctx, email=email)
+        if message:
+            ctx = replace(ctx, message=message)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
+            )
+        if self._needs_message and not (message or ctx.message):
+            raise ArcjetMisconfiguration(
+                "message is required when detect_prompt_injection(...) is configured. "
+                "Pass message=... to aj.protect(...)."
             )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
@@ -337,6 +346,7 @@ class Arcjet:
             query=ctx.query,
             body=ctx.body,
             email=ctx.email,
+            message=ctx.message,
             extra=merged_extra or None,
         )
 
@@ -676,6 +686,7 @@ class ArcjetSync:
     _timeout_ms: int | None
     _fail_open: bool
     _needs_email: bool = False
+    _needs_message: bool = False
     _has_token_bucket: bool = False
     _proxies: tuple[str, ...] = ()
     _disable_automatic_ip_detection: bool = False
@@ -688,6 +699,7 @@ class ArcjetSync:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
@@ -720,11 +732,18 @@ class ArcjetSync:
 
         if email:
             ctx = replace(ctx, email=email)
+        if message:
+            ctx = replace(ctx, message=message)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
+            )
+        if self._needs_message and not (message or ctx.message):
+            raise ArcjetMisconfiguration(
+                "message is required when detect_prompt_injection(...) is configured. "
+                "Pass message=... to aj.protect(...)."
             )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
@@ -758,6 +777,7 @@ class ArcjetSync:
             query=ctx.query,
             body=ctx.body,
             email=ctx.email,
+            message=ctx.message,
             extra=merged_extra or None,
         )
 
@@ -1120,6 +1140,7 @@ def arcjet(
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
+        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
@@ -1235,6 +1256,7 @@ def arcjet_sync(
         _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
+        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
