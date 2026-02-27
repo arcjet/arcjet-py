@@ -110,6 +110,35 @@ class Shield(RuleSpec):
         return decide_pb2.Rule(shield=sr)
 
 
+@dataclass(frozen=True, slots=True)
+class PromptInjectionDetection(RuleSpec):
+    """Prompt injection detection rule configuration.
+
+    Prefer the ``detect_prompt_injection()`` factory function over constructing this directly.
+    """
+
+    mode: Mode
+    threshold: float = 0.5
+
+    def __post_init__(self):
+        if not isinstance(self.mode, Mode):
+            raise TypeError("PromptInjectionDetection.mode must be a Mode enum")
+        if not isinstance(self.threshold, (int, float)):
+            raise TypeError("PromptInjectionDetection.threshold must be a number")
+        threshold = float(self.threshold)
+        if not (0.0 <= threshold <= 1.0):
+            raise ValueError(
+                f"PromptInjectionDetection.threshold must be between 0.0 and 1.0, got {threshold}"
+            )
+
+    def to_proto(self) -> decide_pb2.Rule:
+        pidr = decide_pb2.PromptInjectionDetectionRule(
+            mode=_mode_to_proto(self.mode),
+            threshold=float(self.threshold),
+        )
+        return decide_pb2.Rule(prompt_injection_detection=pidr)
+
+
 class BotCategory(str, Enum):
     """Known bot categories for use with ``detect_bot()``.
 
@@ -556,6 +585,44 @@ def shield(
         )
     """
     return Shield(mode=_coerce_mode(mode), characteristics=tuple(characteristics))
+
+
+def detect_prompt_injection(
+    *, mode: Union[str, Mode] = Mode.LIVE, threshold: float = 0.5
+) -> PromptInjectionDetection:
+    """Detect prompt injection attacks in user messages.
+
+    Analyzes messages for prompt injection attempts where users try to override
+    or manipulate AI system prompts. Requires passing ``message=`` to
+    ``protect()`` when this rule is configured.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        threshold: Detection confidence threshold (0.0 to 1.0). Higher values
+            are more conservative. Defaults to ``0.5``.
+
+    Returns:
+        A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
+        ``arcjet()``.
+
+    Example::
+
+        from arcjet import arcjet, detect_prompt_injection, Mode
+
+        aj = arcjet(
+            key="ajkey_...",
+            rules=[detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
+        )
+
+        # In your route handler, pass the user message:
+        decision = await aj.protect(request, message=user_input)
+        if decision.is_denied():
+            # Handle detected prompt injection
+            return {"error": "Invalid message"}, 400
+    """
+    return PromptInjectionDetection(mode=_coerce_mode(mode), threshold=float(threshold))
 
 
 def _coerce_bot_categories(

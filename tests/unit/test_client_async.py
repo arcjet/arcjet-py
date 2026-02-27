@@ -45,6 +45,19 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
         asyncio.run(aj.protect({"headers": [], "type": "http"}))
 
 
+def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules):
+    """Test that detect_prompt_injection rule raises error when message is missing."""
+    from arcjet import arcjet
+    from arcjet._errors import ArcjetMisconfiguration
+    from arcjet.rules import detect_prompt_injection
+
+    aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection()])
+    import asyncio
+
+    with pytest.raises(ArcjetMisconfiguration):
+        asyncio.run(aj.protect({"headers": [], "type": "http"}))
+
+
 def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet

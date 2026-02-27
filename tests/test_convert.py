@@ -237,6 +237,46 @@ def test_converting_shield_reason_not_triggered() -> None:
     assert reason.shield_triggered == False
 
 
+def test_converting_prompt_injection_detection_reason() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet.dataclasses import PromptInjectionDetectionReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        prompt_injection_detection=decide_pb2.PromptInjectionDetectionReason(
+            injection_detected=True,
+            score=0.95,
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, PromptInjectionDetectionReason)
+    assert reason.type == "PROMPT_INJECTION_DETECTION"
+    assert reason.injection_detected == True
+    assert reason.score == 0.95
+
+
+def test_converting_prompt_injection_detection_reason_not_detected() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet.dataclasses import PromptInjectionDetectionReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        prompt_injection_detection=decide_pb2.PromptInjectionDetectionReason(
+            injection_detected=False,
+            score=0.2,
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, PromptInjectionDetectionReason)
+    assert reason.type == "PROMPT_INJECTION_DETECTION"
+    assert reason.injection_detected == False
+    assert reason.score == 0.2
+
+
 def test_converting_email_type_free() -> None:
     from arcjet._convert import _email_type_from_proto
     from arcjet.proto.decide.v1alpha1 import decide_pb2
