@@ -304,7 +304,7 @@ class Arcjet:
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
             )
-        if self._needs_message and not message:
+        if self._needs_message and not (message or ctx.message):
             raise ArcjetMisconfiguration(
                 "message is required when detect_prompt_injection(...) is configured. "
                 "Pass message=... to aj.protect(...)."
@@ -740,7 +740,7 @@ class ArcjetSync:
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
             )
-        if self._needs_message and not message:
+        if self._needs_message and not (message or ctx.message):
             raise ArcjetMisconfiguration(
                 "message is required when detect_prompt_injection(...) is configured. "
                 "Pass message=... to aj.protect(...)."
