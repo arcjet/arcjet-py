@@ -226,7 +226,7 @@ class Arcjet:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
-        message: str | None = None,
+        detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
@@ -248,6 +248,9 @@ class Arcjet:
                 Example: ``{"user_id": current_user.id}``.
             email: Email address to validate when a ``validate_email()`` rule
                 is configured. Required if email validation is active.
+            detect_prompt_injection_message: The user-supplied text to analyze
+                for prompt injection attacks. Required when a
+                ``detect_prompt_injection()`` rule is configured.
             extra: Additional key/value pairs forwarded verbatim to the Arcjet
                 Decide API. Useful for custom metadata or debugging.
             ip_src: Override the detected client IP. Only valid when
@@ -296,18 +299,22 @@ class Arcjet:
 
         if email:
             ctx = replace(ctx, email=email)
-        if message:
-            ctx = replace(ctx, message=message)
+        if detect_prompt_injection_message:
+            ctx = replace(
+                ctx, detect_prompt_injection_message=detect_prompt_injection_message
+            )
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
             )
-        if self._needs_message and not message:
+        if self._needs_message and not (
+            detect_prompt_injection_message or ctx.detect_prompt_injection_message
+        ):
             raise ArcjetMisconfiguration(
-                "message is required when detect_prompt_injection(...) is configured. "
-                "Pass message=... to aj.protect(...)."
+                "detect_prompt_injection_message is required when detect_prompt_injection(...) is configured. "
+                "Pass detect_prompt_injection_message=... to aj.protect(...)."
             )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
@@ -346,7 +353,7 @@ class Arcjet:
             query=ctx.query,
             body=ctx.body,
             email=ctx.email,
-            message=ctx.message,
+            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
             extra=merged_extra or None,
         )
 
@@ -699,7 +706,7 @@ class ArcjetSync:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
-        message: str | None = None,
+        detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
@@ -732,18 +739,22 @@ class ArcjetSync:
 
         if email:
             ctx = replace(ctx, email=email)
-        if message:
-            ctx = replace(ctx, message=message)
+        if detect_prompt_injection_message:
+            ctx = replace(
+                ctx, detect_prompt_injection_message=detect_prompt_injection_message
+            )
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
                 "email is required when validate_email(...) is configured. "
                 "Pass email=... to aj.protect(...)."
             )
-        if self._needs_message and not message:
+        if self._needs_message and not (
+            detect_prompt_injection_message or ctx.detect_prompt_injection_message
+        ):
             raise ArcjetMisconfiguration(
-                "message is required when detect_prompt_injection(...) is configured. "
-                "Pass message=... to aj.protect(...)."
+                "detect_prompt_injection_message is required when detect_prompt_injection(...) is configured. "
+                "Pass detect_prompt_injection_message=... to aj.protect(...)."
             )
         # Token bucket uses a per-request cost. Default to 1 token if not provided.
         if self._has_token_bucket and requested is None:
@@ -777,7 +788,7 @@ class ArcjetSync:
             query=ctx.query,
             body=ctx.body,
             email=ctx.email,
-            message=ctx.message,
+            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
             extra=merged_extra or None,
         )
 

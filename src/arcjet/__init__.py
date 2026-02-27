@@ -15,12 +15,14 @@ from .rules import (
     EmailType,
     RuleSpec,
     detect_bot,
-    detect_prompt_injection,
     fixed_window,
     shield,
     sliding_window,
     token_bucket,
     validate_email,
+)
+from .rules import (
+    detect_prompt_injection as experimental_detect_prompt_injection,
 )
 
 __all__ = [
@@ -31,7 +33,7 @@ __all__ = [
     "BotCategory",
     "Decision",
     "detect_bot",
-    "detect_prompt_injection",
+    "experimental_detect_prompt_injection",
     "EmailType",
     "fixed_window",
     "IpInfo",

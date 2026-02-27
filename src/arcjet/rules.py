@@ -593,8 +593,9 @@ def detect_prompt_injection(
     """Detect prompt injection attacks in user messages.
 
     Analyzes messages for prompt injection attempts where users try to override
-    or manipulate AI system prompts. Requires passing ``message=`` to
-    ``protect()`` when this rule is configured.
+    or manipulate AI system prompts. Requires passing
+    ``detect_prompt_injection_message=`` to ``protect()`` when this rule is
+    configured.
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
@@ -609,15 +610,15 @@ def detect_prompt_injection(
 
     Example::
 
-        from arcjet import arcjet, detect_prompt_injection, Mode
+        from arcjet import arcjet, experimental_detect_prompt_injection, Mode
 
         aj = arcjet(
             key="ajkey_...",
-            rules=[detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
+            rules=[experimental_detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
         )
 
         # In your route handler, pass the user message:
-        decision = await aj.protect(request, message=user_input)
+        decision = await aj.protect(request, detect_prompt_injection_message=user_input)
         if decision.is_denied():
             # Handle detected prompt injection
             return {"error": "Invalid message"}, 400
