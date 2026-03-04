@@ -136,3 +136,41 @@ def test_rule_spec_get_characteristics_conversion_fails():
 
     # Should return empty tuple on exception
     assert chars == ()
+
+
+def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
+    """Test detect_prompt_injection rule converts to protobuf with mode and threshold."""
+    from arcjet.rules import Mode, detect_prompt_injection
+
+    r = detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+    pb = r.to_proto()
+    assert pb.prompt_injection_detection is not None
+    assert pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_LIVE
+    assert pb.prompt_injection_detection.threshold == 0.9
+
+
+def test_detect_prompt_injection_default_threshold(mock_protobuf_modules):
+    """Test detect_prompt_injection uses default threshold of 0.5."""
+    from arcjet.rules import Mode, detect_prompt_injection
+
+    r = detect_prompt_injection(mode=Mode.DRY_RUN)
+    pb = r.to_proto()
+    assert pb.prompt_injection_detection.threshold == 0.5
+
+
+def test_detect_prompt_injection_validation(mock_protobuf_modules):
+    """Test detect_prompt_injection validates threshold range."""
+    from arcjet.rules import detect_prompt_injection
+
+    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+        detect_prompt_injection(threshold=1.5)
+
+    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+        detect_prompt_injection(threshold=-0.1)
+
+    # Edge cases should work
+    r1 = detect_prompt_injection(threshold=0.0)
+    assert r1.threshold == 0.0
+
+    r2 = detect_prompt_injection(threshold=1.0)
+    assert r2.threshold == 1.0

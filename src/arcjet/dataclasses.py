@@ -161,11 +161,30 @@ class ShieldReason:
     """Discriminator field. Always ``"SHIELD"``."""
 
 
+@dataclass(frozen=True, slots=True)
+class PromptInjectionDetectionReason:
+    """Reason returned when a prompt injection detection rule triggers.
+
+    Access via ``decision.reason_v2`` when ``reason_v2.type == "PROMPT_INJECTION_DETECTION"``.
+    ``injection_detected`` is ``True`` when prompt injection was detected in the message.
+    """
+
+    injection_detected: bool
+    """``True`` when prompt injection was detected in the message."""
+
+    score: float
+    """Confidence score of the prompt injection detection (0.0 to 1.0)."""
+
+    type: Literal["PROMPT_INJECTION_DETECTION"] = "PROMPT_INJECTION_DETECTION"
+    """Discriminator field. Always ``"PROMPT_INJECTION_DETECTION"``."""
+
+
 Reason = (
     BotReason
     | EmailReason
     | ErrorReason
     | FilterReason
+    | PromptInjectionDetectionReason
     | RateLimitReason
     | ShieldReason
 )
@@ -177,6 +196,7 @@ Each variant has a ``type`` discriminator field you can use to narrow the type:
 - ``"EMAIL"`` → ``EmailReason`` (email validation)
 - ``"ERROR"`` → ``ErrorReason`` (API or transport error)
 - ``"FILTER"`` → ``FilterReason`` (request filter)
+- ``"PROMPT_INJECTION_DETECTION"`` → ``PromptInjectionDetectionReason`` (prompt injection detection)
 - ``"RATE_LIMIT"`` → ``RateLimitReason`` (rate limiting)
 - ``"SHIELD"`` → ``ShieldReason`` (Shield WAF)
 

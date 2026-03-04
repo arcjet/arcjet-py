@@ -99,6 +99,9 @@ class FilterRuleVersion(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FILTER_RULE_VERSION_UNSPECIFIED: _ClassVar[FilterRuleVersion]
 
+class PromptInjectionDetectionRuleVersion(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PROMPT_INJECTION_DETECTION_RULE_VERSION_UNSPECIFIED: _ClassVar[PromptInjectionDetectionRuleVersion]
 BOT_TYPE_UNSPECIFIED: BotType
 BOT_TYPE_NOT_ANALYZED: BotType
 BOT_TYPE_AUTOMATED: BotType
@@ -149,9 +152,17 @@ EMAIL_RULE_VERSION_UNSPECIFIED: EmailRuleVersion
 SENSITIVE_INFO_RULE_VERSION_UNSPECIFIED: SensitiveInfoRuleVersion
 SHIELD_RULE_VERSION_UNSPECIFIED: ShieldRuleVersion
 FILTER_RULE_VERSION_UNSPECIFIED: FilterRuleVersion
+PROMPT_INJECTION_DETECTION_RULE_VERSION_UNSPECIFIED: PromptInjectionDetectionRuleVersion
 
 class IpDetails(_message.Message):
     __slots__ = ()
+    class BotsEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     LATITUDE_FIELD_NUMBER: _ClassVar[int]
     LONGITUDE_FIELD_NUMBER: _ClassVar[int]
     ACCURACY_RADIUS_FIELD_NUMBER: _ClassVar[int]
@@ -174,6 +185,8 @@ class IpDetails(_message.Message):
     IS_PROXY_FIELD_NUMBER: _ClassVar[int]
     IS_TOR_FIELD_NUMBER: _ClassVar[int]
     IS_RELAY_FIELD_NUMBER: _ClassVar[int]
+    IS_ABUSER_FIELD_NUMBER: _ClassVar[int]
+    BOTS_FIELD_NUMBER: _ClassVar[int]
     latitude: float
     longitude: float
     accuracy_radius: int
@@ -196,31 +209,9 @@ class IpDetails(_message.Message):
     is_proxy: bool
     is_tor: bool
     is_relay: bool
-    def __init__(
-        self,
-        latitude: _Optional[float] = ...,
-        longitude: _Optional[float] = ...,
-        accuracy_radius: _Optional[int] = ...,
-        timezone: _Optional[str] = ...,
-        postal_code: _Optional[str] = ...,
-        city: _Optional[str] = ...,
-        region: _Optional[str] = ...,
-        country: _Optional[str] = ...,
-        country_name: _Optional[str] = ...,
-        continent: _Optional[str] = ...,
-        continent_name: _Optional[str] = ...,
-        asn: _Optional[str] = ...,
-        asn_name: _Optional[str] = ...,
-        asn_domain: _Optional[str] = ...,
-        asn_type: _Optional[str] = ...,
-        asn_country: _Optional[str] = ...,
-        service: _Optional[str] = ...,
-        is_hosting: _Optional[bool] = ...,
-        is_vpn: _Optional[bool] = ...,
-        is_proxy: _Optional[bool] = ...,
-        is_tor: _Optional[bool] = ...,
-        is_relay: _Optional[bool] = ...,
-    ) -> None: ...
+    is_abuser: bool
+    bots: _containers.ScalarMap[str, str]
+    def __init__(self, latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_radius: _Optional[int] = ..., timezone: _Optional[str] = ..., postal_code: _Optional[str] = ..., city: _Optional[str] = ..., region: _Optional[str] = ..., country: _Optional[str] = ..., country_name: _Optional[str] = ..., continent: _Optional[str] = ..., continent_name: _Optional[str] = ..., asn: _Optional[str] = ..., asn_name: _Optional[str] = ..., asn_domain: _Optional[str] = ..., asn_type: _Optional[str] = ..., asn_country: _Optional[str] = ..., service: _Optional[str] = ..., is_hosting: _Optional[bool] = ..., is_vpn: _Optional[bool] = ..., is_proxy: _Optional[bool] = ..., is_tor: _Optional[bool] = ..., is_relay: _Optional[bool] = ..., is_abuser: _Optional[bool] = ..., bots: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class Reason(_message.Message):
     __slots__ = ()
@@ -233,6 +224,7 @@ class Reason(_message.Message):
     SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     BOT_V2_FIELD_NUMBER: _ClassVar[int]
     FILTER_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_INJECTION_DETECTION_FIELD_NUMBER: _ClassVar[int]
     rate_limit: RateLimitReason
     edge_rule: EdgeRuleReason
     bot: BotReason
@@ -242,18 +234,8 @@ class Reason(_message.Message):
     sensitive_info: SensitiveInfoReason
     bot_v2: BotV2Reason
     filter: FilterReason
-    def __init__(
-        self,
-        rate_limit: _Optional[_Union[RateLimitReason, _Mapping]] = ...,
-        edge_rule: _Optional[_Union[EdgeRuleReason, _Mapping]] = ...,
-        bot: _Optional[_Union[BotReason, _Mapping]] = ...,
-        shield: _Optional[_Union[ShieldReason, _Mapping]] = ...,
-        email: _Optional[_Union[EmailReason, _Mapping]] = ...,
-        error: _Optional[_Union[ErrorReason, _Mapping]] = ...,
-        sensitive_info: _Optional[_Union[SensitiveInfoReason, _Mapping]] = ...,
-        bot_v2: _Optional[_Union[BotV2Reason, _Mapping]] = ...,
-        filter: _Optional[_Union[FilterReason, _Mapping]] = ...,
-    ) -> None: ...
+    prompt_injection_detection: PromptInjectionDetectionReason
+    def __init__(self, rate_limit: _Optional[_Union[RateLimitReason, _Mapping]] = ..., edge_rule: _Optional[_Union[EdgeRuleReason, _Mapping]] = ..., bot: _Optional[_Union[BotReason, _Mapping]] = ..., shield: _Optional[_Union[ShieldReason, _Mapping]] = ..., email: _Optional[_Union[EmailReason, _Mapping]] = ..., error: _Optional[_Union[ErrorReason, _Mapping]] = ..., sensitive_info: _Optional[_Union[SensitiveInfoReason, _Mapping]] = ..., bot_v2: _Optional[_Union[BotV2Reason, _Mapping]] = ..., filter: _Optional[_Union[FilterReason, _Mapping]] = ..., prompt_injection_detection: _Optional[_Union[PromptInjectionDetectionReason, _Mapping]] = ...) -> None: ...
 
 class RateLimitReason(_message.Message):
     __slots__ = ()
@@ -269,17 +251,7 @@ class RateLimitReason(_message.Message):
     reset_time: _timestamp_pb2.Timestamp
     reset_in_seconds: int
     window_in_seconds: int
-    def __init__(
-        self,
-        max: _Optional[int] = ...,
-        count: _Optional[int] = ...,
-        remaining: _Optional[int] = ...,
-        reset_time: _Optional[
-            _Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]
-        ] = ...,
-        reset_in_seconds: _Optional[int] = ...,
-        window_in_seconds: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, max: _Optional[int] = ..., count: _Optional[int] = ..., remaining: _Optional[int] = ..., reset_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., reset_in_seconds: _Optional[int] = ..., window_in_seconds: _Optional[int] = ...) -> None: ...
 
 class EdgeRuleReason(_message.Message):
     __slots__ = ()
@@ -303,17 +275,7 @@ class BotReason(_message.Message):
     ip_proxy: bool
     ip_tor: bool
     ip_relay: bool
-    def __init__(
-        self,
-        bot_type: _Optional[_Union[BotType, str]] = ...,
-        bot_score: _Optional[int] = ...,
-        user_agent_match: _Optional[bool] = ...,
-        ip_hosting: _Optional[bool] = ...,
-        ip_vpn: _Optional[bool] = ...,
-        ip_proxy: _Optional[bool] = ...,
-        ip_tor: _Optional[bool] = ...,
-        ip_relay: _Optional[bool] = ...,
-    ) -> None: ...
+    def __init__(self, bot_type: _Optional[_Union[BotType, str]] = ..., bot_score: _Optional[int] = ..., user_agent_match: _Optional[bool] = ..., ip_hosting: _Optional[bool] = ..., ip_vpn: _Optional[bool] = ..., ip_proxy: _Optional[bool] = ..., ip_tor: _Optional[bool] = ..., ip_relay: _Optional[bool] = ...) -> None: ...
 
 class BotV2Reason(_message.Message):
     __slots__ = ()
@@ -325,13 +287,7 @@ class BotV2Reason(_message.Message):
     denied: _containers.RepeatedScalarFieldContainer[str]
     verified: bool
     spoofed: bool
-    def __init__(
-        self,
-        allowed: _Optional[_Iterable[str]] = ...,
-        denied: _Optional[_Iterable[str]] = ...,
-        verified: _Optional[bool] = ...,
-        spoofed: _Optional[bool] = ...,
-    ) -> None: ...
+    def __init__(self, allowed: _Optional[_Iterable[str]] = ..., denied: _Optional[_Iterable[str]] = ..., verified: _Optional[bool] = ..., spoofed: _Optional[bool] = ...) -> None: ...
 
 class ShieldReason(_message.Message):
     __slots__ = ()
@@ -339,9 +295,7 @@ class ShieldReason(_message.Message):
     SUSPICIOUS_FIELD_NUMBER: _ClassVar[int]
     shield_triggered: bool
     suspicious: bool
-    def __init__(
-        self, shield_triggered: _Optional[bool] = ..., suspicious: _Optional[bool] = ...
-    ) -> None: ...
+    def __init__(self, shield_triggered: _Optional[bool] = ..., suspicious: _Optional[bool] = ...) -> None: ...
 
 class FilterReason(_message.Message):
     __slots__ = ()
@@ -351,26 +305,27 @@ class FilterReason(_message.Message):
     matched_expression: str
     matched_expressions: _containers.RepeatedScalarFieldContainer[str]
     undetermined_expressions: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(
-        self,
-        matched_expression: _Optional[str] = ...,
-        matched_expressions: _Optional[_Iterable[str]] = ...,
-        undetermined_expressions: _Optional[_Iterable[str]] = ...,
-    ) -> None: ...
+    def __init__(self, matched_expression: _Optional[str] = ..., matched_expressions: _Optional[_Iterable[str]] = ..., undetermined_expressions: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class EmailReason(_message.Message):
     __slots__ = ()
     EMAIL_TYPES_FIELD_NUMBER: _ClassVar[int]
     email_types: _containers.RepeatedScalarFieldContainer[EmailType]
-    def __init__(
-        self, email_types: _Optional[_Iterable[_Union[EmailType, str]]] = ...
-    ) -> None: ...
+    def __init__(self, email_types: _Optional[_Iterable[_Union[EmailType, str]]] = ...) -> None: ...
 
 class ErrorReason(_message.Message):
     __slots__ = ()
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     message: str
     def __init__(self, message: _Optional[str] = ...) -> None: ...
+
+class PromptInjectionDetectionReason(_message.Message):
+    __slots__ = ()
+    INJECTION_DETECTED_FIELD_NUMBER: _ClassVar[int]
+    SCORE_FIELD_NUMBER: _ClassVar[int]
+    injection_detected: bool
+    score: float
+    def __init__(self, injection_detected: _Optional[bool] = ..., score: _Optional[float] = ...) -> None: ...
 
 class IdentifiedEntity(_message.Message):
     __slots__ = ()
@@ -380,12 +335,7 @@ class IdentifiedEntity(_message.Message):
     identified_type: str
     start: int
     end: int
-    def __init__(
-        self,
-        identified_type: _Optional[str] = ...,
-        start: _Optional[int] = ...,
-        end: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, identified_type: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
 
 class SensitiveInfoReason(_message.Message):
     __slots__ = ()
@@ -393,11 +343,7 @@ class SensitiveInfoReason(_message.Message):
     DENIED_FIELD_NUMBER: _ClassVar[int]
     allowed: _containers.RepeatedCompositeFieldContainer[IdentifiedEntity]
     denied: _containers.RepeatedCompositeFieldContainer[IdentifiedEntity]
-    def __init__(
-        self,
-        allowed: _Optional[_Iterable[_Union[IdentifiedEntity, _Mapping]]] = ...,
-        denied: _Optional[_Iterable[_Union[IdentifiedEntity, _Mapping]]] = ...,
-    ) -> None: ...
+    def __init__(self, allowed: _Optional[_Iterable[_Union[IdentifiedEntity, _Mapping]]] = ..., denied: _Optional[_Iterable[_Union[IdentifiedEntity, _Mapping]]] = ...) -> None: ...
 
 class RateLimitRule(_message.Message):
     __slots__ = ()
@@ -425,62 +371,31 @@ class RateLimitRule(_message.Message):
     capacity: int
     window_in_seconds: int
     version: RateLimitRuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        match: _Optional[str] = ...,
-        characteristics: _Optional[_Iterable[str]] = ...,
-        window: _Optional[str] = ...,
-        max: _Optional[int] = ...,
-        timeout: _Optional[str] = ...,
-        algorithm: _Optional[_Union[RateLimitAlgorithm, str]] = ...,
-        refill_rate: _Optional[int] = ...,
-        interval: _Optional[int] = ...,
-        capacity: _Optional[int] = ...,
-        window_in_seconds: _Optional[int] = ...,
-        version: _Optional[_Union[RateLimitRuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., match: _Optional[str] = ..., characteristics: _Optional[_Iterable[str]] = ..., window: _Optional[str] = ..., max: _Optional[int] = ..., timeout: _Optional[str] = ..., algorithm: _Optional[_Union[RateLimitAlgorithm, str]] = ..., refill_rate: _Optional[int] = ..., interval: _Optional[int] = ..., capacity: _Optional[int] = ..., window_in_seconds: _Optional[int] = ..., version: _Optional[_Union[RateLimitRuleVersion, str]] = ...) -> None: ...
 
 class BotRule(_message.Message):
     __slots__ = ()
-
     class Patterns(_message.Message):
         __slots__ = ()
-
         class AddEntry(_message.Message):
             __slots__ = ()
             KEY_FIELD_NUMBER: _ClassVar[int]
             VALUE_FIELD_NUMBER: _ClassVar[int]
             key: str
             value: BotType
-            def __init__(
-                self,
-                key: _Optional[str] = ...,
-                value: _Optional[_Union[BotType, str]] = ...,
-            ) -> None: ...
-
+            def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[BotType, str]] = ...) -> None: ...
         ADD_FIELD_NUMBER: _ClassVar[int]
         REMOVE_FIELD_NUMBER: _ClassVar[int]
         add: _containers.ScalarMap[str, BotType]
         remove: _containers.RepeatedScalarFieldContainer[str]
-        def __init__(
-            self,
-            add: _Optional[_Mapping[str, BotType]] = ...,
-            remove: _Optional[_Iterable[str]] = ...,
-        ) -> None: ...
-
+        def __init__(self, add: _Optional[_Mapping[str, BotType]] = ..., remove: _Optional[_Iterable[str]] = ...) -> None: ...
     MODE_FIELD_NUMBER: _ClassVar[int]
     BLOCK_FIELD_NUMBER: _ClassVar[int]
     PATTERNS_FIELD_NUMBER: _ClassVar[int]
     mode: Mode
     block: _containers.RepeatedScalarFieldContainer[BotType]
     patterns: BotRule.Patterns
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        block: _Optional[_Iterable[_Union[BotType, str]]] = ...,
-        patterns: _Optional[_Union[BotRule.Patterns, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., block: _Optional[_Iterable[_Union[BotType, str]]] = ..., patterns: _Optional[_Union[BotRule.Patterns, _Mapping]] = ...) -> None: ...
 
 class BotV2Rule(_message.Message):
     __slots__ = ()
@@ -492,13 +407,7 @@ class BotV2Rule(_message.Message):
     allow: _containers.RepeatedScalarFieldContainer[str]
     deny: _containers.RepeatedScalarFieldContainer[str]
     version: BotV2RuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        allow: _Optional[_Iterable[str]] = ...,
-        deny: _Optional[_Iterable[str]] = ...,
-        version: _Optional[_Union[BotV2RuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., allow: _Optional[_Iterable[str]] = ..., deny: _Optional[_Iterable[str]] = ..., version: _Optional[_Union[BotV2RuleVersion, str]] = ...) -> None: ...
 
 class EmailRule(_message.Message):
     __slots__ = ()
@@ -516,16 +425,7 @@ class EmailRule(_message.Message):
     allow: _containers.RepeatedScalarFieldContainer[EmailType]
     deny: _containers.RepeatedScalarFieldContainer[EmailType]
     version: EmailRuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        block: _Optional[_Iterable[_Union[EmailType, str]]] = ...,
-        require_top_level_domain: _Optional[bool] = ...,
-        allow_domain_literal: _Optional[bool] = ...,
-        allow: _Optional[_Iterable[_Union[EmailType, str]]] = ...,
-        deny: _Optional[_Iterable[_Union[EmailType, str]]] = ...,
-        version: _Optional[_Union[EmailRuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., block: _Optional[_Iterable[_Union[EmailType, str]]] = ..., require_top_level_domain: _Optional[bool] = ..., allow_domain_literal: _Optional[bool] = ..., allow: _Optional[_Iterable[_Union[EmailType, str]]] = ..., deny: _Optional[_Iterable[_Union[EmailType, str]]] = ..., version: _Optional[_Union[EmailRuleVersion, str]] = ...) -> None: ...
 
 class SensitiveInfoRule(_message.Message):
     __slots__ = ()
@@ -537,13 +437,7 @@ class SensitiveInfoRule(_message.Message):
     allow: _containers.RepeatedScalarFieldContainer[str]
     deny: _containers.RepeatedScalarFieldContainer[str]
     version: SensitiveInfoRuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        allow: _Optional[_Iterable[str]] = ...,
-        deny: _Optional[_Iterable[str]] = ...,
-        version: _Optional[_Union[SensitiveInfoRuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., allow: _Optional[_Iterable[str]] = ..., deny: _Optional[_Iterable[str]] = ..., version: _Optional[_Union[SensitiveInfoRuleVersion, str]] = ...) -> None: ...
 
 class ShieldRule(_message.Message):
     __slots__ = ()
@@ -555,13 +449,7 @@ class ShieldRule(_message.Message):
     auto_added: bool
     characteristics: _containers.RepeatedScalarFieldContainer[str]
     version: ShieldRuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        auto_added: _Optional[bool] = ...,
-        characteristics: _Optional[_Iterable[str]] = ...,
-        version: _Optional[_Union[ShieldRuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., auto_added: _Optional[bool] = ..., characteristics: _Optional[_Iterable[str]] = ..., version: _Optional[_Union[ShieldRuleVersion, str]] = ...) -> None: ...
 
 class FilterRule(_message.Message):
     __slots__ = ()
@@ -573,13 +461,17 @@ class FilterRule(_message.Message):
     allow: _containers.RepeatedScalarFieldContainer[str]
     deny: _containers.RepeatedScalarFieldContainer[str]
     version: FilterRuleVersion
-    def __init__(
-        self,
-        mode: _Optional[_Union[Mode, str]] = ...,
-        allow: _Optional[_Iterable[str]] = ...,
-        deny: _Optional[_Iterable[str]] = ...,
-        version: _Optional[_Union[FilterRuleVersion, str]] = ...,
-    ) -> None: ...
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., allow: _Optional[_Iterable[str]] = ..., deny: _Optional[_Iterable[str]] = ..., version: _Optional[_Union[FilterRuleVersion, str]] = ...) -> None: ...
+
+class PromptInjectionDetectionRule(_message.Message):
+    __slots__ = ()
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    THRESHOLD_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    mode: Mode
+    threshold: float
+    version: PromptInjectionDetectionRuleVersion
+    def __init__(self, mode: _Optional[_Union[Mode, str]] = ..., threshold: _Optional[float] = ..., version: _Optional[_Union[PromptInjectionDetectionRuleVersion, str]] = ...) -> None: ...
 
 class Rule(_message.Message):
     __slots__ = ()
@@ -590,6 +482,7 @@ class Rule(_message.Message):
     SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     BOT_V2_FIELD_NUMBER: _ClassVar[int]
     FILTER_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_INJECTION_DETECTION_FIELD_NUMBER: _ClassVar[int]
     rate_limit: RateLimitRule
     bots: BotRule
     email: EmailRule
@@ -597,16 +490,8 @@ class Rule(_message.Message):
     sensitive_info: SensitiveInfoRule
     bot_v2: BotV2Rule
     filter: FilterRule
-    def __init__(
-        self,
-        rate_limit: _Optional[_Union[RateLimitRule, _Mapping]] = ...,
-        bots: _Optional[_Union[BotRule, _Mapping]] = ...,
-        email: _Optional[_Union[EmailRule, _Mapping]] = ...,
-        shield: _Optional[_Union[ShieldRule, _Mapping]] = ...,
-        sensitive_info: _Optional[_Union[SensitiveInfoRule, _Mapping]] = ...,
-        bot_v2: _Optional[_Union[BotV2Rule, _Mapping]] = ...,
-        filter: _Optional[_Union[FilterRule, _Mapping]] = ...,
-    ) -> None: ...
+    prompt_injection_detection: PromptInjectionDetectionRule
+    def __init__(self, rate_limit: _Optional[_Union[RateLimitRule, _Mapping]] = ..., bots: _Optional[_Union[BotRule, _Mapping]] = ..., email: _Optional[_Union[EmailRule, _Mapping]] = ..., shield: _Optional[_Union[ShieldRule, _Mapping]] = ..., sensitive_info: _Optional[_Union[SensitiveInfoRule, _Mapping]] = ..., bot_v2: _Optional[_Union[BotV2Rule, _Mapping]] = ..., filter: _Optional[_Union[FilterRule, _Mapping]] = ..., prompt_injection_detection: _Optional[_Union[PromptInjectionDetectionRule, _Mapping]] = ...) -> None: ...
 
 class RuleResult(_message.Message):
     __slots__ = ()
@@ -622,39 +507,24 @@ class RuleResult(_message.Message):
     reason: Reason
     ttl: int
     fingerprint: str
-    def __init__(
-        self,
-        rule_id: _Optional[str] = ...,
-        state: _Optional[_Union[RuleState, str]] = ...,
-        conclusion: _Optional[_Union[Conclusion, str]] = ...,
-        reason: _Optional[_Union[Reason, _Mapping]] = ...,
-        ttl: _Optional[int] = ...,
-        fingerprint: _Optional[str] = ...,
-    ) -> None: ...
+    def __init__(self, rule_id: _Optional[str] = ..., state: _Optional[_Union[RuleState, str]] = ..., conclusion: _Optional[_Union[Conclusion, str]] = ..., reason: _Optional[_Union[Reason, _Mapping]] = ..., ttl: _Optional[int] = ..., fingerprint: _Optional[str] = ...) -> None: ...
 
 class RequestDetails(_message.Message):
     __slots__ = ()
-
     class HeadersEntry(_message.Message):
         __slots__ = ()
         KEY_FIELD_NUMBER: _ClassVar[int]
         VALUE_FIELD_NUMBER: _ClassVar[int]
         key: str
         value: str
-        def __init__(
-            self, key: _Optional[str] = ..., value: _Optional[str] = ...
-        ) -> None: ...
-
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     class ExtraEntry(_message.Message):
         __slots__ = ()
         KEY_FIELD_NUMBER: _ClassVar[int]
         VALUE_FIELD_NUMBER: _ClassVar[int]
         key: str
         value: str
-        def __init__(
-            self, key: _Optional[str] = ..., value: _Optional[str] = ...
-        ) -> None: ...
-
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     IP_FIELD_NUMBER: _ClassVar[int]
     METHOD_FIELD_NUMBER: _ClassVar[int]
     PROTOCOL_FIELD_NUMBER: _ClassVar[int]
@@ -677,20 +547,7 @@ class RequestDetails(_message.Message):
     email: str
     cookies: str
     query: str
-    def __init__(
-        self,
-        ip: _Optional[str] = ...,
-        method: _Optional[str] = ...,
-        protocol: _Optional[str] = ...,
-        host: _Optional[str] = ...,
-        path: _Optional[str] = ...,
-        headers: _Optional[_Mapping[str, str]] = ...,
-        body: _Optional[bytes] = ...,
-        extra: _Optional[_Mapping[str, str]] = ...,
-        email: _Optional[str] = ...,
-        cookies: _Optional[str] = ...,
-        query: _Optional[str] = ...,
-    ) -> None: ...
+    def __init__(self, ip: _Optional[str] = ..., method: _Optional[str] = ..., protocol: _Optional[str] = ..., host: _Optional[str] = ..., path: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., body: _Optional[bytes] = ..., extra: _Optional[_Mapping[str, str]] = ..., email: _Optional[str] = ..., cookies: _Optional[str] = ..., query: _Optional[str] = ...) -> None: ...
 
 class Decision(_message.Message):
     __slots__ = ()
@@ -706,15 +563,7 @@ class Decision(_message.Message):
     rule_results: _containers.RepeatedCompositeFieldContainer[RuleResult]
     ttl: int
     ip_details: IpDetails
-    def __init__(
-        self,
-        id: _Optional[str] = ...,
-        conclusion: _Optional[_Union[Conclusion, str]] = ...,
-        reason: _Optional[_Union[Reason, _Mapping]] = ...,
-        rule_results: _Optional[_Iterable[_Union[RuleResult, _Mapping]]] = ...,
-        ttl: _Optional[int] = ...,
-        ip_details: _Optional[_Union[IpDetails, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., conclusion: _Optional[_Union[Conclusion, str]] = ..., reason: _Optional[_Union[Reason, _Mapping]] = ..., rule_results: _Optional[_Iterable[_Union[RuleResult, _Mapping]]] = ..., ttl: _Optional[int] = ..., ip_details: _Optional[_Union[IpDetails, _Mapping]] = ...) -> None: ...
 
 class DecideRequest(_message.Message):
     __slots__ = ()
@@ -728,37 +577,22 @@ class DecideRequest(_message.Message):
     details: RequestDetails
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(
-        self,
-        sdk_stack: _Optional[_Union[SDKStack, str]] = ...,
-        sdk_version: _Optional[str] = ...,
-        details: _Optional[_Union[RequestDetails, _Mapping]] = ...,
-        rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ...,
-        characteristics: _Optional[_Iterable[str]] = ...,
-    ) -> None: ...
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class DecideResponse(_message.Message):
     __slots__ = ()
-
     class ExtraEntry(_message.Message):
         __slots__ = ()
         KEY_FIELD_NUMBER: _ClassVar[int]
         VALUE_FIELD_NUMBER: _ClassVar[int]
         key: str
         value: str
-        def __init__(
-            self, key: _Optional[str] = ..., value: _Optional[str] = ...
-        ) -> None: ...
-
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     DECISION_FIELD_NUMBER: _ClassVar[int]
     EXTRA_FIELD_NUMBER: _ClassVar[int]
     decision: Decision
     extra: _containers.ScalarMap[str, str]
-    def __init__(
-        self,
-        decision: _Optional[_Union[Decision, _Mapping]] = ...,
-        extra: _Optional[_Mapping[str, str]] = ...,
-    ) -> None: ...
+    def __init__(self, decision: _Optional[_Union[Decision, _Mapping]] = ..., extra: _Optional[_Mapping[str, str]] = ...) -> None: ...
 
 class ReportRequest(_message.Message):
     __slots__ = ()
@@ -774,29 +608,17 @@ class ReportRequest(_message.Message):
     decision: Decision
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(
-        self,
-        sdk_stack: _Optional[_Union[SDKStack, str]] = ...,
-        sdk_version: _Optional[str] = ...,
-        details: _Optional[_Union[RequestDetails, _Mapping]] = ...,
-        decision: _Optional[_Union[Decision, _Mapping]] = ...,
-        rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ...,
-        characteristics: _Optional[_Iterable[str]] = ...,
-    ) -> None: ...
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., decision: _Optional[_Union[Decision, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ReportResponse(_message.Message):
     __slots__ = ()
-
     class ExtraEntry(_message.Message):
         __slots__ = ()
         KEY_FIELD_NUMBER: _ClassVar[int]
         VALUE_FIELD_NUMBER: _ClassVar[int]
         key: str
         value: str
-        def __init__(
-            self, key: _Optional[str] = ..., value: _Optional[str] = ...
-        ) -> None: ...
-
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     EXTRA_FIELD_NUMBER: _ClassVar[int]
     extra: _containers.ScalarMap[str, str]
     def __init__(self, extra: _Optional[_Mapping[str, str]] = ...) -> None: ...

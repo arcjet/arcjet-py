@@ -89,6 +89,14 @@ class StubShieldRule:
         self.characteristics: list[str] = []
 
 
+class StubPromptInjectionDetectionRule:
+    """Stub for protobuf PromptInjectionDetectionRule message."""
+
+    def __init__(self, mode: int, threshold: float) -> None:
+        self.mode = mode
+        self.threshold = threshold
+
+
 class StubBotV2Rule:
     """Stub for protobuf BotV2Rule message."""
 
@@ -127,11 +135,20 @@ class StubRule:
     """Stub for protobuf Rule message (oneof wrapper)."""
 
     def __init__(self, **kwargs: Any) -> None:
-        # oneof: shield | bot_v2 | rate_limit | email
+        # oneof: shield | bot_v2 | rate_limit | email | prompt_injection_detection
         self.shield = kwargs.get("shield")
         self.bot_v2 = kwargs.get("bot_v2")
         self.rate_limit = kwargs.get("rate_limit")
         self.email = kwargs.get("email")
+        self.prompt_injection_detection = kwargs.get("prompt_injection_detection")
+
+
+class StubPromptInjectionDetectionReason:
+    """Stub for protobuf PromptInjectionDetectionReason message."""
+
+    def __init__(self, injection_detected: bool, score: float) -> None:
+        self.injection_detected = injection_detected
+        self.score = score
 
 
 class StubErrorReason:
@@ -153,6 +170,7 @@ class StubReason:
         self.email = kwargs.get("email")
         self.sensitive_info = kwargs.get("sensitive_info")
         self.filter = kwargs.get("filter")
+        self.prompt_injection_detection = kwargs.get("prompt_injection_detection")
         self.error = kwargs.get("error")
 
     def WhichOneof(self, name: str) -> Optional[str]:
@@ -165,11 +183,16 @@ class StubReason:
             "email",
             "sensitive_info",
             "filter",
+            "prompt_injection_detection",
             "error",
         ):
             if getattr(self, field) is not None:
                 return field
         return None
+
+    def HasField(self, field: str) -> bool:
+        """Check if a oneof field is set."""
+        return getattr(self, field, None) is not None
 
 
 class StubIpDetails:
@@ -444,10 +467,12 @@ def mock_protobuf_modules(
         Conclusion=_Conclusion,
         RequestDetails=StubRequestDetails,
         ShieldRule=StubShieldRule,
+        PromptInjectionDetectionRule=StubPromptInjectionDetectionRule,
         BotV2Rule=StubBotV2Rule,
         RateLimitRule=StubRateLimitRule,
         EmailRule=StubEmailRule,
         Rule=StubRule,
+        PromptInjectionDetectionReason=StubPromptInjectionDetectionReason,
         ErrorReason=StubErrorReason,
         Reason=StubReason,
         IpDetails=StubIpDetails,

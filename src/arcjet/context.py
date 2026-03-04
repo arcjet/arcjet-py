@@ -61,6 +61,8 @@ class RequestContext:
     - query: Raw query string without leading `?`.
     - body: Raw request body bytes if available.
     - email: User email for email validation rule.
+    - detect_prompt_injection_message: User message for prompt injection
+        detection rule.
     - extra: Additional key/value metadata to be forwarded to the Decide API.
     """
 
@@ -74,6 +76,7 @@ class RequestContext:
     query: str | None = None
     body: bytes | None = None
     email: str | None = None
+    detect_prompt_injection_message: str | None = None
     extra: Mapping[str, str] | None = None
 
 
@@ -291,6 +294,10 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
     if ctx.extra:
         for k, v in ctx.extra.items():
             d.extra[k] = str(v)
+
+    # Pass message through extra if present
+    if ctx.detect_prompt_injection_message:
+        d.extra["detectPromptInjectionMessage"] = ctx.detect_prompt_injection_message
 
     return d
 
