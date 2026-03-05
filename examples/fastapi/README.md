@@ -4,11 +4,15 @@
 
 Assumes running inside the devcontainer:
 
-```shell
-# Export your Arcjet API key
-export ARCJET_KEY="ajkey_..."
-export ARCJET_ENV=development
+Copy `example.env` to `.env.local` and set your Arcjet API key:
 
-# Run the FastAPI application
-uv run uvicorn main:app --reload
+```sh
+cp example.env .env.local
+# Edit .env and set your ARCJET_KEY
+```
+
+Then run the FastAPI application:
+
+```sh
+uv run --env-file .env.local fastapi dev
 ```

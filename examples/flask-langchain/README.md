@@ -7,19 +7,17 @@ app abuse protection (rate limiting, bot detection, and shield rules).
 
 Assumes running inside the devcontainer:
 
-```shell
-# Export your Arcjet API key
-export ARCJET_KEY="ajkey_..."
-export ARCJET_ENV=development
+Copy `example.env` to `.env.local` and set your API keys:
 
-# Export your OpenAI API key (used by LangChain)
-export OPENAI_API_KEY="sk-..."
+```sh
+cp example.env .env.local
+# Edit .env.local and set your ARCJET_KEY and OPENAI_API_KEY
+```
 
-# Install dependencies
-uv sync
+Then run the Flask application:
 
-# Run the Flask application
-uv run python main.py
+```sh
+uv run --env-file .env.local python main.py
 ```
 
 ## `POST /chat`
