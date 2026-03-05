@@ -125,7 +125,7 @@ aj = arcjet(
         token_bucket(
             # Tracked by IP address by default, but this can be customized
             # See https://docs.arcjet.com/fingerprints
-            # characteristics: ["ip.src"],
+            # characteristics=["ip.src"],
             mode=Mode.LIVE,
             refill_rate=5,  # Refill 5 tokens per interval
             interval=10,  # Refill every 10 seconds
@@ -339,9 +339,8 @@ aj = arcjet_sync(
         ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
-            # Tracked by IP address by default, but this can be customized
-            # See https://docs.arcjet.com/fingerprints
-            # characteristics: ["ip.src"],
+            # Pass a custom characteristics to track requests
+            characteristics=["userId"],
             mode=Mode.LIVE,
             refill_rate=5,  # Refill 5 tokens per interval
             interval=10,  # Refill every 10 seconds
@@ -353,10 +352,16 @@ aj = arcjet_sync(
 
 @app.route("/")
 def hello():
+     # Replace with actual user ID from the user session
+    userId = "your_user_id"
+
     # Call protect() to evaluate the request against the rules
     decision = aj.protect(
         request,
-        requested=5,  # Deduct 5 tokens from the bucket
+        # Deduct 5 tokens from the bucket
+        requested=5,
+        # Identify the user to track the limit against
+        characteristics={"userId": userId},
     )
 
     # Handle denied requests

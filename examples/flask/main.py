@@ -1,23 +1,23 @@
-from flask import Flask, request, jsonify
-import os
 import logging
+import os
+
+from flask import Flask, jsonify, request
 
 from arcjet import (
-    arcjet_sync,
-    shield,
-    detect_bot,
-    token_bucket,
-    Mode,
     BotCategory,
     EmailType,
+    Mode,
+    arcjet_sync,
+    detect_bot,
+    shield,
+    token_bucket,
 )
 
 app = Flask(__name__)
 
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
-    raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
 
 aj = arcjet_sync(
     key=arcjet_key,  # Get your key from https://app.arcjet.com

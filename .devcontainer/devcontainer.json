@@ -12,7 +12,8 @@
 		"vscode": {
 			"extensions": [
 				"astral-sh.ty",
-				"tamasfe.even-better-toml"
+				"tamasfe.even-better-toml",
+				"Anthropic.claude-code"
 			]
 		}
 	}
