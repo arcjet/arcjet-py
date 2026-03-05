@@ -13,7 +13,8 @@
 			"extensions": [
 				"astral-sh.ty",
 				"tamasfe.even-better-toml",
-				"Anthropic.claude-code"
+				"Anthropic.claude-code",
+				"GitHub.vscode-pull-request-github"
 			]
 		}
 	}
