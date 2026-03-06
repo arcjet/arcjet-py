@@ -224,7 +224,7 @@ class Reason(_message.Message):
     SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     BOT_V2_FIELD_NUMBER: _ClassVar[int]
     FILTER_FIELD_NUMBER: _ClassVar[int]
-    PROMPT_INJECTION_DETECTION_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_INJECTION_FIELD_NUMBER: _ClassVar[int]
     rate_limit: RateLimitReason
     edge_rule: EdgeRuleReason
     bot: BotReason
@@ -234,8 +234,8 @@ class Reason(_message.Message):
     sensitive_info: SensitiveInfoReason
     bot_v2: BotV2Reason
     filter: FilterReason
-    prompt_injection_detection: PromptInjectionDetectionReason
-    def __init__(self, rate_limit: _Optional[_Union[RateLimitReason, _Mapping]] = ..., edge_rule: _Optional[_Union[EdgeRuleReason, _Mapping]] = ..., bot: _Optional[_Union[BotReason, _Mapping]] = ..., shield: _Optional[_Union[ShieldReason, _Mapping]] = ..., email: _Optional[_Union[EmailReason, _Mapping]] = ..., error: _Optional[_Union[ErrorReason, _Mapping]] = ..., sensitive_info: _Optional[_Union[SensitiveInfoReason, _Mapping]] = ..., bot_v2: _Optional[_Union[BotV2Reason, _Mapping]] = ..., filter: _Optional[_Union[FilterReason, _Mapping]] = ..., prompt_injection_detection: _Optional[_Union[PromptInjectionDetectionReason, _Mapping]] = ...) -> None: ...
+    prompt_injection: PromptInjectionReason
+    def __init__(self, rate_limit: _Optional[_Union[RateLimitReason, _Mapping]] = ..., edge_rule: _Optional[_Union[EdgeRuleReason, _Mapping]] = ..., bot: _Optional[_Union[BotReason, _Mapping]] = ..., shield: _Optional[_Union[ShieldReason, _Mapping]] = ..., email: _Optional[_Union[EmailReason, _Mapping]] = ..., error: _Optional[_Union[ErrorReason, _Mapping]] = ..., sensitive_info: _Optional[_Union[SensitiveInfoReason, _Mapping]] = ..., bot_v2: _Optional[_Union[BotV2Reason, _Mapping]] = ..., filter: _Optional[_Union[FilterReason, _Mapping]] = ..., prompt_injection: _Optional[_Union[PromptInjectionReason, _Mapping]] = ...) -> None: ...
 
 class RateLimitReason(_message.Message):
     __slots__ = ()
@@ -319,7 +319,7 @@ class ErrorReason(_message.Message):
     message: str
     def __init__(self, message: _Optional[str] = ...) -> None: ...
 
-class PromptInjectionDetectionReason(_message.Message):
+class PromptInjectionReason(_message.Message):
     __slots__ = ()
     INJECTION_DETECTED_FIELD_NUMBER: _ClassVar[int]
     SCORE_FIELD_NUMBER: _ClassVar[int]

@@ -237,13 +237,13 @@ def test_converting_shield_reason_not_triggered() -> None:
     assert reason.shield_triggered == False
 
 
-def test_converting_prompt_injection_detection_reason() -> None:
+def test_converting_prompt_injection_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import PromptInjectionDetectionReason
+    from arcjet.dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
-        prompt_injection_detection=decide_pb2.PromptInjectionDetectionReason(
+        prompt_injection=decide_pb2.PromptInjectionReason(
             injection_detected=True,
             score=0.95,
         )
@@ -251,19 +251,19 @@ def test_converting_prompt_injection_detection_reason() -> None:
 
     reason = _reason_from_proto(proto_reason)
 
-    assert isinstance(reason, PromptInjectionDetectionReason)
-    assert reason.type == "PROMPT_INJECTION_DETECTION"
+    assert isinstance(reason, PromptInjectionReason)
+    assert reason.type == "PROMPT_INJECTION"
     assert reason.injection_detected == True
     assert reason.score == 0.95
 
 
-def test_converting_prompt_injection_detection_reason_not_detected() -> None:
+def test_converting_prompt_injection_reason_not_detected() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import PromptInjectionDetectionReason
+    from arcjet.dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
-        prompt_injection_detection=decide_pb2.PromptInjectionDetectionReason(
+        prompt_injection=decide_pb2.PromptInjectionReason(
             injection_detected=False,
             score=0.2,
         )
@@ -271,8 +271,8 @@ def test_converting_prompt_injection_detection_reason_not_detected() -> None:
 
     reason = _reason_from_proto(proto_reason)
 
-    assert isinstance(reason, PromptInjectionDetectionReason)
-    assert reason.type == "PROMPT_INJECTION_DETECTION"
+    assert isinstance(reason, PromptInjectionReason)
+    assert reason.type == "PROMPT_INJECTION"
     assert reason.injection_detected == False
     assert reason.score == 0.2
 
