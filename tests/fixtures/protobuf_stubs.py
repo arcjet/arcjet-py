@@ -143,8 +143,8 @@ class StubRule:
         self.prompt_injection_detection = kwargs.get("prompt_injection_detection")
 
 
-class StubPromptInjectionDetectionReason:
-    """Stub for protobuf PromptInjectionDetectionReason message."""
+class StubPromptInjectionReason:
+    """Stub for protobuf PromptInjectionReason message."""
 
     def __init__(self, injection_detected: bool, score: float) -> None:
         self.injection_detected = injection_detected
@@ -170,7 +170,7 @@ class StubReason:
         self.email = kwargs.get("email")
         self.sensitive_info = kwargs.get("sensitive_info")
         self.filter = kwargs.get("filter")
-        self.prompt_injection_detection = kwargs.get("prompt_injection_detection")
+        self.prompt_injection = kwargs.get("prompt_injection")
         self.error = kwargs.get("error")
 
     def WhichOneof(self, name: str) -> Optional[str]:
@@ -183,7 +183,7 @@ class StubReason:
             "email",
             "sensitive_info",
             "filter",
-            "prompt_injection_detection",
+            "prompt_injection",
             "error",
         ):
             if getattr(self, field) is not None:
@@ -472,7 +472,7 @@ def mock_protobuf_modules(
         RateLimitRule=StubRateLimitRule,
         EmailRule=StubEmailRule,
         Rule=StubRule,
-        PromptInjectionDetectionReason=StubPromptInjectionDetectionReason,
+        PromptInjectionReason=StubPromptInjectionReason,
         ErrorReason=StubErrorReason,
         Reason=StubReason,
         IpDetails=StubIpDetails,

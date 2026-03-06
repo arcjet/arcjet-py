@@ -13,7 +13,7 @@ from .dataclasses import (
     ErrorReason,
     FilterReason,
     IpDetails,
-    PromptInjectionDetectionReason,
+    PromptInjectionReason,
     RateLimitReason,
     Reason,
     ShieldReason,
@@ -92,10 +92,10 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
         return ShieldReason(
             shield_triggered=shield.shield_triggered,
         )
-    if proto.HasField("prompt_injection_detection"):
-        pid = proto.prompt_injection_detection
+    if proto.HasField("prompt_injection"):
+        pid = proto.prompt_injection
 
-        return PromptInjectionDetectionReason(
+        return PromptInjectionReason(
             injection_detected=pid.injection_detected,
             score=pid.score,
         )
