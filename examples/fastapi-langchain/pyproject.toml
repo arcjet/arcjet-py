@@ -1,0 +1,15 @@
+[project]
+name = "example-fastapi-langchain"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + LangChain Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet",
+    "fastapi[standard]>=0.124.4",
+    "langchain>=1.2.10",
+    "langchain-openai>=1.1.10",
+]
+
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }

@@ -1,0 +1,15 @@
+[project]
+name = "example-flask-langchain"
+version = "0.1.0"
+description = "Arcjet Python SDK Example Flask + LangChain Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet",
+    "flask>=3.1.2",
+    "langchain>=1.2.10",
+    "langchain-openai>=1.1.10",
+]
+
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
