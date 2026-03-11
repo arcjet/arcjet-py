@@ -117,7 +117,7 @@ def test_decision_ip_details_typed_access(mock_protobuf_modules):
     assert typed.is_hosting is True
     assert typed.is_vpn in (False, None)
     assert typed.is_abuser is True
-    
+
     # Alias via decision.ip.details should match the same typed values.
     assert decision.ip.details == typed
 
