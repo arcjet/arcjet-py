@@ -194,6 +194,9 @@ class BotCategory(str, Enum):
     ARCHIVE = "CATEGORY:ARCHIVE"
     """Web archiving bots (e.g. Internet Archive / Wayback Machine)."""
 
+    BOTNET = "CATEGORY:BOTNET"
+    """Botnet-operated malicious bots."""
+
     FEEDFETCHER = "CATEGORY:FEEDFETCHER"
     """RSS/Atom feed readers."""
 

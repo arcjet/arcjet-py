@@ -222,6 +222,7 @@ class StubIpDetails:
         self.is_proxy: bool = False
         self.is_tor: bool = False
         self.is_relay: bool = False
+        self.is_abuser: bool = False
         # Set any provided kwargs
         for k, v in kwargs.items():
             setattr(self, k, v)

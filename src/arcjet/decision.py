@@ -68,6 +68,10 @@ class IpInfo:
         """``True`` if the IP is a Tor exit node."""
         return bool(self._ip and self._ip.is_tor)
 
+    def is_abuser(self) -> bool:
+        """``True`` if the IP is associated with a known abuser."""
+        return bool(self._ip and self._ip.is_abuser)
+
     @property
     def details(self) -> arcjet.dataclasses.IpDetails | None:
         """IP analysis fields, or ``None`` when unavailable.
@@ -334,7 +338,7 @@ class Decision:
           hosting, business, education), `asn_country`
         - Service: service name (when present) and boolean
           indicators for `is_vpn`, `is_proxy`, `is_tor`, `is_hosting`,
-          `is_relay`
+          `is_relay`, `is_abuser`
         """
         return self.ip.details
 
