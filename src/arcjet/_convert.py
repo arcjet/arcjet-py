@@ -157,4 +157,5 @@ def _ip_details_from_proto(proto: decide_pb2.IpDetails | None) -> IpDetails | No
         is_proxy=data.get("is_proxy"),
         is_tor=data.get("is_tor"),
         is_relay=data.get("is_relay"),
+        is_abuser=data.get("is_abuser"),
     )

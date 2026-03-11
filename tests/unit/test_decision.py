@@ -84,6 +84,7 @@ def test_decision_with_ip_details(mock_protobuf_modules):
     assert decision.ip.is_vpn() is False
     assert decision.ip.is_proxy() is False
     assert decision.ip.is_tor() is False
+    assert decision.ip.is_abuser() is False
 
 
 def test_decision_ip_details_typed_access(mock_protobuf_modules):
@@ -99,6 +100,7 @@ def test_decision_ip_details_typed_access(mock_protobuf_modules):
     ip_details.service = "example-service"
     ip_details.is_hosting = True
     ip_details.is_vpn = False
+    ip_details.is_abuser = True
 
     dec = decide_pb2.Decision(
         id="typed", conclusion=decide_pb2.CONCLUSION_ALLOW, ip_details=ip_details
@@ -114,7 +116,8 @@ def test_decision_ip_details_typed_access(mock_protobuf_modules):
     assert typed.service == "example-service"
     assert typed.is_hosting is True
     assert typed.is_vpn in (False, None)
-
+    assert typed.is_abuser is True
+    
     # Alias via decision.ip.details should match the same typed values.
     assert decision.ip.details == typed
 

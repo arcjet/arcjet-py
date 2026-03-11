@@ -334,6 +334,7 @@ def test_converting_ip_details() -> None:
         is_proxy=False,
         is_tor=False,
         is_relay=False,
+        is_abuser=False,
     )
 
     ip = _ip_details_from_proto(proto_ip)
@@ -373,6 +374,7 @@ def test_ip_details_boolean_flag_conversion() -> None:
         is_proxy=False,
         is_tor=False,
         is_relay=False,
+        is_abuser=False,
     )
 
     ip = _ip_details_from_proto(proto_ip)
@@ -386,6 +388,7 @@ def test_ip_details_boolean_flag_conversion() -> None:
     assert getattr(ip, "is_proxy", None) is None
     assert getattr(ip, "is_tor", None) is None
     assert getattr(ip, "is_relay", None) is None
+    assert getattr(ip, "is_abuser", None) is None
 
 
 def test_converting_missing_ip_details() -> None:

@@ -294,3 +294,6 @@ class IpDetails:
 
     is_relay: bool | None = None
     """``True`` if the IP is part of a privacy relay network (e.g. Apple Private Relay)."""
+
+    is_abuser: bool | None = None
+    """``True`` if the IP is associated with a known abuser."""
