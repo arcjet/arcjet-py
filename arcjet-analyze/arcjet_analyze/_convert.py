@@ -58,11 +58,6 @@ def _rec(**kwargs: Any) -> Record:
     return r
 
 
-def _attr(record: Any, kebab_name: str) -> Any:
-    """Get a kebab-case attribute from a wasmtime Record."""
-    return getattr(record, kebab_name)
-
-
 # ---------------------------------------------------------------------------
 # to_wasm: Python -> wasmtime
 # ---------------------------------------------------------------------------
@@ -156,8 +151,8 @@ def from_wasm_filter_result(raw: Any) -> Result[FilterResult, str]:
     return Ok(
         FilterResult(
             allowed=raw.allowed,
-            matched_expressions=_attr(raw, "matched-expressions"),
-            undetermined_expressions=_attr(raw, "undetermined-expressions"),
+            matched_expressions=getattr(raw, "matched-expressions"),
+            undetermined_expressions=getattr(raw, "undetermined-expressions"),
         )
     )
 
@@ -178,8 +173,12 @@ def from_wasm_bot_result(raw: Any) -> Result[BotResult, str]:
 
 def from_wasm_fingerprint_result(raw: Any) -> Result[str, str]:
     """Convert generate-fingerprint result (tagged: Variant("ok"/"err", str))."""
-    assert isinstance(raw, Variant)
-    assert isinstance(raw.payload, str)
+    if not isinstance(raw, Variant):
+        raise TypeError(f"expected Variant from generate-fingerprint, got {type(raw)}")
+    if not isinstance(raw.payload, str):
+        raise TypeError(
+            f"expected str payload in fingerprint result, got {type(raw.payload)}"
+        )
     if raw.tag == "ok":
         return Ok(raw.payload)
     return Err(raw.payload)
@@ -200,15 +199,16 @@ def from_wasm_email_validation_result(
         return Err(raw)
     return Ok(
         EmailValidationResult(
-            validity=_attr(raw, "validity"),
-            blocked=_attr(raw, "blocked"),
+            validity=getattr(raw, "validity"),
+            blocked=getattr(raw, "blocked"),
         )
     )
 
 
 def from_wasm_sensitive_info_entity(raw: Any) -> SensitiveInfoEntity:
     """Convert a wasmtime Variant to SensitiveInfoEntity."""
-    assert isinstance(raw, Variant)
+    if not isinstance(raw, Variant):
+        raise TypeError(f"expected Variant for sensitive-info-entity, got {type(raw)}")
     tag = raw.tag
     if tag == "email":
         return SensitiveInfoEntityEmail()
@@ -219,7 +219,10 @@ def from_wasm_sensitive_info_entity(raw: Any) -> SensitiveInfoEntity:
     if tag == "credit-card-number":
         return SensitiveInfoEntityCreditCardNumber()
     if tag == "custom":
-        assert isinstance(raw.payload, str)
+        if not isinstance(raw.payload, str):
+            raise TypeError(
+                f"expected str payload for custom entity, got {type(raw.payload)}"
+            )
         return SensitiveInfoEntityCustom(raw.payload)
     raise ValueError(f"Unknown sensitive-info-entity tag: {tag}")
 
@@ -229,13 +232,15 @@ def from_wasm_detected_entity(raw: Any) -> DetectedSensitiveInfoEntity:
     return DetectedSensitiveInfoEntity(
         start=raw.start,
         end=raw.end,
-        identified_type=from_wasm_sensitive_info_entity(_attr(raw, "identified-type")),
+        identified_type=from_wasm_sensitive_info_entity(
+            getattr(raw, "identified-type")
+        ),
     )
 
 
 def from_wasm_sensitive_info_result(raw: Any) -> SensitiveInfoResult:
     """Convert detect-sensitive-info result (direct Record, no result wrapper)."""
     return SensitiveInfoResult(
-        allowed=[from_wasm_detected_entity(e) for e in _attr(raw, "allowed")],
-        denied=[from_wasm_detected_entity(e) for e in _attr(raw, "denied")],
+        allowed=[from_wasm_detected_entity(e) for e in getattr(raw, "allowed")],
+        denied=[from_wasm_detected_entity(e) for e in getattr(raw, "denied")],
     )
