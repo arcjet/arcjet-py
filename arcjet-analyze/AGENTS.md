@@ -132,6 +132,18 @@ GENERATOR-NOTE comments in the source files).
 uv run pytest arcjet-analyze/tests/ --no-cov
 ```
 
+## Running benchmarks
+
+WASM performance benchmarks live in the top-level `benchmarks/` directory and
+measure per-call overhead (Store allocation, component instantiation, WASM
+invocation) as well as end-to-end `protect()` latency. See the top-level
+`CONTRIBUTING.md` for full instructions.
+
+```sh
+# Quick run — all WASM benchmarks
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v -o "python_files=bench_*.py test_*.py"
+```
+
 ## wasmtime-py component model cookbook
 
 ### Object lifetimes and reusability

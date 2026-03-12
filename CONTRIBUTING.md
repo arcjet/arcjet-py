@@ -44,6 +44,25 @@ All tests (unit and integration) run together in a single test suite:
 The fixture-based approach prevents cross-contamination between tests while
 allowing them to run in a single pytest invocation.
 
+## Benchmarks
+
+WASM performance benchmarks live in `benchmarks/` and measure the per-call cost
+of local rule evaluation. They use `pytest-benchmark` (installed via the
+`benchmarks` dependency group) and are not collected during normal test runs.
+
+```sh
+# Run all benchmarks
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v -o "python_files=bench_*.py test_*.py"
+
+# Save results to JSON for later comparison
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-json=benchmark-results.json
+
+# Compare a new run against a saved baseline
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-compare=benchmark-results.json
+```
+
+Always pass `--no-cov` — coverage instrumentation distorts timing.
+
 ## Breaking changes
 
 Check if there are any breaking changes in the public API using Griffe:
