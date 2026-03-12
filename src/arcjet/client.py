@@ -20,6 +20,7 @@ import atexit
 import inspect
 import logging
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -37,7 +38,11 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 )
 
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
-from ._local import evaluate_bot_locally, evaluate_email_locally
+from ._local import (
+    evaluate_bot_locally,
+    evaluate_email_locally,
+    evaluate_sensitive_info_locally,
+)
 from ._logging import logger
 from .cache import DecisionCache, make_cache_key
 from .context import (
@@ -51,13 +56,27 @@ from .rules import (
     EmailValidation,
     PromptInjectionDetection,
     RuleSpec,
+    SensitiveInfoDetection,
     TokenBucket,
 )
 
-# Bounded thread pool for fire-and-forget report requests (sync client).
-# Limits concurrency and allows pending reports to drain on shutdown.
-_report_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="arcjet-report")
-atexit.register(_report_pool.shutdown, wait=True, cancel_futures=False)
+# Lazy thread pool for fire-and-forget report requests (sync client).
+# Initialized on first use so async-only callers don't pay for thread creation.
+_report_pool: ThreadPoolExecutor | None = None
+_report_pool_lock = threading.Lock()
+
+
+def _get_report_pool() -> ThreadPoolExecutor:
+    global _report_pool
+    if _report_pool is not None:
+        return _report_pool
+    with _report_pool_lock:
+        if _report_pool is None:
+            _report_pool = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="arcjet-report"
+            )
+            atexit.register(_report_pool.shutdown, wait=True, cancel_futures=False)
+        return _report_pool
 
 
 def _new_local_request_id() -> str:
@@ -172,6 +191,8 @@ def _run_local_rules(
             result = evaluate_bot_locally(ctx, rule)
         elif isinstance(rule, EmailValidation):
             result = evaluate_email_locally(ctx, rule)
+        elif isinstance(rule, SensitiveInfoDetection):
+            result = evaluate_sensitive_info_locally(ctx, rule)
 
         if result is None:
             continue
@@ -303,6 +324,7 @@ class Arcjet:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        sensitive_info_content: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -376,6 +398,8 @@ class Arcjet:
 
         if email:
             ctx = replace(ctx, email=email)
+        if sensitive_info_content:
+            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
@@ -830,6 +854,7 @@ class ArcjetSync:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        sensitive_info_content: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -863,6 +888,8 @@ class ArcjetSync:
 
         if email:
             ctx = replace(ctx, email=email)
+        if sensitive_info_content:
+            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
@@ -949,7 +976,7 @@ class ArcjetSync:
                             },
                         )
 
-                _report_pool.submit(_send_report_sync)
+                _get_report_pool().submit(_send_report_sync)
 
                 if logger.isEnabledFor(logging.DEBUG):
                     t_prepare_end = time.perf_counter()
@@ -1019,7 +1046,7 @@ class ArcjetSync:
                             },
                         )
 
-                _report_pool.submit(_send_local_report_sync)
+                _get_report_pool().submit(_send_local_report_sync)
             except Exception as e:
                 logger.debug(
                     "local decision report scheduling error (sync): error=%s",

@@ -447,6 +447,108 @@ class SlidingWindow(RuleSpec):
         return decide_pb2.Rule(rate_limit=rr)
 
 
+class SensitiveInfoEntityType(str, Enum):
+    """Entity types for sensitive information detection.
+
+    Pass these values in the ``allow`` or ``deny`` lists of
+    ``detect_sensitive_info()`` to configure which types of sensitive
+    information to detect.
+
+    Example::
+
+        from arcjet import detect_sensitive_info, SensitiveInfoEntityType, Mode
+
+        rules = [
+            detect_sensitive_info(
+                mode=Mode.LIVE,
+                deny=[
+                    SensitiveInfoEntityType.EMAIL,
+                    SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                ],
+            )
+        ]
+    """
+
+    EMAIL = "EMAIL"
+    """Email addresses."""
+
+    PHONE_NUMBER = "PHONE_NUMBER"
+    """Phone numbers."""
+
+    IP_ADDRESS = "IP_ADDRESS"
+    """IP addresses."""
+
+    CREDIT_CARD_NUMBER = "CREDIT_CARD_NUMBER"
+    """Credit card numbers."""
+
+
+# A sensitive info specifier can be a known entity type or an arbitrary string
+# (for custom entity types)
+SensitiveInfoSpecifier = Union[SensitiveInfoEntityType, str]
+
+
+@dataclass(frozen=True, slots=True)
+class SensitiveInfoDetection(RuleSpec):
+    """Sensitive information detection rule configuration.
+
+    Prefer the ``detect_sensitive_info()`` factory function over constructing
+    this directly.
+    """
+
+    mode: Mode
+    allow: tuple[SensitiveInfoSpecifier, ...] = ()
+    deny: tuple[SensitiveInfoSpecifier, ...] = ()
+    context_window_size: int | None = None
+    characteristics: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.mode, Mode):
+            raise TypeError("SensitiveInfoDetection.mode must be a Mode enum")
+        for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if not isinstance(seq, tuple):
+                raise TypeError(
+                    f"SensitiveInfoDetection.{name} must be a tuple of "
+                    "SensitiveInfoEntityType or str"
+                )
+            for item in seq:
+                if not (
+                    isinstance(item, SensitiveInfoEntityType) or isinstance(item, str)
+                ):
+                    raise TypeError(
+                        f"SensitiveInfoDetection.{name} entries must be "
+                        "SensitiveInfoEntityType or str"
+                    )
+                if isinstance(item, str) and item == "":
+                    raise ValueError(
+                        f"SensitiveInfoDetection.{name} entries cannot be empty strings"
+                    )
+        if not isinstance(self.characteristics, tuple):
+            raise TypeError(
+                "SensitiveInfoDetection.characteristics must be a tuple of strings"
+            )
+        for c in self.characteristics:
+            if not isinstance(c, str):
+                raise TypeError(
+                    "SensitiveInfoDetection.characteristics entries must be strings"
+                )
+
+    def to_proto(self) -> decide_pb2.Rule:
+        sir = decide_pb2.SensitiveInfoRule(mode=_mode_to_proto(self.mode))
+        sir.allow.extend(
+            [
+                str(e.value) if isinstance(e, SensitiveInfoEntityType) else str(e)
+                for e in self.allow
+            ]
+        )
+        sir.deny.extend(
+            [
+                str(e.value) if isinstance(e, SensitiveInfoEntityType) else str(e)
+                for e in self.deny
+            ]
+        )
+        return decide_pb2.Rule(sensitive_info=sir)
+
+
 class EmailType(str, Enum):
     """Email address classifier types used by ``validate_email()``.
 
@@ -931,4 +1033,67 @@ def validate_email(
         allow=_coerce_email_types(allow),
         require_top_level_domain=require_top_level_domain,
         allow_domain_literal=allow_domain_literal,
+    )
+
+
+def detect_sensitive_info(
+    *,
+    mode: Union[str, Mode] = Mode.LIVE,
+    allow: Sequence[Union[str, SensitiveInfoEntityType]] = (),
+    deny: Sequence[Union[str, SensitiveInfoEntityType]] = (),
+    context_window_size: int | None = None,
+    characteristics: Sequence[str] = (),
+) -> SensitiveInfoDetection:
+    """Detect sensitive information (PII) in request content.
+
+    Scans the content passed to ``protect(sensitive_info_content=...)`` for
+    sensitive data like email addresses, phone numbers, IP addresses, and
+    credit card numbers. Use ``deny`` to block requests containing specific
+    entity types, or ``allow`` to permit only certain types.
+
+    When this rule is configured, you **must** pass
+    ``sensitive_info_content=...`` to every ``protect()`` call, otherwise
+    the rule is silently skipped.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        allow: Entity types to permit. All other detected types are denied.
+        deny: Entity types to deny.
+        context_window_size: Optional context window size for detection.
+        characteristics: Optional characteristics for rate limiting.
+
+    Returns:
+        A ``SensitiveInfoDetection`` rule to include in the ``rules`` list
+        of ``arcjet()``.
+
+    Example::
+
+        from arcjet import detect_sensitive_info, SensitiveInfoEntityType, Mode
+
+        rules = [
+            detect_sensitive_info(
+                mode=Mode.LIVE,
+                deny=[
+                    SensitiveInfoEntityType.EMAIL,
+                    SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                ],
+            )
+        ]
+        # Then pass the content to scan on each protect() call:
+        # decision = await aj.protect(request, sensitive_info_content="...")
+    """
+    allow_tuple: tuple[SensitiveInfoSpecifier, ...] = tuple(
+        e if isinstance(e, SensitiveInfoEntityType) else str(e) for e in allow
+    )
+    deny_tuple: tuple[SensitiveInfoSpecifier, ...] = tuple(
+        e if isinstance(e, SensitiveInfoEntityType) else str(e) for e in deny
+    )
+    return SensitiveInfoDetection(
+        mode=_coerce_mode(mode),
+        allow=allow_tuple,
+        deny=deny_tuple,
+        context_window_size=context_window_size,
+        characteristics=tuple(str(c) for c in characteristics),
     )

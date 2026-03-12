@@ -73,6 +73,19 @@ has unprotected mutable state (Slab globals, attribute reads). The lock provides
 defensive safety at negligible cost (WASM calls are 1-5ms). This is generated
 by witgen — see `generate_component()` in `tools/witgen/generate.py`.
 
+## WASM component exports
+
+The `AnalyzeComponent` class provides typed Python methods for all 6 exports:
+
+| Export | Method | Description |
+|--------|--------|-------------|
+| `detect-bot` | `detect_bot()` | Bot detection by user-agent + IP |
+| `is-valid-email` | `is_valid_email()` | Email validation (syntax, MX, disposable, free) |
+| `match-filters` | `match_filters()` | Expression-based request filtering |
+| `generate-fingerprint` | `generate_fingerprint()` | Request fingerprinting from characteristics |
+| `validate-characteristics` | `validate_characteristics()` | Validate characteristic names |
+| `detect-sensitive-info` | `detect_sensitive_info()` | PII/sensitive data detection in content |
+
 ## SDK integration
 
 Local WASM evaluation is wired into the main SDK at `src/arcjet/_local.py`:
@@ -83,9 +96,13 @@ Local WASM evaluation is wired into the main SDK at `src/arcjet/_local.py`:
   proto `RuleResult`.
 - **Email validation:** `evaluate_email_locally()` runs `is-valid-email` and
   maps blocked reasons to proto `EmailType` values.
-- **Client integration:** `_run_local_rules()` in `client.py` runs bot/email
-  rules locally before the remote Decide API call; short-circuits on DENY in
-  LIVE mode.
+- **Sensitive info detection:** `evaluate_sensitive_info_locally()` runs
+  `detect-sensitive-info`, maps WASM entity types to proto `IdentifiedEntity`
+  values, and returns a `RuleResult` with `SensitiveInfoReason`.
+- **Client integration:** `_run_local_rules()` in `client.py` runs bot, email,
+  and sensitive info rules locally before the remote Decide API call;
+  short-circuits on DENY in LIVE mode. Content for sensitive info detection is
+  passed via `protect(sensitive_info_content=...)`.
 - **Reporting:** Fire-and-forget `ReportRequest` sent on local DENY so
   decisions appear in the Arcjet dashboard.
 
