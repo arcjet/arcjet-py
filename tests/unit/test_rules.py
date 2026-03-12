@@ -180,7 +180,7 @@ def test_experimental_detect_prompt_injection_is_deprecated(mock_protobuf_module
     """Test experimental_detect_prompt_injection emits a DeprecationWarning."""
     import warnings
 
-    from arcjet import experimental_detect_prompt_injection
+    from arcjet import experimental_detect_prompt_injection  # type: ignore[deprecated]
     from arcjet.rules import Mode
 
     with warnings.catch_warnings(record=True) as w:
