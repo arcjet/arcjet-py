@@ -185,7 +185,7 @@ def test_experimental_detect_prompt_injection_is_deprecated(mock_protobuf_module
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        r = experimental_detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+        r = experimental_detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)  # type: ignore[deprecated]
 
     assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
     assert any(
