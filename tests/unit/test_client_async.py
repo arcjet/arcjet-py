@@ -266,3 +266,72 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
         assert getattr(aj._client, "base_url") == "https://example.com"
 
     importlib.reload(client_module)
+
+
+def test_default_timeout_production_without_prompt_injection(mock_protobuf_modules):
+    """Test that the default timeout in production is 500ms without prompt injection."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+    )
+    assert aj._timeout_ms == 500
+
+
+def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules):
+    """Test that the default timeout in production is at least 1000ms when detect_prompt_injection is configured.
+
+    detect_prompt_injection defines its latency guarantees individually rather
+    than as part of the protect call, so a minimum of 1 second is enforced.
+    """
+    from arcjet import arcjet
+    from arcjet.rules import detect_prompt_injection
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[detect_prompt_injection()],
+    )
+    assert aj._timeout_ms == 1000
+
+
+def test_default_timeout_development_without_prompt_injection(
+    mock_protobuf_modules, dev_environment
+):
+    """Test that the default timeout in development is 1000ms without prompt injection."""
+    from arcjet import arcjet
+    from arcjet.rules import token_bucket
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+    )
+    assert aj._timeout_ms == 1000
+
+
+def test_default_timeout_development_with_prompt_injection(
+    mock_protobuf_modules, dev_environment
+):
+    """Test that the default timeout in development is 1000ms when detect_prompt_injection is configured."""
+    from arcjet import arcjet
+    from arcjet.rules import detect_prompt_injection
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[detect_prompt_injection()],
+    )
+    assert aj._timeout_ms == 1000
+
+
+def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):
+    """Test that an explicit timeout_ms is not affected by the prompt injection floor."""
+    from arcjet import arcjet
+    from arcjet.rules import detect_prompt_injection
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[detect_prompt_injection()],
+        timeout_ms=200,
+    )
+    assert aj._timeout_ms == 200

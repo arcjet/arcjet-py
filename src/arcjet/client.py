@@ -84,10 +84,15 @@ class ProtectOptions(TypedDict, total=False):
     """Arbitrary key/value pairs forwarded verbatim to the Arcjet Decide API."""
 
 
-def _default_timeout_ms() -> int:
+def _default_timeout_ms(has_prompt_injection: bool = False) -> int:
     # 1000ms in development, 500ms otherwise.
     env = (os.getenv("ARCJET_ENV") or "production").lower()
-    return 1000 if env == "development" else 500
+    default = 1000 if env == "development" else 500
+    # detect_prompt_injection defines its latency guarantees individually
+    # rather than as part of the protect call, so enforce a 1 second minimum.
+    if has_prompt_injection:
+        return max(default, 1000)
+    return default
 
 
 DEFAULT_BASE_URL = (
@@ -1069,7 +1074,10 @@ def arcjet(
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
-            development and 500 ms in production.
+            development and 500 ms in production. When a
+            ``detect_prompt_injection()`` rule is configured, the minimum is
+            1000 ms because that rule defines its latency guarantees
+            individually rather than as part of the protect call.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
@@ -1148,7 +1156,13 @@ def arcjet(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
+        _timeout_ms=_default_timeout_ms(
+            has_prompt_injection=any(
+                isinstance(r, PromptInjectionDetection) for r in rules
+            )
+        )
+        if timeout_ms is None
+        else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
@@ -1184,7 +1198,10 @@ def arcjet_sync(
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
-            development and 500 ms in production.
+            development and 500 ms in production. When a
+            ``detect_prompt_injection()`` rule is configured, the minimum is
+            1000 ms because that rule defines its latency guarantees
+            individually rather than as part of the protect call.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
@@ -1264,7 +1281,13 @@ def arcjet_sync(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
+        _timeout_ms=_default_timeout_ms(
+            has_prompt_injection=any(
+                isinstance(r, PromptInjectionDetection) for r in rules
+            )
+        )
+        if timeout_ms is None
+        else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
