@@ -26,16 +26,15 @@ drives them via wasmtime-py.
 ```
 arcjet-analyze/
 ├── arcjet_analyze_js_req.component.wasm  # Full WASM component (instantiate this)
-├── arcjet_analyze_js_req.component.core.wasm
-├── arcjet_analyze_bindings_filter.wasm
-├── filter.wit                            # WIT interface definition
-├── filter_component.py                   # Typed host-side wrapper
-├── hacky-wasmtime-filter-rule.py         # Original prototype (reference only)
-└── bindings/                             # componentize-py generated (guest-side)
-    ├── componentize_py_types.py
-    └── wit_world/
-        ├── __init__.py                   # FilterResult, WitWorld protocol
-        └── imports/filter_overrides.py   # ip_lookup stub
+├── filter.wit                            # WIT interface definition (filter subset)
+├── arcjet_analyze/                       # Typed host-side bindings package
+│   ├── __init__.py                       # Public API re-exports
+│   ├── _types.py                         # Frozen dataclasses for all WIT types
+│   ├── _convert.py                       # wasmtime Record/Variant <-> Python
+│   ├── _imports.py                       # Import wiring with defaults + callbacks
+│   └── _component.py                     # AnalyzeComponent with 6 typed methods
+├── tests/                                # 31 tests for all exports + imports
+└── bindings/                             # componentize-py generated (guest-side, reference only)
 ```
 
 ## WIT interface
@@ -116,13 +115,15 @@ types. However, the generated code uses `typing.Self` (Python 3.11+), so it
 
 ### What we do instead
 
-Hand-write a small typed wrapper (`filter_component.py`) that:
-- Defines `FilterResult`, `Ok`, `Err`, `Result` locally (no 3.11+ dependency)
+Hand-write a typed bindings package (`arcjet_analyze/`) that:
+- Defines frozen dataclasses for all ~15 WIT types (no 3.11+ dependency)
 - Uses the raw wasmtime-py component model API (`Engine`, `Store`, `Linker`,
   `Component`)
-- Hides all linker boilerplate behind a `FilterComponent` class
+- Hides all linker boilerplate behind an `AnalyzeComponent` class with 6 typed
+  export methods and 5 import interfaces with safe defaults
 
-When tooling improves, this can be replaced with generated bindings.
+When tooling improves, this can be replaced with generated bindings (see
+GENERATOR-NOTE comments in the source files).
 
 ## wasmtime-py component model cookbook
 
