@@ -229,6 +229,48 @@ for name, inst_type in imports.items():
         print(func_type.params, func_type.result)
 ```
 
+### Variant type mapping (validated by spike)
+
+How wasmtime-py v40 represents WIT types at runtime:
+
+| WIT type | Python input | Python output | Tagged? |
+|----------|-------------|---------------|---------|
+| `variant { a(R1), b(R2) }` (both Records) | `Variant("a", Record(...))` | `Variant(tag, payload)` | Yes (overlapping types) |
+| `variant { email, custom(string) }` (unit+payload) | `Variant("email")` / `Variant("custom", "x")` | `Variant(tag, payload)` | Yes |
+| `variant { allow(list<T>), deny(list<T>) }` | `Variant("allow", [...])` | `Variant(tag, payload)` | Yes (both are list) |
+| `enum { valid, invalid }` | `"valid"` (plain str) | `"valid"` (plain str) | N/A |
+| `record { field-a: T }` | `Record()` with `__dict__["field-a"]` | Record with kebab attrs | N/A |
+| `result<record, string>` | N/A (output) | Record for Ok, `str` for Err | No (different types) |
+| `result<string, string>` | N/A (output) | `Variant("ok", str)` / `Variant("err", str)` | Yes (same type) |
+| `result<_, string>` | N/A (output) | `None` for Ok, `str` for Err | No |
+| `option<T>` | `None` / value | `None` / value | No (None ≠ value) |
+
+**Key rule:** A variant is "tagged" if any two cases have overlapping Python
+types (determined by `VariantLikeType._tagged()`). Tagged variants require
+`Variant(tag="...", payload=...)` wrapping. Untagged variants pass the raw
+value directly.
+
+### Full bindings package
+
+The `arcjet_analyze` package provides typed Python bindings for all 6 exports
+and 5 import interfaces:
+
+```
+arcjet_analyze/
+├── __init__.py      # Public API re-exports
+├── _types.py        # Frozen dataclasses for all WIT types
+├── _convert.py      # wasmtime Record/Variant <-> Python dataclass
+├── _imports.py      # Import wiring with defaults + user callbacks
+└── _component.py    # AnalyzeComponent class with 6 typed methods
+```
+
+Usage:
+```python
+from arcjet_analyze import AnalyzeComponent, AllowedBotConfig, Ok
+ac = AnalyzeComponent("path/to/arcjet_analyze_js_req.component.wasm")
+result = ac.detect_bot(request_json, AllowedBotConfig(entities=[], skip_custom_detect=False))
+```
+
 ## Plan: Full Python bindings for the WASM component
 
 ### Background
