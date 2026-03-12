@@ -1,0 +1,8 @@
+[witgen]
+wasm_path = "arcjet-analyze/arcjet_analyze/wasm/arcjet_analyze_js_req.component.wasm"
+output_dir = "arcjet-analyze/arcjet_analyze"
+
+# Variant case field name overrides (default is "value")
+[field_overrides]
+"sensitive-info-entities.allow" = "entities"
+"sensitive-info-entities.deny" = "entities"

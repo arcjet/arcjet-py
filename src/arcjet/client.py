@@ -16,11 +16,13 @@ Flask/Werkzeug `Request`, Django `HttpRequest`) or a pre-built
 from __future__ import annotations
 
 import asyncio
+import atexit
 import inspect
 import logging
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
@@ -51,6 +53,11 @@ from .rules import (
     RuleSpec,
     TokenBucket,
 )
+
+# Bounded thread pool for fire-and-forget report requests (sync client).
+# Limits concurrency and allows pending reports to drain on shutdown.
+_report_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="arcjet-report")
+atexit.register(_report_pool.shutdown, wait=True, cancel_futures=False)
 
 
 def _new_local_request_id() -> str:
@@ -942,9 +949,7 @@ class ArcjetSync:
                             },
                         )
 
-                import threading
-
-                threading.Thread(target=_send_report_sync, daemon=True).start()
+                _report_pool.submit(_send_report_sync)
 
                 if logger.isEnabledFor(logging.DEBUG):
                     t_prepare_end = time.perf_counter()
@@ -1014,9 +1019,7 @@ class ArcjetSync:
                             },
                         )
 
-                import threading
-
-                threading.Thread(target=_send_local_report_sync, daemon=True).start()
+                _report_pool.submit(_send_local_report_sync)
             except Exception as e:
                 logger.debug(
                     "local decision report scheduling error (sync): error=%s",

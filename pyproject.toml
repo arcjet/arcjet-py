@@ -73,8 +73,6 @@ show_missing = true
 exclude = [
   # Generated code
   "src/arcjet/proto",
-  # componentize-py generated guest-side bindings (reference only)
-  "arcjet-analyze/bindings",
   # TODO: re-enable once we fix the issues
   "examples",
 ]

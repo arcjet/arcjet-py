@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from arcjet_analyze import (
     AllowedBotConfig,
@@ -112,3 +113,28 @@ class TestDetectBot:
         config = AllowedBotConfig(entities=[], skip_custom_detect=True)
         result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
+
+
+class TestDetectBotThreadSafety:
+    """Verify the AnalyzeComponent lock prevents concurrent-access crashes."""
+
+    def test_concurrent_detect_bot(self, component: AnalyzeComponent) -> None:
+        """Call detect_bot from many threads sharing one component instance."""
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        num_calls = 20
+        errors: list[Exception] = []
+
+        def _call(_i: int) -> Ok[BotResult]:
+            result = component.detect_bot(CURL_REQUEST, config)
+            assert isinstance(result, Ok)
+            return result
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(_call, i) for i in range(num_calls)]
+            for fut in as_completed(futures):
+                try:
+                    fut.result()
+                except Exception as exc:
+                    errors.append(exc)
+
+        assert errors == [], f"Concurrent detect_bot raised: {errors}"

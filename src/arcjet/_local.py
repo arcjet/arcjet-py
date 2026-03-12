@@ -47,17 +47,32 @@ _EMAIL_TYPE_MAP: dict[str, decide_pb2.EmailType] = {
 
 _component_lock = threading.Lock()
 _MISSING = object()  # sentinel: haven't tried to load yet
-_component_state: object = _MISSING  # _MISSING | AnalyzeComponent | None
+_FAILED = object()  # sentinel: tried and got a permanent error
+_component_state: object = _MISSING  # _MISSING | _FAILED | AnalyzeComponent
+
+# Errors that indicate the WASM binary will never load (don't retry).
+_PERMANENT_ERRORS = (FileNotFoundError, ImportError, ModuleNotFoundError)
 
 
 def _get_component() -> AnalyzeComponent | None:
-    """Return the AnalyzeComponent singleton, or None if unavailable."""
+    """Return the AnalyzeComponent singleton, or None if unavailable.
+
+    On permanent errors (missing file/module), latches to None for the process
+    lifetime.  On transient errors (e.g. OSError, RuntimeError), the next call
+    retries.
+    """
     global _component_state
-    if _component_state is not _MISSING:
-        return _component_state  # type: ignore[return-value]
+    state = _component_state
+    if state is not _MISSING and state is not _FAILED:
+        if isinstance(state, AnalyzeComponent):
+            return state
+        return None  # _FAILED path (unreachable due to check above, but defensive)
+    if state is _FAILED:
+        return None
     with _component_lock:
-        if _component_state is not _MISSING:
-            return _component_state  # type: ignore[return-value]
+        state = _component_state
+        if state is not _MISSING:
+            return state if isinstance(state, AnalyzeComponent) else None
         try:
             # The WASM binary lives inside the arcjet_analyze package
             wasm_ref = (
@@ -69,10 +84,17 @@ def _get_component() -> AnalyzeComponent | None:
             component = AnalyzeComponent(wasm_path)
             _component_state = component
             logger.debug("arcjet-analyze WASM component loaded from %s", wasm_path)
-        except Exception as exc:
+            return component
+        except _PERMANENT_ERRORS as exc:
             logger.debug("arcjet-analyze WASM component not available: %s", exc)
-            _component_state = None
-    return _component_state  # type: ignore[return-value]
+            _component_state = _FAILED
+            return None
+        except Exception as exc:
+            # Transient error — don't latch, allow retry on next call
+            logger.debug(
+                "arcjet-analyze WASM component load error (will retry): %s", exc
+            )
+            return None
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +190,9 @@ def evaluate_bot_locally(
         )
     )
 
+    # Intentional: server uses empty rule_id too (arcjet-decide #4740).
+    # The report handler passes rules/results independently without joining
+    # on rule_id, so an empty string is safe here.
     return decide_pb2.RuleResult(
         rule_id="",
         state=state,
@@ -242,6 +267,9 @@ def evaluate_email_locally(
 
     reason = decide_pb2.Reason(email=decide_pb2.EmailReason(email_types=email_types))
 
+    # Intentional: server uses empty rule_id too (arcjet-decide #4740).
+    # The report handler passes rules/results independently without joining
+    # on rule_id, so an empty string is safe here.
     return decide_pb2.RuleResult(
         rule_id="",
         state=state,

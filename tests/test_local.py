@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from arcjet_analyze import BotResult, EmailValidationResult, Err, Ok
+from arcjet_analyze import (
+    AllowedBotConfig,
+    AllowEmailValidationConfig,
+    BotResult,
+    DeniedBotConfig,
+    DenyEmailValidationConfig,
+    EmailValidationResult,
+    Err,
+    Ok,
+)
 
 from arcjet._enums import Mode
 from arcjet._local import (
+    _FAILED,
+    _MISSING,
     _context_to_analyze_request,
     _get_component,
     evaluate_bot_locally,
@@ -17,7 +28,7 @@ from arcjet.client import _build_local_deny_report, _run_local_rules
 from arcjet.context import RequestContext
 from arcjet.decision import Decision
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-from arcjet.rules import BotDetection, EmailValidation, Shield
+from arcjet.rules import BotDetection, EmailType, EmailValidation, Shield
 
 # ---------------------------------------------------------------------------
 # _context_to_analyze_request
@@ -91,11 +102,50 @@ class TestGetComponent:
         try:
             with patch(
                 "arcjet._local.AnalyzeComponent",
-                side_effect=RuntimeError("no wasm"),
+                side_effect=FileNotFoundError("no wasm"),
             ):
                 c1 = _get_component()
                 c2 = _get_component()
-            assert c1 is c2
+            assert c1 is None
+            assert c2 is None
+        finally:
+            mod._component_state = old
+
+    def test_retries_on_transient_error(self):
+        """Transient errors (e.g. RuntimeError) should allow retry on next call."""
+        import arcjet._local as mod
+
+        old = mod._component_state
+        mod._component_state = mod._MISSING
+        try:
+            mock_component = MagicMock()
+            with patch(
+                "arcjet._local.AnalyzeComponent",
+                side_effect=[RuntimeError("transient"), mock_component],
+            ):
+                c1 = _get_component()
+                assert c1 is None  # first call fails
+                c2 = _get_component()
+                assert c2 is mock_component  # second call succeeds
+        finally:
+            mod._component_state = old
+
+    def test_permanent_error_latches(self):
+        """Permanent errors (FileNotFoundError) should latch — no retry."""
+        import arcjet._local as mod
+
+        old = mod._component_state
+        mod._component_state = mod._MISSING
+        try:
+            mock_component = MagicMock()
+            with patch(
+                "arcjet._local.AnalyzeComponent",
+                side_effect=[FileNotFoundError("no file"), mock_component],
+            ):
+                c1 = _get_component()
+                assert c1 is None
+                c2 = _get_component()
+                assert c2 is None  # still None — latched on permanent error
         finally:
             mod._component_state = old
 
@@ -349,6 +399,107 @@ class TestEvaluateEmailLocally:
             result = evaluate_email_locally(ctx, rule)
 
         assert result is None
+
+    def test_allow_config_branch(self):
+        """When rule.allow is set, AllowEmailValidationConfig is used."""
+        mock_component = MagicMock()
+        ev_result = EmailValidationResult(validity="valid", blocked=[])
+        mock_component.is_valid_email.return_value = Ok(ev_result)
+
+        ctx = RequestContext(email="test@example.com")
+        rule = EmailValidation(
+            mode=Mode.LIVE,
+            deny=(),
+            allow=(EmailType.DISPOSABLE,),
+            require_top_level_domain=True,
+            allow_domain_literal=False,
+            characteristics=(),
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            result = evaluate_email_locally(ctx, rule)
+
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_ALLOW
+        # Verify AllowEmailValidationConfig was passed to the component
+        call_args = mock_component.is_valid_email.call_args
+        assert call_args[0][0] == "test@example.com"
+        config = call_args[0][1]
+        assert isinstance(config, AllowEmailValidationConfig)
+        assert config.allow == ["DISPOSABLE"]
+
+    def test_deny_config_passes_correct_args(self):
+        """Verify DenyEmailValidationConfig is constructed correctly."""
+        mock_component = MagicMock()
+        ev_result = EmailValidationResult(validity="valid", blocked=["DISPOSABLE"])
+        mock_component.is_valid_email.return_value = Ok(ev_result)
+
+        ctx = RequestContext(email="test@disposable.com")
+        rule = EmailValidation(
+            mode=Mode.LIVE,
+            deny=(EmailType.DISPOSABLE, EmailType.FREE),
+            allow=(),
+            require_top_level_domain=False,
+            allow_domain_literal=True,
+            characteristics=(),
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_email_locally(ctx, rule)
+
+        call_args = mock_component.is_valid_email.call_args
+        config = call_args[0][1]
+        assert isinstance(config, DenyEmailValidationConfig)
+        assert config.deny == ["DISPOSABLE", "FREE"]
+        assert config.require_top_level_domain is False
+        assert config.allow_domain_literal is True
+
+    def test_bot_passes_correct_denied_config(self):
+        """Verify DeniedBotConfig is constructed with correct entities."""
+        mock_component = MagicMock()
+        bot_result = BotResult(
+            allowed=[], denied=["CURL"], verified=False, spoofed=False
+        )
+        mock_component.detect_bot.return_value = Ok(bot_result)
+
+        ctx = RequestContext(
+            ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
+        )
+        rule = BotDetection(
+            mode=Mode.LIVE, allow=(), deny=("CURL", "GOOGLEBOT"), characteristics=()
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_bot_locally(ctx, rule)
+
+        call_args = mock_component.detect_bot.call_args
+        config = call_args[0][1]
+        assert isinstance(config, DeniedBotConfig)
+        assert config.entities == ["CURL", "GOOGLEBOT"]
+        assert config.skip_custom_detect is False
+
+    def test_bot_passes_correct_allowed_config(self):
+        """Verify AllowedBotConfig is constructed with correct entities."""
+        mock_component = MagicMock()
+        bot_result = BotResult(
+            allowed=["CURL"], denied=[], verified=False, spoofed=False
+        )
+        mock_component.detect_bot.return_value = Ok(bot_result)
+
+        ctx = RequestContext(
+            ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
+        )
+        rule = BotDetection(
+            mode=Mode.LIVE, allow=("CURL",), deny=(), characteristics=()
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_bot_locally(ctx, rule)
+
+        call_args = mock_component.detect_bot.call_args
+        config = call_args[0][1]
+        assert isinstance(config, AllowedBotConfig)
+        assert config.entities == ["CURL"]
 
 
 # ---------------------------------------------------------------------------

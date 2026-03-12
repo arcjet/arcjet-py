@@ -29,7 +29,7 @@ class TestDefaultCallbacks:
     def test_default_callbacks_work(self, wasm_path: str) -> None:
         """All default callbacks should work without crashing."""
         ac = AnalyzeComponent(wasm_path)
-        ac.match_filters("{}", [], True)
+        ac.match_filters("{}", "{}", [], True)
         ac.detect_bot(
             BOT_REQUEST,
             AllowedBotConfig(entities=[], skip_custom_detect=False),
@@ -142,7 +142,8 @@ class TestCustomIpLookup:
         ac = AnalyzeComponent(
             wasm_path, callbacks=ImportCallbacks(ip_lookup=my_ip_lookup)
         )
-        ac.match_filters(FILTER_REQUEST, [], True)
+        ac.match_filters(FILTER_REQUEST, "{}", [], True)
+        assert len(calls) >= 1
         for c in calls:
             assert isinstance(c, str)
 
@@ -151,7 +152,7 @@ class TestCustomIpLookup:
         ac = AnalyzeComponent(
             wasm_path, callbacks=ImportCallbacks(ip_lookup=lambda _ip: None)
         )
-        result = ac.match_filters(FILTER_REQUEST, [], True)
+        result = ac.match_filters(FILTER_REQUEST, "{}", [], True)
         assert isinstance(result, Ok)
 
 
