@@ -174,3 +174,24 @@ def test_detect_prompt_injection_validation(mock_protobuf_modules):
 
     r2 = detect_prompt_injection(threshold=1.0)
     assert r2.threshold == 1.0
+
+
+def test_experimental_detect_prompt_injection_is_deprecated(mock_protobuf_modules):
+    """Test experimental_detect_prompt_injection emits a DeprecationWarning."""
+    import warnings
+
+    from arcjet import experimental_detect_prompt_injection  # type: ignore[deprecated]
+    from arcjet.rules import Mode
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        r = experimental_detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)  # type: ignore[deprecated]
+
+    assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+    assert any(
+        "experimental_detect_prompt_injection" in str(warning.message)
+        and "detect_prompt_injection" in str(warning.message)
+        for warning in w
+    )
+    assert r.mode == Mode.LIVE
+    assert r.threshold == 0.9

@@ -613,11 +613,11 @@ def detect_prompt_injection(
 
     Example::
 
-        from arcjet import arcjet, experimental_detect_prompt_injection, Mode
+        from arcjet import arcjet, detect_prompt_injection, Mode
 
         aj = arcjet(
             key="ajkey_...",
-            rules=[experimental_detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
+            rules=[detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
         )
 
         # In your route handler, pass the user message:
