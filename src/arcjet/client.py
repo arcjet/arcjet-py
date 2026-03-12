@@ -84,13 +84,13 @@ class ProtectOptions(TypedDict, total=False):
     """Arbitrary key/value pairs forwarded verbatim to the Arcjet Decide API."""
 
 
-def _default_timeout_ms(has_prompt_injection: bool = False) -> int:
+def _default_timeout_ms(rules: Sequence[RuleSpec] = ()) -> int:
     # 1000ms in development, 500ms otherwise.
     env = (os.getenv("ARCJET_ENV") or "production").lower()
     default = 1000 if env == "development" else 500
     # detect_prompt_injection defines its latency guarantees individually
     # rather than as part of the protect call, so enforce a 1 second minimum.
-    if has_prompt_injection:
+    if any(isinstance(r, PromptInjectionDetection) for r in rules):
         return max(default, 1000)
     return default
 
@@ -1156,13 +1156,7 @@ def arcjet(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms(
-            has_prompt_injection=any(
-                isinstance(r, PromptInjectionDetection) for r in rules
-            )
-        )
-        if timeout_ms is None
-        else timeout_ms,
+        _timeout_ms=_default_timeout_ms(rules) if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
@@ -1281,13 +1275,7 @@ def arcjet_sync(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms(
-            has_prompt_injection=any(
-                isinstance(r, PromptInjectionDetection) for r in rules
-            )
-        )
-        if timeout_ms is None
-        else timeout_ms,
+        _timeout_ms=_default_timeout_ms(rules) if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
