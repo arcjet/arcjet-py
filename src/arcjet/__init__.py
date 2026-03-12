@@ -70,6 +70,7 @@ __all__ = [
     "IpDetails",
     "is_spoofed_bot",
     "Mode",
+    "PromptInjectionDetection",
     "Reason",
     "RuleResult",
     "RuleSpec",
