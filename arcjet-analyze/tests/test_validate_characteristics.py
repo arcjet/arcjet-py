@@ -31,3 +31,11 @@ class TestValidateCharacteristics:
         result = component.validate_characteristics(REQUEST, [])
         assert isinstance(result, Ok)
         assert result.value is None
+
+    def test_invalid_error_message(self, component: AnalyzeComponent) -> None:
+        """Error message mentions the missing characteristic."""
+        result = component.validate_characteristics(
+            json.dumps({"ip": "1.1.1.1"}), ["hi"]
+        )
+        assert isinstance(result, Err)
+        assert "hi" in result.value

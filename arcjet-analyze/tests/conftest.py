@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -14,6 +15,17 @@ from arcjet_analyze import AnalyzeComponent
 
 WASM_PATH = os.path.join(
     os.path.dirname(__file__), "..", "arcjet_analyze_js_req.component.wasm"
+)
+
+# Shared request payloads used across test files
+BOT_REQUEST = json.dumps(
+    {
+        "ip": "1.2.3.4",
+        "method": "GET",
+        "host": "example.com",
+        "path": "/",
+        "headers": {"user-agent": "curl/8.0"},
+    }
 )
 
 

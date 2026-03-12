@@ -9,39 +9,87 @@ from arcjet_analyze import (
     AnalyzeComponent,
     BotResult,
     DeniedBotConfig,
+    Err,
     Ok,
 )
+from conftest import BOT_REQUEST as CURL_REQUEST
 
-REQUEST = json.dumps(
-    {
-        "ip": "1.2.3.4",
-        "method": "GET",
-        "host": "example.com",
-        "path": "/",
-        "headers": {"user-agent": "curl/8.0"},
-    }
-)
+
+def _request_with_ua(ua: str) -> str:
+    return json.dumps(
+        {
+            "ip": "127.0.0.1",
+            "headers": {"user-agent": ua},
+        }
+    )
 
 
 class TestDetectBot:
     def test_allowed_bot_config(self, component: AnalyzeComponent) -> None:
         config = AllowedBotConfig(entities=[], skip_custom_detect=False)
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
         assert isinstance(result.value, BotResult)
 
     def test_denied_bot_config(self, component: AnalyzeComponent) -> None:
         config = DeniedBotConfig(entities=[], skip_custom_detect=False)
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
         assert isinstance(result.value, BotResult)
 
     def test_allowed_config_detects_curl(self, component: AnalyzeComponent) -> None:
         config = AllowedBotConfig(entities=[], skip_custom_detect=False)
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
-        # curl user-agent should be detected as a denied bot
-        assert "CURL" in result.value.denied
+        assert result.value == BotResult(
+            allowed=[], denied=["CURL"], verified=False, spoofed=False
+        )
+
+    def test_non_bot_user_agent(self, component: AnalyzeComponent) -> None:
+        """A normal browser user-agent should not be detected as a bot."""
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(_request_with_ua("Mozilla/5.0"), config)
+        assert isinstance(result, Ok)
+        assert result.value == BotResult(
+            allowed=[], denied=[], verified=False, spoofed=False
+        )
+
+    def test_chrome_user_agent(self, component: AnalyzeComponent) -> None:
+        """A Chrome user-agent should not be detected as a bot."""
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/58.0.3029.110 Safari/537.3"
+        )
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(_request_with_ua(ua), config)
+        assert isinstance(result, Ok)
+        assert result.value.allowed == []
+        assert result.value.denied == []
+
+    def test_fail_without_user_agent(self, component: AnalyzeComponent) -> None:
+        """Missing user-agent header returns Err."""
+        request = json.dumps({"ip": "127.0.0.1"})
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(request, config)
+        assert isinstance(result, Err)
+        assert "user-agent" in result.value.lower()
+
+    def test_detect_googlebot(self, component: AnalyzeComponent) -> None:
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(_request_with_ua("Googlebot/2.0"), config)
+        assert isinstance(result, Ok)
+        assert "GOOGLE_CRAWLER" in result.value.denied
+        assert result.value.allowed == []
+
+    def test_allow_curl_by_entity(self, component: AnalyzeComponent) -> None:
+        """Adding CURL to entities in allowed-bot-config moves it to allowed."""
+        config = AllowedBotConfig(entities=["CURL"], skip_custom_detect=False)
+        result = component.detect_bot(_request_with_ua("curl/7.64.1"), config)
+        assert isinstance(result, Ok)
+        assert result.value == BotResult(
+            allowed=["CURL"], denied=[], verified=False, spoofed=False
+        )
 
     def test_denied_config_with_search_engine(
         self, component: AnalyzeComponent
@@ -49,19 +97,18 @@ class TestDetectBot:
         config = DeniedBotConfig(
             entities=["CATEGORY:SEARCH_ENGINE"], skip_custom_detect=False
         )
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
-        # curl is detected and moves to allowed since it's not in denied list
         assert isinstance(result.value.allowed, list)
 
     def test_verified_and_spoofed_fields(self, component: AnalyzeComponent) -> None:
         config = AllowedBotConfig(entities=[], skip_custom_detect=False)
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
         assert isinstance(result.value.verified, bool)
         assert isinstance(result.value.spoofed, bool)
 
     def test_empty_entity_list(self, component: AnalyzeComponent) -> None:
         config = AllowedBotConfig(entities=[], skip_custom_detect=True)
-        result = component.detect_bot(REQUEST, config)
+        result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)

@@ -33,7 +33,7 @@ arcjet-analyze/
 │   ├── _convert.py                       # wasmtime Record/Variant <-> Python
 │   ├── _imports.py                       # Import wiring with defaults + callbacks
 │   └── _component.py                     # AnalyzeComponent with 6 typed methods
-├── tests/                                # 31 tests for all exports + imports
+├── tests/                                # Tests for all exports + imports
 └── bindings/                             # componentize-py generated (guest-side, reference only)
 ```
 
@@ -124,6 +124,12 @@ Hand-write a typed bindings package (`arcjet_analyze/`) that:
 
 When tooling improves, this can be replaced with generated bindings (see
 GENERATOR-NOTE comments in the source files).
+
+## Running tests
+
+```sh
+uv run pytest arcjet-analyze/tests/ --no-cov
+```
 
 ## wasmtime-py component model cookbook
 
@@ -251,6 +257,51 @@ types (determined by `VariantLikeType._tagged()`). Tagged variants require
 `Variant(tag="...", payload=...)` wrapping. Untagged variants pass the raw
 value directly.
 
+### Known wasmtime-py v40 bugs and workarounds
+
+All workarounds are marked with `FIXME(wasmtime-py)` in the source. Reassess
+each one when upgrading wasmtime-py.
+
+**1. Private API dependency.** `Record`, `Variant`, `VariantType`,
+`VariantLikeType`, `OptionType`, and `ResultType` are only available from
+`wasmtime.component._types` — there is no public import path in v40. Both
+`_convert.py` and `_imports.py` depend on this private module.
+
+**2. `VariantType.add_classes` MRO bug.** `VariantType`'s MRO is
+`VariantType → … → ValType → VariantLikeType`. `ValType` defines `add_classes`
+as an abstract no-op (`pass`), which shadows the real implementation on
+`VariantLikeType`. This causes `option<variant>` and `result<variant, …>` return
+types from import callbacks to fail with *"value not valid for this variant"*
+when any non-`None` value is returned. The fix in `_imports.py` monkey-patches
+`VariantType`, `OptionType`, and `ResultType` to point directly at
+`VariantLikeType.add_classes`. This is guarded with `try/except` so it degrades
+gracefully if wasmtime-py restructures these classes.
+
+**3. No public `Record` constructor.** wasmtime-py v40's `Record` class has no
+constructor that accepts initial field values. The only way to build a Record
+with data is `Record()` followed by `__dict__` mutation. The `_rec()` helper in
+`_convert.py` encapsulates this.
+
+### Import callback gotchas
+
+**`sensitive_info_detect` must return `[None] * len(tokens)`, not `[]`.** The
+WIT signature is `detect(tokens) → list<option<sensitive-info-entity>>` — the
+returned list must have the same length as the input token list. Each element is
+either `None` (no detection) or a `SensitiveInfoEntity`. Returning an empty list
+causes the WASM component to panic.
+
+**`ip_lookup` returns a JSON string, not a plain value.** When providing country
+enrichment, the callback must return `json.dumps({"country": "US"})`, not just
+`"US"`. Returning a non-JSON string causes silent failures in filter expressions
+that reference `ip.src.country`.
+
+**`bot_verify` is conditionally invoked.** The WASM component only calls the
+`verify` import when it determines a bot is potentially verifiable (based on IP
+ranges and bot identity). For most test IPs and common bots (curl, Googlebot
+with non-Google IPs), the callback is never reached. Do not write tests that
+assert the callback was invoked — instead verify the wiring doesn't crash and
+test the `verified`/`spoofed` result fields.
+
 ### Full bindings package
 
 The `arcjet_analyze` package provides typed Python bindings for all 6 exports
@@ -302,196 +353,30 @@ all 6 exported functions and all 5 import interfaces.
 
 ```
 arcjet_analyze/
-├── component.py          # AnalyzeComponent class (Engine, Component, Linker setup)
-├── types.py              # Python dataclasses for all WIT types
-├── imports.py            # Default import implementations
-└── __init__.py           # Public API: init + per-function helpers
+├── __init__.py      # Public API re-exports
+├── _types.py        # Frozen dataclasses for all WIT types
+├── _convert.py      # wasmtime Record/Variant <-> Python dataclass
+├── _imports.py      # Import wiring with defaults + user callbacks
+└── _component.py    # AnalyzeComponent with 6 typed methods
 ```
 
 A single `AnalyzeComponent` class wraps the full
 `arcjet_analyze_js_req.component.wasm` and exposes all 6 exports as typed
-Python methods. Each method creates a fresh `Store` + instance per call (same
-pattern as `FilterComponent`).
+Python methods. Each method creates a fresh `Store` + instance per call.
 
-### Todos
+### Remaining work
 
-#### Phase 1: Discover variant/complex type representation (estimate: 0.5 days)
+Phases 1–5 (variant spike, types, imports, component wrapper, tests) are
+complete. Remaining:
 
-The prototype only passes simple types (strings, lists of strings, bools).
-Before writing real bindings, we need to determine how wasmtime-py v40
-represents WIT variants, enums, options, and nested records for both **input
-arguments** and **return values**.
-
-- [ ] Write a throwaway script that calls `detect-bot` with a minimal
-  `BotConfig` variant. Try passing Python dicts (`{"tag": "allowed-bot-config",
-  "val": {...}}`), tuples, and `wasmtime.component` types to discover what
-  wasmtime-py accepts as a variant input.
-- [ ] Write a throwaway script that calls `is-valid-email` to test enum inputs
-  and option types.
-- [ ] Write a throwaway script that calls `detect-sensitive-info` to test nested
-  variant inputs (`SensitiveInfoEntities` containing
-  `list<SensitiveInfoEntity>`).
-- [ ] Test how wasmtime-py represents enum return values (e.g.,
-  `EmailValidity`: `"valid"` / `"invalid"` — string? int? object?).
-- [ ] Test how wasmtime-py represents variant return values within records
-  (e.g., `DetectedSensitiveInfoEntity.identified-type` which is a
-  `SensitiveInfoEntity` variant).
-- [ ] Document findings in this file under a new "### Variant type mapping"
-  section in the cookbook.
-
-#### Phase 2: Define Python types (estimate: 0.5 days)
-
-Hand-write Python dataclasses for all WIT types used by the 6 exported
-functions. Use frozen dataclasses with `slots=True` per project conventions.
-
-- [ ] Define result types: `Ok[T]`, `Err[E]`, `Result` (already exists in
-  `filter_component.py` — extract and generalize).
-- [ ] Define `FilterResult` (already exists — extract).
-- [ ] Define `BotResult` with fields: `allowed: list[str]`,
-  `denied: list[str]`, `verified: bool`, `spoofed: bool`.
-- [ ] Define `BotConfig` as a tagged union: `AllowedBotConfig` /
-  `DeniedBotConfig`, each with `entities: list[str]`,
-  `skip_custom_detect: bool`.
-- [ ] Define `EmailValidationResult` with fields: `validity: EmailValidity`,
-  `blocked: list[str]`.
-- [ ] Define `EmailValidity` enum: `valid`, `invalid`.
-- [ ] Define `EmailValidationConfig` as a tagged union:
-  `AllowEmailValidationConfig` / `DenyEmailValidationConfig`, each with
-  `require_top_level_domain: bool`, `allow_domain_literal: bool`,
-  `allow: list[str]` or `deny: list[str]`.
-- [ ] Define `SensitiveInfoEntity` as a tagged union: `email`, `phone-number`,
-  `ip-address`, `credit-card-number`, `custom(str)`.
-- [ ] Define `SensitiveInfoEntities` as a tagged union: `allow` / `deny`, each
-  containing `list[SensitiveInfoEntity]`.
-- [ ] Define `SensitiveInfoConfig` with fields: `entities`,
-  `context_window_size: int | None`, `skip_custom_detect: bool`.
-- [ ] Define `DetectedSensitiveInfoEntity` with fields: `start: int`,
-  `end: int`, `identified_type: SensitiveInfoEntity`.
-- [ ] Define `SensitiveInfoResult` with fields:
-  `allowed: list[DetectedSensitiveInfoEntity]`,
-  `denied: list[DetectedSensitiveInfoEntity]`.
-- [ ] Define `ValidatorResponse` enum: `yes`, `no`, `unknown` (used by import
-  interfaces).
-- [ ] Ensure all types pass Pyright and ty checks.
-
-#### Phase 3: Implement import interfaces (estimate: 0.5 days)
-
-Define the 5 import namespaces that the WASM component requires. Each needs a
-default (no-op) implementation and the ability to accept user-provided
-callbacks.
-
-- [ ] `arcjet:js-req/filter-overrides` — `ip-lookup(ip) -> option<string>`.
-  Default: return `None`. (Already implemented in prototype.)
-- [ ] `arcjet:js-req/bot-identifier` — `detect(request) -> list<bot-entity>`.
-  Default: return `[]`.
-- [ ] `arcjet:js-req/verify-bot` — `verify(bot-id, ip) -> validator-response`.
-  Default: return `"unverifiable"`. Need to confirm wasmtime-py accepts string
-  enums or requires integer discriminants.
-- [ ] `arcjet:js-req/email-validator-overrides` — 4 functions:
-  `is-free-email(domain)`, `is-disposable-email(domain)`,
-  `has-mx-records(domain)`, `has-gravatar(email)`, each returning
-  `validator-response`. Default: return `"unknown"`.
-- [ ] `arcjet:js-req/sensitive-information-identifier` —
-  `detect(tokens) -> list<option<sensitive-info-entity>>`. Default: return list
-  of `None`. Need to confirm how wasmtime-py represents `option<variant>` in
-  return values from host functions.
-- [ ] Wire all 5 namespaces into the linker, using the trap-then-shadow pattern.
-
-#### Phase 4: Implement the AnalyzeComponent wrapper (estimate: 1 day)
-
-Extend the `FilterComponent` pattern to cover all 6 exports with proper type
-conversion between wasmtime-py Record objects and Python dataclasses.
-
-- [ ] Extract shared `Engine`/`Component`/`Linker` setup into `AnalyzeComponent`
-  constructor, accepting optional callbacks for each import interface.
-- [ ] Implement `match_filters(request, local_fields, expressions,
-  allow_if_match) -> Result[FilterResult, str]`. Note: the full component's
-  `match-filters` takes an extra `local-fields: string` parameter compared to
-  the filter-only component.
-- [ ] Implement `detect_bot(request, options) -> BotResult`. Must convert
-  `BotConfig` Python dataclass to wasmtime-py variant input and convert
-  Record output to `BotResult` dataclass.
-- [ ] Implement `generate_fingerprint(request, characteristics) -> str`. Simple
-  types, just handle `result<string, string>`.
-- [ ] Implement `validate_characteristics(request, characteristics) -> None`.
-  Handle `result<_, string>`, raise on error.
-- [ ] Implement `is_valid_email(candidate, options) -> EmailValidationResult`.
-  Must convert `EmailValidationConfig` variant input and handle
-  `EmailValidity` enum in output.
-- [ ] Implement `detect_sensitive_info(content, options) ->
-  SensitiveInfoResult`. Most complex: nested variant inputs and outputs.
-- [ ] Add a `_convert_record` helper to handle kebab-case → snake_case field
-  mapping generically (or per-type converters if a generic approach is too
-  fragile).
-- [ ] Add a `_to_wasm_variant` helper (or per-type converters) to convert Python
-  dataclasses to whatever wasmtime-py accepts as variant input.
-
-#### Phase 5: Tests (estimate: 0.5 days)
-
-- [ ] Test `match_filters` Ok and Err paths (port from prototype's `__main__`).
-- [ ] Test `detect_bot` with allowed-bot-config and denied-bot-config variants.
-- [ ] Test `generate_fingerprint` with valid and invalid characteristics.
-- [ ] Test `validate_characteristics` success and error cases.
-- [ ] Test `is_valid_email` with allow and deny configs.
-- [ ] Test `detect_sensitive_info` with allow/deny entity lists and custom
-  entities.
-- [ ] Test that user-provided import callbacks are invoked (e.g., custom
-  `ip_lookup`, custom `bot-identifier.detect`).
-- [ ] Test that the component can be called multiple times (fresh Store per
-  call).
-- [ ] Ensure all tests run with `uv run pytest`.
-
-#### Phase 6: Integration with arcjet-py SDK (estimate: 0.5 days)
-
-- [ ] Create a public module API (e.g., `from arcjet_analyze import
-  AnalyzeComponent`) with proper `__init__.py` exports.
-- [ ] Wire the `AnalyzeComponent` into the existing arcjet-py SDK's rule
-  evaluation pipeline, replacing or augmenting the remote Decide API calls
-  with local WASM evaluation where appropriate.
-- [ ] Ensure the WASM binary is bundled correctly in the package (check
-  `pyproject.toml` package data).
-- [ ] Run full CI checks: `ruff check`, `ruff format`, `ty check`, `pyright`,
-  `pytest`.
-
-### Estimate summary
-
-| Phase | Description | Estimate |
-|---|---|---|
-| 1 | Discover variant/complex type representation | 0.5 days |
-| 2 | Define Python types | 0.5 days |
-| 3 | Implement import interfaces | 0.5 days |
-| 4 | Implement AnalyzeComponent wrapper | 1 day |
-| 5 | Tests | 0.5 days |
-| 6 | Integration with arcjet-py SDK | 0.5 days |
-| **Total** | | **3.5 days** |
-
-Phase 1 is the highest-risk item. If wasmtime-py's variant representation is
-straightforward (e.g., dicts or tuples), the rest is mechanical. If it requires
-undocumented API usage or has bugs with complex types, phase 1 could expand to
-1-2 days and may require reading wasmtime-py source code or filing issues
-upstream.
-
-### Key risks
-
-1. **wasmtime-py variant input representation is undocumented.** The prototype
-   only passes simple types. Complex variant inputs (BotConfig,
-   EmailValidationConfig, SensitiveInfoConfig) may require a representation
-   that can only be discovered by experimentation or reading wasmtime-py
-   internals.
-
-2. **`define_unknown_imports_as_traps` is brittle.** If any trapped import is
-   actually called at runtime (because the default no-op wasn't wired up
-   correctly), the component will abort with a wasm trap. This will manifest
-   as confusing runtime errors.
-
-3. **Kebab-case field access.** Every Record field with a hyphen requires
-   `getattr(record, "field-name")`. A systematic conversion layer is needed
-   to avoid this leaking into the public API.
-
-4. **Store-per-call overhead.** Creating a fresh Store + instance for every
-   function call has overhead. For hot paths, this may need optimization
-   (e.g., pooling, or waiting for wasmtime-py to fix Store reuse).
-
-5. **WASM binary versioning.** The `.component.wasm` file is copied from
-   `arcjet/arcjet-analyze`. There is no automated sync — the binary must be
-   manually updated when the Rust source changes.
+- **SDK integration:** Wire `AnalyzeComponent` into the main `arcjet` SDK
+  client, replacing or augmenting remote Decide API calls with local WASM
+  evaluation.
+- **Packaging:** Add `pyproject.toml` for the `arcjet_analyze` package; ensure
+  the WASM binary is bundled correctly.
+- **Code generator (witgen):** Build the Approach B code generator to replace
+  hand-written bindings. The existing test suite becomes the acceptance suite —
+  generated code must pass all tests unchanged.
+- **WASM binary sync:** The `.component.wasm` file is copied from
+  `arcjet/arcjet-analyze`. There is no automated sync — the binary must be
+  manually updated when the Rust source changes.

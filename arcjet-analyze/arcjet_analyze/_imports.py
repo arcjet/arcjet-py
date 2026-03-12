@@ -20,10 +20,40 @@ from typing import Callable
 
 from wasmtime import Store
 from wasmtime import component as cm
-from wasmtime.component._types import Variant
+
+# FIXME(wasmtime-py): v40 does not export these from a public path;
+# wasmtime.component._types is the only way to access them.  Revisit when
+# wasmtime-py exposes a public API for component-model types.
+from wasmtime.component._types import (
+    OptionType,
+    ResultType,
+    Variant,
+    VariantLikeType,
+    VariantType,
+)
 
 from ._convert import to_wasm_sensitive_info_entity
 from ._types import SensitiveInfoEntity
+
+# ---------------------------------------------------------------------------
+# FIXME(wasmtime-py): v40 MRO bug workaround — remove when fixed upstream.
+# ---------------------------------------------------------------------------
+# VariantType's MRO is VariantType -> ... -> ValType -> VariantLikeType.
+# ValType defines add_classes as an abstract no-op (pass), which shadows the
+# real implementation on VariantLikeType.  This causes option<variant> and
+# result<variant, ...> return types from import callbacks to fail with
+# "value not valid for this variant" when any non-None value is returned.
+# Fix: point directly at the concrete implementation.
+#
+# Upstream issue: https://github.com/bytecodealliance/wasmtime-py/issues/309
+# Reassess on each wasmtime-py upgrade.
+try:
+    _real_add_classes = VariantLikeType.add_classes
+    for _cls in (VariantType, OptionType, ResultType):
+        if _cls.add_classes is not _real_add_classes:
+            _cls.add_classes = _real_add_classes  # type: ignore[assignment]
+except (AttributeError, TypeError):
+    pass  # Future wasmtime-py may fix this or restructure these classes
 
 # ---------------------------------------------------------------------------
 # Callback types
@@ -66,6 +96,23 @@ def _default_bot_verify(_bot_id: str, _ip: str) -> str:
     return "unverifiable"
 
 
+FREE_EMAIL_PROVIDERS = frozenset(
+    {
+        "gmail.com",
+        "yahoo.com",
+        "hotmail.com",
+        "aol.com",
+        "hotmail.co.uk",
+    }
+)
+
+
+def _default_is_free_email(domain: str) -> str:
+    if domain in FREE_EMAIL_PROVIDERS:
+        return "yes"
+    return "unknown"
+
+
 def _default_validator_response(_domain_or_email: str) -> str:
     return "unknown"
 
@@ -99,7 +146,7 @@ def wire_imports(
     ip_lookup_fn = cb.ip_lookup or _default_ip_lookup
     bot_detect_fn = cb.bot_detect or _default_bot_detect
     bot_verify_fn = cb.bot_verify or _default_bot_verify
-    is_free_fn = cb.is_free_email or _default_validator_response
+    is_free_fn = cb.is_free_email or _default_is_free_email
     is_disposable_fn = cb.is_disposable_email or _default_validator_response
     has_mx_fn = cb.has_mx_records or _default_validator_response
     has_gravatar_fn = cb.has_gravatar or _default_validator_response

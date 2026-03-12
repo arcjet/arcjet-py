@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# FIXME(wasmtime-py): v40 does not export Record/Variant from a public path;
+# wasmtime.component._types is the only way to access them.  Revisit when
+# wasmtime-py exposes a public API for component-model types.
 from wasmtime.component._types import Record, Variant
 
 from ._types import (
@@ -52,7 +55,12 @@ from ._types import (
 
 
 def _rec(**kwargs: Any) -> Record:
-    """Build a wasmtime Record with kebab-case attributes."""
+    """Build a wasmtime Record with kebab-case attributes.
+
+    FIXME(wasmtime-py): v40 has no public constructor for Records with initial
+    values; the only way to set fields is via direct ``__dict__`` mutation.
+    Revisit when wasmtime-py adds a proper Record builder API.
+    """
     r = Record()
     r.__dict__.update(kwargs)
     return r
