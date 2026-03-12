@@ -25,14 +25,15 @@ drives them via wasmtime-py.
 
 ```
 arcjet-analyze/
-├── arcjet_analyze_js_req.component.wasm  # Full WASM component (instantiate this)
 ├── filter.wit                            # WIT interface definition (filter subset)
 ├── arcjet_analyze/                       # Typed host-side bindings package
 │   ├── __init__.py                       # Public API re-exports
 │   ├── _types.py                         # Frozen dataclasses for all WIT types
 │   ├── _convert.py                       # wasmtime Record/Variant <-> Python
 │   ├── _imports.py                       # Import wiring with defaults + callbacks
-│   └── _component.py                     # AnalyzeComponent with 6 typed methods
+│   ├── _component.py                     # AnalyzeComponent with 6 typed methods
+│   └── wasm/                             # WASM binary (included in wheel)
+│       └── arcjet_analyze_js_req.component.wasm
 ├── tests/                                # Tests for all exports + imports
 └── bindings/                             # componentize-py generated (guest-side, reference only)
 ```
@@ -364,16 +365,52 @@ A single `AnalyzeComponent` class wraps the full
 `arcjet_analyze_js_req.component.wasm` and exposes all 6 exports as typed
 Python methods. Each method creates a fresh `Store` + instance per call.
 
+### Completed work
+
+- **Phase 0:** Variant discovery spike (wasmtime-py v40 type mapping)
+- **Phase 1:** Tests for all 6 exports + import callbacks (31 tests)
+- **Phase 2:** `_types.py` — frozen dataclasses for all ~15 WIT types
+- **Phase 3:** `_convert.py` — wasmtime Record/Variant ↔ Python dataclass
+- **Phase 4:** `_imports.py` — 5 import interfaces wired with defaults + callbacks
+- **Phase 5:** `_component.py` — `AnalyzeComponent` with 6 typed methods
+- **Phase 6: Packaging** — `arcjet-analyze/pyproject.toml` created; WASM binary
+  moved inside the package at `arcjet_analyze/wasm/` so hatchling includes it
+  in the wheel automatically. `arcjet-analyze` is a required dependency of the
+  main `arcjet` package via `[tool.uv.sources]` path reference.
+- **Phase 7: SDK integration** — Local WASM evaluation wired into the main SDK:
+  - `src/arcjet/_local.py`: lazy singleton for `AnalyzeComponent`, request
+    serialization, `evaluate_bot_locally()` and `evaluate_email_locally()`
+  - `src/arcjet/client.py`: `_run_local_rules()` runs bot/email rules locally
+    before the remote Decide API call; short-circuits on DENY in LIVE mode
+  - Fire-and-forget `ReportRequest` sent on local DENY so decisions appear in
+    the Arcjet dashboard (mirrors the cache-hit report pattern)
+  - 25 tests in `tests/test_local.py` covering serialization, singleton,
+    bot/email evaluation, `_run_local_rules`, and report building
+
+### Known limitations
+
+- **`skip_custom_detect` hardcoded to `False`:** The WASM component's
+  `AllowedBotConfig`/`DeniedBotConfig` accept a `skip_custom_detect` flag, but
+  `BotDetection` in the SDK has no corresponding field. This means custom bot
+  detection cannot be skipped via SDK configuration. To fix: add
+  `skip_custom_detect: bool = False` to `BotDetection` and wire it through
+  `evaluate_bot_locally`.
+- **Local evaluation timing not captured:** The remote Decide path logs
+  `prepare_ms`, `api_ms`, and `total_ms`. Local decisions log only the
+  conclusion. Adding timing would require passing `t0` into the local evaluation
+  path.
+- **No caching of local decisions:** Remote decisions are cached by
+  `DecisionCache` based on TTL. Local DENY decisions bypass the cache entirely —
+  repeat requests re-run WASM evaluation. Whether local decisions should be
+  cached (and with what TTL) is a design decision.
+- **Merge coordination with PR #60:** PR #60 (quinn/extract-shared-client-helpers)
+  refactors `client.py` to extract shared helpers from `Arcjet`/`ArcjetSync`.
+  Both PRs modify the same `protect()` methods. Whoever merges second will need
+  to rebase and integrate the local evaluation wiring into the refactored helper
+  structure.
+
 ### Remaining work
 
-Phases 1–5 (variant spike, types, imports, component wrapper, tests) are
-complete. Remaining:
-
-- **SDK integration:** Wire `AnalyzeComponent` into the main `arcjet` SDK
-  client, replacing or augmenting remote Decide API calls with local WASM
-  evaluation.
-- **Packaging:** Add `pyproject.toml` for the `arcjet_analyze` package; ensure
-  the WASM binary is bundled correctly.
 - **Code generator (witgen):** Build the Approach B code generator to replace
   hand-written bindings. The existing test suite becomes the acceptance suite —
   generated code must pass all tests unchanged.

@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = { text = "Apache-2.0" }
 dependencies = [
+  "arcjet-analyze",  # local: path dependency via [tool.uv.sources]
   "connect-python>=0.8.1",
   "pyqwest>=0.3.3",
   # Explanation of upper bound:
@@ -51,6 +52,9 @@ dev = [
   "ty==0.0.20",
   "types-protobuf==6.32.1.20260221",
 ]
+
+[tool.uv.sources]
+arcjet-analyze = { path = "arcjet-analyze", editable = true }
 
 [tool.pytest.ini_options]
 addopts = ["-q", "--cov=src/arcjet", "--cov-report=term-missing"]

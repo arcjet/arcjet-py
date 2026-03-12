@@ -14,7 +14,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from arcjet_analyze import AnalyzeComponent
 
 WASM_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "arcjet_analyze_js_req.component.wasm"
+    os.path.dirname(__file__),
+    "..",
+    "arcjet_analyze",
+    "wasm",
+    "arcjet_analyze_js_req.component.wasm",
 )
 
 # Shared request payloads used across test files
