@@ -141,6 +141,406 @@ def _sdk_version(default: str = "0.0.0") -> str:
         return default
 
 
+def _validate_ip_config(
+    disable_automatic_ip_detection: bool,
+    ip_src: str | None,
+    proxies: tuple[str, ...],
+) -> None:
+    """Validate ip_src / proxy / automatic IP detection consistency.
+
+    Raises ``ArcjetMisconfiguration`` when the combination of flags is
+    invalid (e.g. manual IP mode enabled but no ``ip_src`` provided).
+    """
+    if disable_automatic_ip_detection and not ip_src:
+        raise ArcjetMisconfiguration(
+            "ip_src is required when disable_automatic_ip_detection=True. "
+            "Pass ip_src=... to aj.protect(...)."
+        )
+    if disable_automatic_ip_detection and proxies:
+        raise ArcjetMisconfiguration(
+            "proxies cannot be used when disable_automatic_ip_detection=True. "
+            "proxies are ignored with manual IP detection so they have no effect."
+        )
+    if not disable_automatic_ip_detection and ip_src:
+        raise ArcjetMisconfiguration(
+            "ip_src cannot be set when disable_automatic_ip_detection=False."
+        )
+
+
+def _prepare_protect_context(
+    request: Any,
+    *,
+    proxies: tuple[str, ...],
+    ip_src: str | None,
+    email: str | None,
+    detect_prompt_injection_message: str | None,
+    needs_email: bool,
+    needs_message: bool,
+    has_token_bucket: bool,
+    requested: int | None,
+    extra: Mapping[str, str] | None,
+    characteristics: Mapping[str, Any] | None,
+    disable_automatic_ip_detection: bool,
+) -> tuple[RequestContext, int | None]:
+    """Build the ``RequestContext`` from ``protect()`` arguments.
+
+    Handles coercion, email/message validation, token-bucket defaulting,
+    extra-field merging, and characteristic flattening.  Shared by both
+    async and sync ``protect()`` implementations.
+
+    Returns:
+        A ``(ctx, requested)`` tuple with the fully-prepared context and
+        the (possibly defaulted) token-bucket cost.
+    """
+    ctx = coerce_request_context(request, proxies=proxies, ip_src=ip_src)
+
+    if email:
+        ctx = replace(ctx, email=email)
+    if detect_prompt_injection_message:
+        ctx = replace(
+            ctx, detect_prompt_injection_message=detect_prompt_injection_message
+        )
+    # Enforce required per-request context based on configured rules.
+    if needs_email and not (email or ctx.email):
+        raise ArcjetMisconfiguration(
+            "email is required when validate_email(...) is configured. "
+            "Pass email=... to aj.protect(...)."
+        )
+    if needs_message and not (
+        detect_prompt_injection_message or ctx.detect_prompt_injection_message
+    ):
+        raise ArcjetMisconfiguration(
+            "detect_prompt_injection_message is required when "
+            "detect_prompt_injection(...) is configured. "
+            "Pass detect_prompt_injection_message=... to aj.protect(...)."
+        )
+    # Token bucket uses a per-request cost. Default to 1 token if not provided.
+    if has_token_bucket and requested is None:
+        requested = 1
+
+    merged_extra: dict[str, str] = {}
+    if ctx.extra:
+        merged_extra.update({str(k): str(v) for k, v in ctx.extra.items()})
+    if extra:
+        merged_extra.update({str(k): str(v) for k, v in extra.items()})
+    if requested is not None:
+        merged_extra["requested"] = str(int(requested))
+    # If disable_automatic_ip_detection is True, add an Arcjet field to extra
+    if disable_automatic_ip_detection and ip_src:
+        merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
+
+    # Include per-request characteristic values as extra fields so
+    # server-side fingerprinting can read them by name.
+    if characteristics:
+        for k, v in characteristics.items():
+            if isinstance(v, (list, tuple)):
+                merged_extra[str(k)] = ",".join(str(x) for x in v)
+            else:
+                merged_extra[str(k)] = str(v)
+
+    ctx = RequestContext(
+        ip=ctx.ip,
+        method=ctx.method,
+        protocol=ctx.protocol,
+        host=ctx.host,
+        path=ctx.path,
+        headers=ctx.headers,
+        cookies=ctx.cookies,
+        query=ctx.query,
+        body=ctx.body,
+        email=ctx.email,
+        detect_prompt_injection_message=ctx.detect_prompt_injection_message,
+        extra=merged_extra or None,
+    )
+
+    return ctx, requested
+
+
+def _build_decide_request(
+    sdk_stack_val: str | None,
+    sdk_version: str,
+    ctx: RequestContext,
+    rules: tuple[RuleSpec, ...],
+) -> decide_pb2.DecideRequest:
+    """Assemble a ``DecideRequest`` protobuf from context and rules."""
+    req = decide_pb2.DecideRequest(
+        sdk_stack=_sdk_stack(sdk_stack_val),
+        sdk_version=sdk_version,
+        details=request_details_from_context(ctx),
+    )
+    req.rules.extend([r.to_proto() for r in rules])
+    return req
+
+
+def _build_cache_hit_report(
+    sdk_stack_val: str | None,
+    sdk_version: str,
+    ctx: RequestContext,
+    cached: Decision,
+    rules: tuple[RuleSpec, ...],
+) -> tuple[decide_pb2.ReportRequest, decide_pb2.Decision]:
+    """Build a ``ReportRequest`` for a cache-hit report.
+
+    Returns:
+        A ``(report, decision_proto)`` tuple; ``decision_proto`` carries the
+        newly-generated local request ID.
+    """
+    dec = cached.to_proto()
+    dec.id = _new_local_request_id()
+    rep = decide_pb2.ReportRequest(
+        sdk_stack=_sdk_stack(sdk_stack_val),
+        sdk_version=sdk_version,
+        details=request_details_from_context(ctx),
+        decision=dec,
+    )
+    rep.rules.extend([r.to_proto() for r in rules])
+    return rep, dec
+
+
+def _log_cache_hit_report(
+    dec_id: str,
+    cached: Decision,
+    rules: tuple[RuleSpec, ...],
+    t0: float,
+) -> None:
+    """Emit structured debug log for a cache-hit report."""
+    if logger.isEnabledFor(logging.DEBUG):
+        t_prepare_end = time.perf_counter()
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        prepare_ms = (t_prepare_end - t0) * 1000.0
+        api_ms = 0.0  # fire-and-forget; API latency not measured here
+        logger.debug(
+            "report: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+            dec_id,
+            decide_pb2.Conclusion.Name(cached.conclusion),
+            cached.reason.which(),
+            str(cached.ttl),
+            round(api_ms, 3),
+            round(prepare_ms, 3),
+            round(total_ms, 3),
+            len(rules),
+            extra={
+                "event": "arcjet_report_cache_hit",
+                "decision_id": dec_id,
+                "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
+                "reason": cached.reason.which(),
+                "ttl": cached.ttl,
+                "rule_count": len(rules),
+                "api_ms": round(api_ms, 3),
+                "prepare_ms": round(prepare_ms, 3),
+                "total_ms": round(total_ms, 3),
+            },
+        )
+
+
+def _handle_transport_error(
+    e: Exception,
+    fail_open: bool,
+    rules: tuple[RuleSpec, ...],
+    t0: float,
+    t_api_start: float,
+) -> Decision:
+    """Handle a transport error from the Decide API call.
+
+    When ``fail_open`` is ``True``, logs at WARNING and returns an ERROR
+    ``Decision``.  Otherwise logs at ERROR and raises
+    ``ArcjetTransportError``.
+    """
+    total_ms = (time.perf_counter() - t0) * 1000.0
+    prepare_ms = (t_api_start - t0) * 1000.0
+    api_ms = (time.perf_counter() - t_api_start) * 1000.0
+
+    if fail_open:
+        logger.warning(
+            "arcjet fail_open error due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+            str(e),
+            round(api_ms, 3),
+            round(prepare_ms, 3),
+            round(total_ms, 3),
+            len(rules),
+            extra={
+                "event": "arcjet_transport_error",
+                "error": str(e),
+                "api_ms": round(api_ms, 3),
+                "prepare_ms": round(prepare_ms, 3),
+                "total_ms": round(total_ms, 3),
+                "rule_count": len(rules),
+            },
+        )
+        d = decide_pb2.Decision(
+            id="",
+            conclusion=decide_pb2.CONCLUSION_ERROR,
+            reason=decide_pb2.Reason(error=decide_pb2.ErrorReason(message=str(e))),
+        )
+        return Decision(d)
+
+    logger.error(
+        "arcjet transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+        str(e),
+        round(api_ms, 3),
+        round(prepare_ms, 3),
+        round(total_ms, 3),
+        len(rules),
+        extra={
+            "event": "arcjet_transport_error",
+            "error": str(e),
+            "api_ms": round(api_ms, 3),
+            "prepare_ms": round(prepare_ms, 3),
+            "total_ms": round(total_ms, 3),
+            "rule_count": len(rules),
+        },
+    )
+    raise ArcjetTransportError(str(e)) from e
+
+
+def _handle_invalid_response(
+    fail_open: bool,
+    rules: tuple[RuleSpec, ...],
+    t0: float,
+    t_api_start: float,
+    t_api_end: float,
+) -> Decision:
+    """Handle a missing/invalid decision in the API response.
+
+    When ``fail_open`` is ``True``, logs at WARNING and returns an ERROR
+    ``Decision``.  Otherwise logs at ERROR and raises
+    ``ArcjetTransportError``.
+    """
+    total_ms = (time.perf_counter() - t0) * 1000.0
+    api_ms = (t_api_end - t_api_start) * 1000.0
+    prepare_ms = (t_api_start - t0) * 1000.0
+
+    if fail_open:
+        logger.warning(
+            "arcjet fail_open error due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+            "missing decision in response",
+            round(api_ms, 3),
+            round(prepare_ms, 3),
+            round(total_ms, 3),
+            len(rules),
+            extra={
+                "event": "arcjet_invalid_response",
+                "error": "missing decision in response",
+                "api_ms": round(api_ms, 3),
+                "prepare_ms": round(prepare_ms, 3),
+                "total_ms": round(total_ms, 3),
+                "rule_count": len(rules),
+            },
+        )
+        d = decide_pb2.Decision(
+            id="",
+            conclusion=decide_pb2.CONCLUSION_ERROR,
+            reason=decide_pb2.Reason(
+                error=decide_pb2.ErrorReason(message="missing decision in response")
+            ),
+        )
+        return Decision(d)
+
+    logger.error(
+        "arcjet invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+        "missing decision in response",
+        round(api_ms, 3),
+        round(prepare_ms, 3),
+        round(total_ms, 3),
+        len(rules),
+        extra={
+            "event": "arcjet_invalid_response",
+            "error": "missing decision in response",
+            "api_ms": round(api_ms, 3),
+            "prepare_ms": round(prepare_ms, 3),
+            "total_ms": round(total_ms, 3),
+            "rule_count": len(rules),
+        },
+    )
+    raise ArcjetTransportError(
+        "Arcjet API returned an invalid response (missing decision)."
+    )
+
+
+def _finalize_decision(
+    resp: Any,
+    cache: DecisionCache,
+    cache_key: str | None,
+    rules: tuple[RuleSpec, ...],
+    t0: float,
+    t_prepare_end: float,
+    t_api_start: float,
+    t_api_end: float,
+) -> Decision:
+    """Wrap the API response into a ``Decision``, cache it, and log timing."""
+    decision = Decision(resp.decision)
+    # Cache the decision when TTL is present (>0)
+    try:
+        ttl = int(getattr(decision, "ttl", 0) or 0)
+        if ttl > 0 and cache_key is not None:
+            cache.set(cache_key, decision, ttl)
+    except Exception:
+        pass
+    if logger.isEnabledFor(logging.DEBUG):
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        api_ms = (t_api_end - t_api_start) * 1000.0
+        prepare_ms = (t_prepare_end - t0) * 1000.0
+        logger.debug(
+            "decision: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
+            decision.id,
+            decide_pb2.Conclusion.Name(decision.conclusion),
+            decision.reason.which(),
+            str(decision.ttl),
+            round(api_ms, 3),
+            round(prepare_ms, 3),
+            round(total_ms, 3),
+            len(rules),
+            extra={
+                "event": "arcjet_decision",
+                "decision_id": decision.id,
+                "conclusion": decide_pb2.Conclusion.Name(decision.conclusion),
+                "reason": decision.reason.which(),
+                "ttl": decision.ttl,
+                "rule_count": len(rules),
+                "api_ms": round(api_ms, 3),
+                "prepare_ms": round(prepare_ms, 3),
+                "total_ms": round(total_ms, 3),
+            },
+        )
+    return decision
+
+
+def _compute_client_kwargs(
+    key: str,
+    rules: Sequence[RuleSpec],
+    stack: str | None,
+    sdk_version: str | None,
+    timeout_ms: int | None,
+    fail_open: bool,
+    proxies: Sequence[str],
+    disable_automatic_ip_detection: bool,
+) -> dict[str, Any]:
+    """Compute keyword arguments shared by ``Arcjet`` and ``ArcjetSync``.
+
+    Validates the key, pre-computes rule flags, and resolves version/timeout
+    defaults so the factory functions only need to add their transport-specific
+    ``_client`` field.
+
+    Raises:
+        ArcjetMisconfiguration: If ``key`` is empty.
+    """
+    if not key:
+        raise ArcjetMisconfiguration("Arcjet key is required.")
+    return {
+        "_key": key,
+        "_rules": tuple(rules),
+        "_sdk_stack": stack,
+        "_sdk_version": _sdk_version() if sdk_version is None else sdk_version,
+        "_timeout_ms": _default_timeout_ms() if timeout_ms is None else timeout_ms,
+        "_fail_open": fail_open,
+        "_needs_email": any(isinstance(r, EmailValidation) for r in rules),
+        "_needs_message": any(isinstance(r, PromptInjectionDetection) for r in rules),
+        "_has_token_bucket": any(isinstance(r, TokenBucket) for r in rules),
+        "_proxies": tuple(proxies),
+        "_disable_automatic_ip_detection": disable_automatic_ip_detection,
+    }
+
+
 @dataclass(slots=True)
 class Arcjet:
     """Async Arcjet client.
@@ -282,79 +682,21 @@ class Arcjet:
                 return JSONResponse({"error": "Blocked"}, status_code=403)
         """
         t0 = time.perf_counter()
-        if self._disable_automatic_ip_detection and not ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src is required when disable_automatic_ip_detection=True. "
-                "Pass ip_src=... to aj.protect(...)."
-            )
-        if self._disable_automatic_ip_detection and self._proxies:
-            raise ArcjetMisconfiguration(
-                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
-            )
-        if not self._disable_automatic_ip_detection and ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src cannot be set when disable_automatic_ip_detection=False."
-            )
-        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
+        _validate_ip_config(self._disable_automatic_ip_detection, ip_src, self._proxies)
 
-        if email:
-            ctx = replace(ctx, email=email)
-        if detect_prompt_injection_message:
-            ctx = replace(
-                ctx, detect_prompt_injection_message=detect_prompt_injection_message
-            )
-        # Enforce required per-request context based on configured rules.
-        if self._needs_email and not (email or ctx.email):
-            raise ArcjetMisconfiguration(
-                "email is required when validate_email(...) is configured. "
-                "Pass email=... to aj.protect(...)."
-            )
-        if self._needs_message and not (
-            detect_prompt_injection_message or ctx.detect_prompt_injection_message
-        ):
-            raise ArcjetMisconfiguration(
-                "detect_prompt_injection_message is required when detect_prompt_injection(...) is configured. "
-                "Pass detect_prompt_injection_message=... to aj.protect(...)."
-            )
-        # Token bucket uses a per-request cost. Default to 1 token if not provided.
-        if self._has_token_bucket and requested is None:
-            requested = 1
-
-        merged_extra: dict[str, str] = {}
-        if ctx.extra:
-            merged_extra.update({str(k): str(v) for k, v in ctx.extra.items()})
-        if extra:
-            merged_extra.update({str(k): str(v) for k, v in extra.items()})
-        if requested is not None:
-            merged_extra["requested"] = str(int(requested))
-        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
-        if self._disable_automatic_ip_detection and ip_src:
-            merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
-
-        # Include per-request characteristic values as extra fields so
-        # server-side fingerprinting can read them by name.
-        if characteristics:
-            for k, v in characteristics.items():
-                if isinstance(v, (list, tuple)):
-                    # Flatten list/tuple values into multiple extras sharing the key
-                    # by joining with commas for simplicity.
-                    merged_extra[str(k)] = ",".join(str(x) for x in v)
-                else:
-                    merged_extra[str(k)] = str(v)
-
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
+        ctx, requested = _prepare_protect_context(
+            request,
+            proxies=self._proxies,
+            ip_src=ip_src,
+            email=email,
+            detect_prompt_injection_message=detect_prompt_injection_message,
+            needs_email=self._needs_email,
+            needs_message=self._needs_message,
+            has_token_bucket=self._has_token_bucket,
+            requested=requested,
+            extra=extra,
+            characteristics=characteristics,
+            disable_automatic_ip_detection=self._disable_automatic_ip_detection,
         )
 
         # Cache lookup before hitting Decide API
@@ -363,16 +705,13 @@ class Arcjet:
         if cached is not None:
             # Fire-and-forget async report; do not await
             try:
-                # Use cached decision but override ID with locally generated request ID
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
-                rep = decide_pb2.ReportRequest(
-                    sdk_stack=_sdk_stack(self._sdk_stack),
-                    sdk_version=self._sdk_version,
-                    details=request_details_from_context(ctx),
-                    decision=dec,
+                rep, dec = _build_cache_hit_report(
+                    self._sdk_stack,
+                    self._sdk_version,
+                    ctx,
+                    cached,
+                    self._rules,
                 )
-                rep.rules.extend([r.to_proto() for r in self._rules])
 
                 async def _send_report():
                     try:
@@ -382,7 +721,6 @@ class Arcjet:
                             timeout_ms=self._timeout_ms,
                         )
                     except Exception as e:
-                        # Background error: log at debug; do not raise
                         logger.debug(
                             "report error on cache hit: error=%s",
                             str(e),
@@ -393,34 +731,7 @@ class Arcjet:
                         )
 
                 asyncio.create_task(_send_report())
-                # Log cache-hit report scheduling with latency figures similar to decide
-                if logger.isEnabledFor(logging.DEBUG):
-                    t_prepare_end = time.perf_counter()
-                    total_ms = (time.perf_counter() - t0) * 1000.0
-                    prepare_ms = (t_prepare_end - t0) * 1000.0
-                    api_ms = 0.0  # fire-and-forget; API latency not measured here
-                    logger.debug(
-                        "report: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                        dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
-                        round(api_ms, 3),
-                        round(prepare_ms, 3),
-                        round(total_ms, 3),
-                        len(self._rules),
-                        extra={
-                            "event": "arcjet_report_cache_hit",
-                            "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
-                            "rule_count": len(self._rules),
-                            "api_ms": round(api_ms, 3),
-                            "prepare_ms": round(prepare_ms, 3),
-                            "total_ms": round(total_ms, 3),
-                        },
-                    )
+                _log_cache_hit_report(dec.id, cached, self._rules, t0)
             except Exception as e:
                 logger.debug(
                     "cache-hit report scheduling error: error=%s",
@@ -432,14 +743,9 @@ class Arcjet:
                 )
             return cached
 
-        req = decide_pb2.DecideRequest(
-            sdk_stack=_sdk_stack(self._sdk_stack),
-            sdk_version=self._sdk_version,
-            details=request_details_from_context(ctx),
+        req = _build_decide_request(
+            self._sdk_stack, self._sdk_version, ctx, self._rules
         )
-        req.rules.extend([r.to_proto() for r in self._rules])
-        # Do not set `req.characteristics` here; rule-level configuration controls
-        # which characteristics are used. When none provided, server defaults to IP.
         t_prepare_end = time.perf_counter()
 
         t_api_start = time.perf_counter()
@@ -451,154 +757,25 @@ class Arcjet:
             )
             t_api_end = time.perf_counter()
         except Exception as e:
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            prepare_ms = (
-                (t_api_start - t0) * 1000.0
-                if "t_api_start" in locals()
-                else (time.perf_counter() - t0) * 1000.0
+            return _handle_transport_error(
+                e, self._fail_open, self._rules, t0, t_api_start
             )
-            api_ms = (
-                (time.perf_counter() - t_api_start) * 1000.0
-                if "t_api_start" in locals()
-                else 0.0
-            )
-            if self._fail_open:
-                # Fail open: return an error decision instead of raising an exception.
-                logger.warning(
-                    "arcjet fail_open error due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    str(e),
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_transport_error",
-                        "error": str(e),
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ERROR,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(message=str(e))
-                    ),
-                )
-                return Decision(d)
-            logger.error(
-                "arcjet transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                str(e),
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_transport_error",
-                    "error": str(e),
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                    "rule_count": len(self._rules),
-                },
-            )
-            raise ArcjetTransportError(str(e)) from e
 
         if not resp or not resp.HasField("decision"):
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            api_ms = (
-                (t_api_end - t_api_start) * 1000.0 if "t_api_end" in locals() else 0.0
-            )
-            prepare_ms = (
-                (t_api_start - t0) * 1000.0 if "t_api_start" in locals() else total_ms
-            )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open error due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    "missing decision in response",
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_invalid_response",
-                        "error": "missing decision in response",
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ERROR,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(
-                            message="missing decision in response"
-                        )
-                    ),
-                )
-                return Decision(d)
-            logger.error(
-                "arcjet invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                "missing decision in response",
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_invalid_response",
-                    "error": "missing decision in response",
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                    "rule_count": len(self._rules),
-                },
-            )
-            raise ArcjetTransportError(
-                "Arcjet API returned an invalid response (missing decision)."
+            return _handle_invalid_response(
+                self._fail_open, self._rules, t0, t_api_start, t_api_end
             )
 
-        decision = Decision(resp.decision)
-        # Cache the decision when TTL is present (>0)
-        try:
-            ttl = int(getattr(decision, "ttl", 0) or 0)
-            if ttl > 0 and cache_key is not None:
-                self._cache.set(cache_key, decision, ttl)
-        except Exception:
-            pass
-        if logger.isEnabledFor(logging.DEBUG):
-            # Timings
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            api_ms = (
-                (t_api_end - t_api_start) * 1000.0 if "t_api_end" in locals() else 0.0
-            )
-            prepare_ms = (t_prepare_end - t0) * 1000.0
-            logger.debug(
-                "decision: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                decision.id,
-                decide_pb2.Conclusion.Name(decision.conclusion),
-                decision.reason.which(),
-                str(decision.ttl),
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_decision",
-                    "decision_id": decision.id,
-                    "conclusion": decide_pb2.Conclusion.Name(decision.conclusion),
-                    "reason": decision.reason.which(),
-                    "ttl": decision.ttl,
-                    "rule_count": len(self._rules),
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                },
-            )
-        return decision
+        return _finalize_decision(
+            resp,
+            self._cache,
+            cache_key,
+            self._rules,
+            t0,
+            t_prepare_end,
+            t_api_start,
+            t_api_end,
+        )
 
     async def aclose(self) -> None:
         """Close the underlying transport when supported (async)."""
@@ -722,74 +899,21 @@ class ArcjetSync:
                 return jsonify(error="Forbidden"), 403
         """
         t0 = time.perf_counter()
-        if self._disable_automatic_ip_detection and not ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src is required when disable_automatic_ip_detection=True. "
-                "Pass ip_src=... to aj.protect(...)."
-            )
-        if self._disable_automatic_ip_detection and self._proxies:
-            raise ArcjetMisconfiguration(
-                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
-            )
-        if not self._disable_automatic_ip_detection and ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src cannot be set when disable_automatic_ip_detection=False."
-            )
-        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
+        _validate_ip_config(self._disable_automatic_ip_detection, ip_src, self._proxies)
 
-        if email:
-            ctx = replace(ctx, email=email)
-        if detect_prompt_injection_message:
-            ctx = replace(
-                ctx, detect_prompt_injection_message=detect_prompt_injection_message
-            )
-        # Enforce required per-request context based on configured rules.
-        if self._needs_email and not (email or ctx.email):
-            raise ArcjetMisconfiguration(
-                "email is required when validate_email(...) is configured. "
-                "Pass email=... to aj.protect(...)."
-            )
-        if self._needs_message and not (
-            detect_prompt_injection_message or ctx.detect_prompt_injection_message
-        ):
-            raise ArcjetMisconfiguration(
-                "detect_prompt_injection_message is required when detect_prompt_injection(...) is configured. "
-                "Pass detect_prompt_injection_message=... to aj.protect(...)."
-            )
-        # Token bucket uses a per-request cost. Default to 1 token if not provided.
-        if self._has_token_bucket and requested is None:
-            requested = 1
-
-        merged_extra: dict[str, str] = {}
-        if ctx.extra:
-            merged_extra.update({str(k): str(v) for k, v in ctx.extra.items()})
-        if extra:
-            merged_extra.update({str(k): str(v) for k, v in extra.items()})
-        # If disable_automatic_ip_detection is True, add an Arcjet field to extra to report this
-        if self._disable_automatic_ip_detection and ip_src:
-            merged_extra["arcjet_disable_automatic_ip_detection"] = "true"
-        if requested is not None:
-            merged_extra["requested"] = str(int(requested))
-        if characteristics:
-            for k, v in characteristics.items():
-                if isinstance(v, (list, tuple)):
-                    merged_extra[str(k)] = ",".join(str(x) for x in v)
-                else:
-                    merged_extra[str(k)] = str(v)
-
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
+        ctx, requested = _prepare_protect_context(
+            request,
+            proxies=self._proxies,
+            ip_src=ip_src,
+            email=email,
+            detect_prompt_injection_message=detect_prompt_injection_message,
+            needs_email=self._needs_email,
+            needs_message=self._needs_message,
+            has_token_bucket=self._has_token_bucket,
+            requested=requested,
+            extra=extra,
+            characteristics=characteristics,
+            disable_automatic_ip_detection=self._disable_automatic_ip_detection,
         )
 
         # Cache lookup before hitting Decide API
@@ -798,15 +922,13 @@ class ArcjetSync:
         if cached is not None:
             # Fire-and-forget background report using sync client
             try:
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
-                rep = decide_pb2.ReportRequest(
-                    sdk_stack=_sdk_stack(self._sdk_stack),
-                    sdk_version=self._sdk_version,
-                    details=request_details_from_context(ctx),
-                    decision=dec,
+                rep, dec = _build_cache_hit_report(
+                    self._sdk_stack,
+                    self._sdk_version,
+                    ctx,
+                    cached,
+                    self._rules,
                 )
-                rep.rules.extend([r.to_proto() for r in self._rules])
 
                 def _send_report_sync():
                     try:
@@ -828,34 +950,7 @@ class ArcjetSync:
                 import threading
 
                 threading.Thread(target=_send_report_sync, daemon=True).start()
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    t_prepare_end = time.perf_counter()
-                    total_ms = (time.perf_counter() - t0) * 1000.0
-                    prepare_ms = (t_prepare_end - t0) * 1000.0
-                    api_ms = 0.0  # fire-and-forget; API latency not measured here
-                    logger.debug(
-                        "report (cache-hit sync): id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                        dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
-                        round(api_ms, 3),
-                        round(prepare_ms, 3),
-                        round(total_ms, 3),
-                        len(self._rules),
-                        extra={
-                            "event": "arcjet_report_cache_hit",
-                            "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
-                            "rule_count": len(self._rules),
-                            "api_ms": round(api_ms, 3),
-                            "prepare_ms": round(prepare_ms, 3),
-                            "total_ms": round(total_ms, 3),
-                        },
-                    )
+                _log_cache_hit_report(dec.id, cached, self._rules, t0)
             except Exception as e:
                 logger.debug(
                     "cache-hit report scheduling error (sync): error=%s",
@@ -867,12 +962,9 @@ class ArcjetSync:
                 )
             return cached
 
-        req = decide_pb2.DecideRequest(
-            sdk_stack=_sdk_stack(self._sdk_stack),
-            sdk_version=self._sdk_version,
-            details=request_details_from_context(ctx),
+        req = _build_decide_request(
+            self._sdk_stack, self._sdk_version, ctx, self._rules
         )
-        req.rules.extend([r.to_proto() for r in self._rules])
         t_prepare_end = time.perf_counter()
 
         t_api_start = time.perf_counter()
@@ -884,152 +976,25 @@ class ArcjetSync:
             )
             t_api_end = time.perf_counter()
         except Exception as e:
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            prepare_ms = (
-                (t_api_start - t0) * 1000.0
-                if "t_api_start" in locals()
-                else (time.perf_counter() - t0) * 1000.0
+            return _handle_transport_error(
+                e, self._fail_open, self._rules, t0, t_api_start
             )
-            api_ms = (
-                (time.perf_counter() - t_api_start) * 1000.0
-                if "t_api_start" in locals()
-                else 0.0
-            )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open error due to transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    str(e),
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_transport_error",
-                        "error": str(e),
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ERROR,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(message=str(e))
-                    ),
-                )
-                return Decision(d)
-            logger.error(
-                "arcjet transport error: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                str(e),
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_transport_error",
-                    "error": str(e),
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                    "rule_count": len(self._rules),
-                },
-            )
-            raise ArcjetTransportError(str(e)) from e
 
         if not resp or not resp.HasField("decision"):
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            api_ms = (
-                (t_api_end - t_api_start) * 1000.0 if "t_api_end" in locals() else 0.0
-            )
-            prepare_ms = (
-                (t_api_start - t0) * 1000.0 if "t_api_start" in locals() else total_ms
-            )
-            if self._fail_open:
-                logger.warning(
-                    "arcjet fail_open error due to invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                    "missing decision in response",
-                    round(api_ms, 3),
-                    round(prepare_ms, 3),
-                    round(total_ms, 3),
-                    len(self._rules),
-                    extra={
-                        "event": "arcjet_invalid_response",
-                        "error": "missing decision in response",
-                        "api_ms": round(api_ms, 3),
-                        "prepare_ms": round(prepare_ms, 3),
-                        "total_ms": round(total_ms, 3),
-                        "rule_count": len(self._rules),
-                    },
-                )
-                d = decide_pb2.Decision(
-                    id="",
-                    conclusion=decide_pb2.CONCLUSION_ERROR,
-                    reason=decide_pb2.Reason(
-                        error=decide_pb2.ErrorReason(
-                            message="missing decision in response"
-                        )
-                    ),
-                )
-                return Decision(d)
-            logger.error(
-                "arcjet invalid response: error=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                "missing decision in response",
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_invalid_response",
-                    "error": "missing decision in response",
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                    "rule_count": len(self._rules),
-                },
-            )
-            raise ArcjetTransportError(
-                "Arcjet API returned an invalid response (missing decision)."
+            return _handle_invalid_response(
+                self._fail_open, self._rules, t0, t_api_start, t_api_end
             )
 
-        decision = Decision(resp.decision)
-        # Cache the decision when TTL is present (>0)
-        try:
-            ttl = int(getattr(decision, "ttl", 0) or 0)
-            if ttl > 0 and cache_key is not None:
-                self._cache.set(cache_key, decision, ttl)
-        except Exception:
-            pass
-        if logger.isEnabledFor(logging.DEBUG):
-            total_ms = (time.perf_counter() - t0) * 1000.0
-            api_ms = (
-                (t_api_end - t_api_start) * 1000.0 if "t_api_end" in locals() else 0.0
-            )
-            prepare_ms = (t_prepare_end - t0) * 1000.0
-            logger.debug(
-                "decision: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
-                decision.id,
-                decide_pb2.Conclusion.Name(decision.conclusion),
-                decision.reason.which(),
-                str(decision.ttl),
-                round(api_ms, 3),
-                round(prepare_ms, 3),
-                round(total_ms, 3),
-                len(self._rules),
-                extra={
-                    "event": "arcjet_decision",
-                    "decision_id": decision.id,
-                    "conclusion": decide_pb2.Conclusion.Name(decision.conclusion),
-                    "reason": decision.reason.which(),
-                    "ttl": decision.ttl,
-                    "rule_count": len(self._rules),
-                    "api_ms": round(api_ms, 3),
-                    "prepare_ms": round(prepare_ms, 3),
-                    "total_ms": round(total_ms, 3),
-                },
-            )
-        return decision
+        return _finalize_decision(
+            resp,
+            self._cache,
+            cache_key,
+            self._rules,
+            t0,
+            t_prepare_end,
+            t_api_start,
+            t_api_end,
+        )
 
     def close(self) -> None:
         """Close the underlying transport when supported (sync)."""
@@ -1135,27 +1100,22 @@ def arcjet(
             ],
         )
     """
-    if not key:
-        raise ArcjetMisconfiguration("Arcjet key is required.")
+    kwargs = _compute_client_kwargs(
+        key,
+        rules,
+        stack,
+        sdk_version,
+        timeout_ms,
+        fail_open,
+        proxies,
+        disable_automatic_ip_detection,
+    )
     # Always enable HTTP/2 by default.
     transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClient(
         base_url.rstrip("/"), http_client=pyqwest.Client(transport)
     )
-    return Arcjet(
-        _key=key,
-        _rules=tuple(rules),
-        _client=client,
-        _sdk_stack=stack,
-        _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
-        _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
-        _proxies=tuple(proxies),
-        _disable_automatic_ip_detection=disable_automatic_ip_detection,
-    )
+    return Arcjet(_client=client, **kwargs)
 
 
 def arcjet_sync(
@@ -1250,25 +1210,19 @@ def arcjet_sync(
             ],
         )
     """
-    if not key:
-        raise ArcjetMisconfiguration("Arcjet key is required.")
+    kwargs = _compute_client_kwargs(
+        key,
+        rules,
+        stack,
+        sdk_version,
+        timeout_ms,
+        fail_open,
+        proxies,
+        disable_automatic_ip_detection,
+    )
     # Always enable HTTP/2 by default.
     transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClientSync(
         base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
     )
-
-    return ArcjetSync(
-        _key=key,
-        _rules=tuple(rules),
-        _client=client,
-        _sdk_stack=stack,
-        _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms() if timeout_ms is None else timeout_ms,
-        _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
-        _proxies=tuple(proxies),
-        _disable_automatic_ip_detection=disable_automatic_ip_detection,
-    )
+    return ArcjetSync(_client=client, **kwargs)
