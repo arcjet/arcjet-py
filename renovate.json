@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [":dependencyDashboardApproval"],
+  "enabledManagers": ["github-actions", "pep621", "uv"],
+  "minimumReleaseAge": "7 days",
+  "schedule": [],
+  "updateNotScheduled": false,
+  "semanticCommitScope": "",
+  "semanticCommitType": "deps",
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "dependencyDashboardCategory": "GitHub Actions updates"
+    },
+    {
+      "matchManagers": ["pep621", "uv"],
+      "dependencyDashboardCategory": "Python updates"
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "semanticCommitScope": "dev",
+      "semanticCommitType": "deps",
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "automerge": true
+    },
+    {
+      "matchManagers": ["pep621", "uv"],
+      "matchPackageNames": ["python"],
+      "groupName": "python",
+      "allowedVersions": "<4"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}",
+  "prBodyColumns": ["Package", "Change"],
+  "ignorePresets": ["mergeConfidence:all-badges"],
+  "vulnerabilityAlerts": {
+    "groupName": null,
+    "dependencyDashboardApproval": true,
+    "rangeStrategy": "update-lockfile",
+    "commitMessageSuffix": "[security]",
+    "branchTopic": "{{{datasource}}}-{{{depNameSanitized}}}-vulnerability",
+    "prCreation": "immediate",
+    "vulnerabilityFixStrategy": "lowest"
+  }
+}
