@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 try:
-    import tomllib  # pyright: ignore[reportMissingImports]
+    import tomllib  # pyright: ignore[reportMissingImports]  # ty: ignore[unresolved-import]
 except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+    import tomli as tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 

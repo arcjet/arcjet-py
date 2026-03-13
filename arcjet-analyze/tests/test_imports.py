@@ -14,6 +14,8 @@ from arcjet_analyze import (
     SensitiveInfoConfig,
     SensitiveInfoEntitiesAllow,
     SensitiveInfoEntitiesDeny,
+    SensitiveInfoEntity,
+    SensitiveInfoEntityCustom,
     SensitiveInfoEntityEmail,
     SensitiveInfoEntityPhoneNumber,
 )
@@ -328,7 +330,7 @@ class TestCustomSensitiveInfoDetect:
         """Custom sensitive_info_detect callback is invoked with tokens."""
         all_tokens: list[list[str]] = []
 
-        def my_detect(tokens: list[str]) -> list[SensitiveInfoEntityEmail | None]:
+        def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             all_tokens.append(tokens)
             return [None] * len(tokens)
 
@@ -351,11 +353,10 @@ class TestCustomSensitiveInfoDetect:
 
     def test_custom_detect_returns_entity(self, wasm_path: str) -> None:
         """Custom detect returning an entity causes it to appear in results."""
-        from arcjet_analyze import SensitiveInfoEntityCustom
 
         def my_detect(
             tokens: list[str],
-        ) -> list[SensitiveInfoEntityCustom | None]:
+        ) -> list[SensitiveInfoEntity | None]:
             return [
                 SensitiveInfoEntityCustom("secret") if t == "c" else None
                 for t in tokens
@@ -378,13 +379,15 @@ class TestCustomSensitiveInfoDetect:
             if isinstance(e.identified_type, SensitiveInfoEntityCustom)
         ]
         assert len(custom_entities) >= 1
-        assert custom_entities[0].identified_type.value == "secret"
+        ident = custom_entities[0].identified_type
+        assert isinstance(ident, SensitiveInfoEntityCustom)
+        assert ident.value == "secret"
 
     def test_custom_detect_skip(self, wasm_path: str) -> None:
         """skip_custom_detect=True skips the custom callback."""
         calls = 0
 
-        def my_detect(tokens: list[str]) -> list[None]:
+        def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             nonlocal calls
             calls += 1
             return [None] * len(tokens)
@@ -406,7 +409,7 @@ class TestCustomSensitiveInfoDetect:
 
         def my_detect(
             tokens: list[str],
-        ) -> list[SensitiveInfoEntityPhoneNumber | None]:
+        ) -> list[SensitiveInfoEntity | None]:
             return [
                 SensitiveInfoEntityPhoneNumber() if "555" in t else None for t in tokens
             ]

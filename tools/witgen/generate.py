@@ -1240,6 +1240,7 @@ def generate_imports(world: WitWorld, config: Config) -> str:
                 # validate that the callback returns the expected number of
                 # elements (a mismatch would cause a WASM trap).
                 length_check_param: str | None = None
+                assert func.result is not None  # guarded by outer `if`
                 resolved_result = _resolve_type(func.result, type_map)
                 if isinstance(resolved_result, WitList):
                     list_params = [
