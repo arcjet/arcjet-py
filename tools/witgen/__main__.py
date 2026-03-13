@@ -37,6 +37,7 @@ def main() -> None:
     )
 
     output_dir = Path(config.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     files = {
         "_types.py": generate_types(world),

@@ -64,11 +64,23 @@ _TOKEN_RE = re.compile(
 
 def _tokenize(text: str) -> list[str]:
     tokens: list[str] = []
+    last_end = 0
     for m in _TOKEN_RE.finditer(text):
+        if m.start() != last_end:
+            skipped = text[last_end : m.start()]
+            raise SyntaxError(
+                f"Unexpected character(s) {skipped!r} at position {last_end}"
+            )
+        last_end = m.end()
         tok = m.group()
         if tok.startswith("//") or tok.isspace():
             continue
         tokens.append(tok)
+    if last_end != len(text):
+        skipped = text[last_end:]
+        raise SyntaxError(
+            f"Unexpected character(s) {skipped!r} at position {last_end}"
+        )
     return tokens
 
 
