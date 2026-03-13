@@ -30,22 +30,24 @@ FastAPI, and other Python web frameworks.
 
 ### Development workflow
 
-Always prefix commands with `uv run`:
+Always prefix commands with `uv run`. Common tasks are wrapped in the
+`Makefile`:
 
 ```bash
-# Run tests
-uv run pytest
+make check       # All lint + type + API-break checks (single command)
+make format      # Auto-fix imports and format code
+make test        # SDK tests (unit + integration, with coverage)
+make test-analyze  # arcjet-analyze WASM binding tests
+make test-all    # Both test suites
+```
 
-# Lint and format
-uv run ruff check .
-uv run ruff format .
+Individual checks can still be run directly:
 
-# Type checking
-uv run ty check
-uv run pyright
-
-# API breaking change detection
-uv run griffe check arcjet -s src --against origin/main
+```bash
+uv run ruff check            # Lint
+uv run ty check              # ty type checker
+uv run pyright               # Pyright type checker
+uv run griffe check arcjet -s src --against origin/main  # API breaking changes
 ```
 
 ## Build, test, and lint commands
@@ -560,14 +562,9 @@ pip install uv
 ## Summary checklist for new changes
 
 Before submitting a PR:
-- [ ] Run `uv run ruff check --select I --fix` to sort imports
-- [ ] Run `uv run ruff format` to format code
-- [ ] Run `uv run ruff check` to check for lint errors (F401, I)
-- [ ] Run `uv run ty check` and `uv run pyright` for type checking
-- [ ] Run `uv run pytest` for all tests (unit and integration)
-- [ ] Run `uv run pytest arcjet-analyze/tests/ --no-cov` for WASM binding tests
-- [ ] Run `uv run griffe check arcjet -s src --against origin/main` to check for
-  breaking changes
+- [ ] Run `make format` to fix imports and format code
+- [ ] Run `make check` to run all lint, type, and API-break checks
+- [ ] Run `make test-all` to run both SDK and arcjet-analyze test suites
 - [ ] Add `breaking` label if introducing intentional API breaking changes
 - [ ] Update documentation, including docstrings and AGENTS.md if necessary
 - [ ] Ensure all new code is fully type-annotated and follows coding conventions
