@@ -260,6 +260,32 @@ def _build_local_deny_report(
     return rep
 
 
+# Rate-limit rule types that inherit global characteristics when they have none.
+_RATE_LIMIT_TYPES = (TokenBucket, FixedWindow, SlidingWindow)
+
+
+def _apply_global_characteristics(
+    rules: tuple[RuleSpec, ...],
+    characteristics: tuple[str, ...],
+) -> tuple[RuleSpec, ...]:
+    """Apply global characteristics to rate-limit rules that lack their own.
+
+    Returns a new tuple with the same rules, except rate-limit rules whose
+    ``characteristics`` field is empty get a copy with the global value filled in.
+    Non-rate-limit rules and rules that already define characteristics are
+    returned unchanged.
+    """
+    if not characteristics:
+        return rules
+    out: list[RuleSpec] = []
+    for r in rules:
+        if isinstance(r, _RATE_LIMIT_TYPES) and not r.characteristics:
+            r = replace(r, characteristics=characteristics)
+        out.append(r)
+    return tuple(out)
+
+
+
 @dataclass(slots=True)
 class Arcjet:
     """Async Arcjet client.
