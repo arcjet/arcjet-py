@@ -1094,7 +1094,6 @@ def generate_imports(world: WitWorld, config: Config) -> str:
     lines.append("from __future__ import annotations\n")
     lines.append("from dataclasses import dataclass")
     lines.append("from typing import Callable\n")
-    lines.append("from wasmtime import Store")
     lines.append("from wasmtime import component as cm\n")
 
     # Check if any import returns a variant (needing Variant type + conversion)
@@ -1106,6 +1105,7 @@ def generate_imports(world: WitWorld, config: Config) -> str:
     needs_variant_wiring = len(converter_names) > 0
 
     if needs_variant_wiring:
+        lines.append("from wasmtime import Store\n")
         # FIXME comment and imports
         lines.append(
             "# FIXME(wasmtime-py): v40 does not export these from a public path;"
