@@ -84,7 +84,7 @@ The `AnalyzeComponent` class provides typed Python methods for all 6 exports:
 | `match-filters` | `match_filters()` | Expression-based request filtering |
 | `generate-fingerprint` | `generate_fingerprint()` | Request fingerprinting from characteristics |
 | `validate-characteristics` | `validate_characteristics()` | Validate characteristic names |
-| `detect-sensitive-info` | `detect_sensitive_info()` | PII/sensitive data detection in content |
+| `detect-sensitive-info` | `detect_sensitive_info()` | PII/sensitive data detection in content (accepts optional `detect` callback) |
 
 ## SDK integration
 
@@ -93,16 +93,29 @@ Local WASM evaluation is wired into the main SDK at `src/arcjet/_local.py`:
 - **Lazy singleton:** `_get_component()` loads the WASM binary once, latches on
   permanent errors, retries on transient errors. Protected by `_component_lock`.
 - **Bot detection:** `evaluate_bot_locally()` runs `detect-bot` and returns a
-  proto `RuleResult`.
+  proto `RuleResult` with `BotV2Reason`.
 - **Email validation:** `evaluate_email_locally()` runs `is-valid-email` and
   maps blocked reasons to proto `EmailType` values.
 - **Sensitive info detection:** `evaluate_sensitive_info_locally()` runs
   `detect-sensitive-info`, maps WASM entity types to proto `IdentifiedEntity`
-  values, and returns a `RuleResult` with `SensitiveInfoReason`.
+  values, and returns a `RuleResult` with `SensitiveInfoReason`. Supports an
+  optional per-call `detect` callback for custom token classification — the
+  user's callback (`str → str | None`) is wrapped to convert SDK entity names
+  to WASM `SensitiveInfoEntity` types. The callback is swapped on the
+  singleton's mutable ref under `_call_lock` and restored in a `finally` block.
+- **Filter evaluation:** `evaluate_filter_locally()` runs `match-filters` with
+  wirefilter expressions. Request context is serialized to JSON; optional
+  `filter_local` fields (passed via `protect(filter_local={...})`) are
+  serialized separately. Serialization failures are caught and return `None`
+  (per ADR 2026-01-28). `filter_local` is local-only — never sent to Arcjet
+  Cloud.
 - **Client integration:** `_run_local_rules()` in `client.py` runs bot, email,
-  and sensitive info rules locally before the remote Decide API call;
-  short-circuits on DENY in LIVE mode. Content for sensitive info detection is
-  passed via `protect(sensitive_info_content=...)`.
+  sensitive info, and filter rules locally before the remote Decide API call;
+  short-circuits on DENY in LIVE mode.
+- **Global characteristics:** `arcjet()` and `arcjet_sync()` accept a
+  `characteristics` parameter that is applied to rate-limit rules (TokenBucket,
+  FixedWindow, SlidingWindow) that don't define their own, matching the JS SDK
+  behavior.
 - **Reporting:** Fire-and-forget `ReportRequest` sent on local DENY so
   decisions appear in the Arcjet dashboard.
 
