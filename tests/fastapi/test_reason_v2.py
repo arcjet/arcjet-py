@@ -6,8 +6,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 from pyqwest import Headers
 
-from arcjet import Arcjet, RuleSpec, shield
-from arcjet import arcjet as arcjet_fastapi
+from arcjet import Arcjet, RuleSpec
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 

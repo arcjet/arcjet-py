@@ -78,7 +78,7 @@ def test_validate_email_coercion_and_proto(mock_protobuf_modules):
 def test_rule_spec_get_characteristics_with_non_tuple():
     """Test get_characteristics with non-tuple characteristics."""
     from arcjet.proto.decide.v1alpha1 import decide_pb2
-    from arcjet.rules import Mode, RuleSpec
+    from arcjet.rules import RuleSpec
 
     # Create a mock RuleSpec subclass with non-tuple characteristics
     class TestRule(RuleSpec):
