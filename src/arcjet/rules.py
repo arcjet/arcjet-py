@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Sequence, Tuple, Union
+from typing import Callable, Iterable, Sequence, Tuple, Union
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -499,6 +499,7 @@ class SensitiveInfoDetection(RuleSpec):
     allow: tuple[SensitiveInfoSpecifier, ...] = ()
     deny: tuple[SensitiveInfoSpecifier, ...] = ()
     context_window_size: int | None = None
+    detect: Callable[[list[str]], Sequence[str | None]] | None = None
     characteristics: tuple[str, ...] = ()
 
     def __post_init__(self):
@@ -534,19 +535,59 @@ class SensitiveInfoDetection(RuleSpec):
 
     def to_proto(self) -> decide_pb2.Rule:
         sir = decide_pb2.SensitiveInfoRule(mode=_mode_to_proto(self.mode))
+        # Use .value for enum members; str() on 3.10 str enums returns
+        # "ClassName.MEMBER" rather than the value.
         sir.allow.extend(
             [
-                str(e.value) if isinstance(e, SensitiveInfoEntityType) else str(e)
+                e.value if isinstance(e, SensitiveInfoEntityType) else e
                 for e in self.allow
             ]
         )
         sir.deny.extend(
             [
-                str(e.value) if isinstance(e, SensitiveInfoEntityType) else str(e)
+                e.value if isinstance(e, SensitiveInfoEntityType) else e
                 for e in self.deny
             ]
         )
         return decide_pb2.Rule(sensitive_info=sir)
+
+
+@dataclass(frozen=True, slots=True)
+class Filter(RuleSpec):
+    """Expression-based request filter rule configuration.
+
+    Prefer the ``filter()`` factory function over constructing this directly.
+    """
+
+    mode: Mode
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.mode, Mode):
+            raise TypeError("Filter.mode must be a Mode enum")
+        for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if not isinstance(seq, tuple):
+                raise TypeError(f"Filter.{name} must be a tuple of strings")
+            for item in seq:
+                if not isinstance(item, str):
+                    raise TypeError(f"Filter.{name} entries must be strings")
+                if item == "":
+                    raise ValueError(f"Filter.{name} entries cannot be empty strings")
+        if self.allow and self.deny:
+            raise ValueError(
+                "Filter: expressions must be passed in either allow or deny, not both"
+            )
+        if not self.allow and not self.deny:
+            raise ValueError(
+                "Filter: one or more expressions must be passed in allow or deny"
+            )
+
+    def to_proto(self) -> decide_pb2.Rule:
+        fr = decide_pb2.FilterRule(mode=_mode_to_proto(self.mode))
+        fr.allow.extend(self.allow)
+        fr.deny.extend(self.deny)
+        return decide_pb2.Rule(filter=fr)
 
 
 class EmailType(str, Enum):
@@ -1042,6 +1083,7 @@ def detect_sensitive_info(
     allow: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     deny: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     context_window_size: int | None = None,
+    detect: Callable[[list[str]], Sequence[str | None]] | None = None,
     characteristics: Sequence[str] = (),
 ) -> SensitiveInfoDetection:
     """Detect sensitive information (PII) in request content.
@@ -1062,6 +1104,11 @@ def detect_sensitive_info(
         allow: Entity types to permit. All other detected types are denied.
         deny: Entity types to deny.
         context_window_size: Optional context window size for detection.
+        detect: Optional custom detection callback. Receives a list of tokens
+            and returns a same-length sequence where each element is either
+            an entity type name (e.g. ``"CUSTOM_PII"``) or ``None`` for no
+            detection. The WASM component calls this during analysis to
+            supplement its built-in detectors.
         characteristics: Optional characteristics for rate limiting.
 
     Returns:
@@ -1083,6 +1130,22 @@ def detect_sensitive_info(
         ]
         # Then pass the content to scan on each protect() call:
         # decision = await aj.protect(request, sensitive_info_content="...")
+
+    Example with a custom detect callback::
+
+        def my_detect(tokens: list[str]) -> list[str | None]:
+            return [
+                "CUSTOM_PII" if "secret" in t.lower() else None
+                for t in tokens
+            ]
+
+        rules = [
+            detect_sensitive_info(
+                mode=Mode.LIVE,
+                deny=["CUSTOM_PII"],
+                detect=my_detect,
+            )
+        ]
     """
     allow_tuple: tuple[SensitiveInfoSpecifier, ...] = tuple(
         e if isinstance(e, SensitiveInfoEntityType) else str(e) for e in allow
@@ -1095,5 +1158,59 @@ def detect_sensitive_info(
         allow=allow_tuple,
         deny=deny_tuple,
         context_window_size=context_window_size,
+        detect=detect,
         characteristics=tuple(str(c) for c in characteristics),
+    )
+
+
+def filter_request(
+    *,
+    mode: Union[str, Mode] = Mode.LIVE,
+    allow: Sequence[str] = (),
+    deny: Sequence[str] = (),
+) -> Filter:
+    """Filter requests using expression-based rules.
+
+    Evaluate Wireshark-like filter expressions against request properties
+    (IP, headers, path, method, etc.) and locally-provided fields. Use
+    ``allow`` to permit requests matching any expression (deny everything
+    else), or ``deny`` to block matching requests (allow everything else).
+
+    Expressions reference request fields with dot notation, e.g.:
+
+    - ``'ip.src == "1.2.3.4"'``
+    - ``'http.host == "example.com"'``
+    - ``'http.request.uri.path contains "/admin"'``
+
+    When this rule is configured, you can optionally pass
+    ``filter_local={...}`` to ``protect()`` to provide additional fields
+    available as ``local.<key>`` in expressions.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        allow: Expressions that allow a request when matched. All other
+            requests are denied. Do not combine with ``deny``.
+        deny: Expressions that deny a request when matched. All other
+            requests are allowed. Do not combine with ``allow``.
+
+    Returns:
+        A ``Filter`` rule to include in the ``rules`` list of ``arcjet()``.
+
+    Example::
+
+        from arcjet import filter_request, Mode
+
+        rules = [
+            filter_request(
+                mode=Mode.LIVE,
+                deny=['ip.src == "1.2.3.4"'],
+            )
+        ]
+    """
+    return Filter(
+        mode=_coerce_mode(mode),
+        allow=tuple(str(e) for e in allow),
+        deny=tuple(str(e) for e in deny),
     )
