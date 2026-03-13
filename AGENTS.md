@@ -69,13 +69,15 @@ directory contains unit tests with mocked dependencies, while
 `tests/fastapi/`, `tests/flask/`, etc. contain integration tests. See
 `tests/TESTING_PATTERNS.md` for detailed testing conventions.
 
-Configuration: `pyproject.toml` has `addopts = ["-q", "--cov=src/arcjet",
-"--cov-report=term-missing"]` for test coverage with an 80% minimum threshold.
+**Coverage**: Both test suites enforce an 80% minimum coverage threshold
+(`fail_under = 80` in `pyproject.toml`). Generated code (protobuf and witgen
+output) is excluded from coverage via `[tool.coverage.run] omit`.
 
-The `arcjet-analyze` package has its own test suite:
+The `arcjet-analyze` package has its own test suite with separate coverage:
 
 ```bash
-uv run pytest arcjet-analyze/tests/ --no-cov
+make test-analyze  # or:
+uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
 ```
 
 ### Benchmarks

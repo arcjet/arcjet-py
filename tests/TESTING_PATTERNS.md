@@ -297,9 +297,18 @@ def test_custom_detect_called(self, wasm_path: str) -> None:
 ### Running arcjet-analyze Tests
 
 ```bash
-# Run with --no-cov since coverage is configured for src/arcjet/ only
-uv run pytest arcjet-analyze/tests/ --no-cov
+# Via Makefile (recommended)
+make test-analyze
+
+# Or directly with coverage
+uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
 ```
+
+Coverage is measured only for hand-maintained code (`_overrides.py`,
+`_import_defaults.py`). The five witgen-generated files (`__init__.py`,
+`_types.py`, `_convert.py`, `_component.py`, `_imports.py`) are excluded via
+`[tool.coverage.run] omit` in `pyproject.toml`. The same 80% minimum threshold
+applies.
 
 ## References
 

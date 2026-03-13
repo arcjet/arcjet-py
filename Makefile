@@ -32,7 +32,7 @@ format:  ## Auto-fix imports and format code
 test:  ## SDK tests (unit + integration, with coverage)
 	uv run pytest
 
-test-analyze:  ## arcjet-analyze WASM binding tests (no coverage)
-	uv run pytest arcjet-analyze/tests/ --no-cov
+test-analyze:  ## arcjet-analyze WASM binding tests (with coverage)
+	uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
 
 test-all: test test-analyze  ## Both test suites

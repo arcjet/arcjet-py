@@ -8,6 +8,7 @@ from arcjet_analyze import (
     SensitiveInfoConfig,
     SensitiveInfoEntitiesAllow,
     SensitiveInfoEntitiesDeny,
+    SensitiveInfoEntity,
     SensitiveInfoEntityCreditCardNumber,
     SensitiveInfoEntityCustom,
     SensitiveInfoEntityEmail,
@@ -190,3 +191,43 @@ class TestDetectSensitiveInfo:
                 identified_type=SensitiveInfoEntityPhoneNumber(),
             )
         ]
+
+    # --- Per-call detect= override tests ---
+
+    def test_per_call_detect_override(self, component: AnalyzeComponent) -> None:
+        """Per-call detect= callback overrides the default for one invocation."""
+        called_tokens: list[list[str]] = []
+
+        def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            called_tokens.append(tokens)
+            return [SensitiveInfoEntityCustom(value="SECRET")] * len(tokens)
+
+        config = _deny_config(SensitiveInfoEntityCustom(value="SECRET"))
+        result = component.detect_sensitive_info(
+            "hello world", config, detect=my_detect
+        )
+        assert isinstance(result, SensitiveInfoResult)
+        assert len(called_tokens) > 0
+
+    def test_per_call_detect_does_not_persist(
+        self, component: AnalyzeComponent
+    ) -> None:
+        """Per-call detect= does not affect subsequent calls."""
+        call_count = 0
+
+        def counting_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            nonlocal call_count
+            call_count += 1
+            return [None] * len(tokens)
+
+        config = _deny_config(SensitiveInfoEntityEmail())
+        # First call with override
+        component.detect_sensitive_info(
+            "test@example.com", config, detect=counting_detect
+        )
+        assert call_count > 0
+
+        # Second call without override — should use default, not the override
+        prev_count = call_count
+        component.detect_sensitive_info("test@example.com", config)
+        assert call_count == prev_count  # override was not called again
