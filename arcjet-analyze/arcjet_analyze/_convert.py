@@ -17,6 +17,8 @@ from ._types import (
     AllowEmailValidationConfig,
     BotConfig,
     BotResult,
+    DeniedBotConfig,
+    DenyEmailValidationConfig,
     DetectedSensitiveInfoEntity,
     EmailValidationConfig,
     EmailValidationResult,
@@ -55,13 +57,15 @@ def to_wasm_bot_config(config: BotConfig) -> Variant:
                 **{"skip-custom-detect": config.skip_custom_detect},
             ),
         )
-    return Variant(
-        "denied-bot-config",
-        _rec(
-            entities=config.entities,
-            **{"skip-custom-detect": config.skip_custom_detect},
-        ),
-    )
+    elif isinstance(config, DeniedBotConfig):
+        return Variant(
+            "denied-bot-config",
+            _rec(
+                entities=config.entities,
+                **{"skip-custom-detect": config.skip_custom_detect},
+            ),
+        )
+    raise TypeError(f"Expected BotConfig, got {type(config).__name__}")
 
 
 def to_wasm_email_validation_config(config: EmailValidationConfig) -> Variant:
@@ -75,14 +79,16 @@ def to_wasm_email_validation_config(config: EmailValidationConfig) -> Variant:
                 allow=config.allow,
             ),
         )
-    return Variant(
-        "deny-email-validation-config",
-        _rec(
-            **{"require-top-level-domain": config.require_top_level_domain},
-            **{"allow-domain-literal": config.allow_domain_literal},
-            deny=config.deny,
-        ),
-    )
+    elif isinstance(config, DenyEmailValidationConfig):
+        return Variant(
+            "deny-email-validation-config",
+            _rec(
+                **{"require-top-level-domain": config.require_top_level_domain},
+                **{"allow-domain-literal": config.allow_domain_literal},
+                deny=config.deny,
+            ),
+        )
+    raise TypeError(f"Expected EmailValidationConfig, got {type(config).__name__}")
 
 
 def to_wasm_sensitive_info_entity(entity: SensitiveInfoEntity) -> Variant:
