@@ -41,6 +41,7 @@ from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._local import (
     evaluate_bot_locally,
     evaluate_email_locally,
+    evaluate_sensitive_info_locally,
 )
 from ._logging import logger
 from .cache import DecisionCache, make_cache_key
@@ -55,6 +56,7 @@ from .rules import (
     EmailValidation,
     PromptInjectionDetection,
     RuleSpec,
+    SensitiveInfoDetection,
     TokenBucket,
 )
 
@@ -206,6 +208,8 @@ def _run_local_rules(
             result = evaluate_bot_locally(ctx, rule)
         elif isinstance(rule, EmailValidation):
             result = evaluate_email_locally(ctx, rule)
+        elif isinstance(rule, SensitiveInfoDetection):
+            result = evaluate_sensitive_info_locally(ctx, rule)
 
         if result is None:
             continue
@@ -341,6 +345,7 @@ class Arcjet:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        sensitive_info_content: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -414,6 +419,8 @@ class Arcjet:
 
         if email:
             ctx = replace(ctx, email=email)
+        if sensitive_info_content:
+            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
@@ -457,8 +464,21 @@ class Arcjet:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        if merged_extra:
-            ctx = replace(ctx, extra=merged_extra)
+        ctx = RequestContext(
+            ip=ctx.ip,
+            method=ctx.method,
+            protocol=ctx.protocol,
+            host=ctx.host,
+            path=ctx.path,
+            headers=ctx.headers,
+            cookies=ctx.cookies,
+            query=ctx.query,
+            body=ctx.body,
+            email=ctx.email,
+            sensitive_info_content=ctx.sensitive_info_content,
+            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
+            extra=merged_extra or None,
+        )
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
@@ -856,6 +876,7 @@ class ArcjetSync:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
+        sensitive_info_content: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -889,6 +910,8 @@ class ArcjetSync:
 
         if email:
             ctx = replace(ctx, email=email)
+        if sensitive_info_content:
+            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
@@ -927,8 +950,21 @@ class ArcjetSync:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        if merged_extra:
-            ctx = replace(ctx, extra=merged_extra)
+        ctx = RequestContext(
+            ip=ctx.ip,
+            method=ctx.method,
+            protocol=ctx.protocol,
+            host=ctx.host,
+            path=ctx.path,
+            headers=ctx.headers,
+            cookies=ctx.cookies,
+            query=ctx.query,
+            body=ctx.body,
+            email=ctx.email,
+            sensitive_info_content=ctx.sensitive_info_content,
+            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
+            extra=merged_extra or None,
+        )
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
