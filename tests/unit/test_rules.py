@@ -158,11 +158,11 @@ def test_apply_global_characteristics_to_rate_limit_rules():
     result = _apply_global_characteristics(rules, ("userId",))
 
     # Rate-limit rules get global characteristics
-    assert result[0].characteristics == ("userId",)
-    assert result[1].characteristics == ("userId",)
-    assert result[2].characteristics == ("userId",)
+    assert result[0].get_characteristics() == ("userId",)
+    assert result[1].get_characteristics() == ("userId",)
+    assert result[2].get_characteristics() == ("userId",)
     # Shield is not a rate-limit rule, unchanged
-    assert result[3].characteristics == ()
+    assert result[3].get_characteristics() == ()
 
 
 def test_apply_global_characteristics_does_not_override_per_rule():
@@ -176,7 +176,7 @@ def test_apply_global_characteristics_does_not_override_per_rule():
     result = _apply_global_characteristics((tb,), ("userId",))
 
     # Should keep the per-rule characteristics
-    assert result[0].characteristics == ("ip.src",)
+    assert result[0].get_characteristics() == ("ip.src",)
 
 
 def test_apply_global_characteristics_noop_when_empty():
@@ -187,7 +187,7 @@ def test_apply_global_characteristics_noop_when_empty():
     tb = token_bucket(refill_rate=1, interval=1, capacity=1)
     result = _apply_global_characteristics((tb,), ())
 
-    assert result[0].characteristics == ()
+    assert result[0].get_characteristics() == ()
 
 
 def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
