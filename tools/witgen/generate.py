@@ -46,7 +46,13 @@ def _is_named_record_ref(ty: WitType) -> bool:
 def _variant_has_overlapping_record_cases(
     variant: WitVariant, type_map: dict[str, WitTypeDef]
 ) -> bool:
-    """Check if all variant cases reference distinct named records."""
+    """Check if all variant cases reference distinct named records.
+
+    Returns False if any case lacks a payload, isn't a ref to a record,
+    or if two cases reference the same record type (which would make the
+    Union representation ambiguous for to_wasm_* dispatch).
+    """
+    seen_names: set[str] = set()
     for case in variant.cases:
         if case.payload is None:
             return False
@@ -55,6 +61,9 @@ def _variant_has_overlapping_record_cases(
         referred = type_map.get(case.payload.name)
         if not isinstance(referred, WitRecord):
             return False
+        if case.payload.name in seen_names:
+            return False
+        seen_names.add(case.payload.name)
     return True
 
 
@@ -1225,9 +1234,34 @@ def generate_imports(world: WitWorld, config: Config) -> str:
                 param_names = [kebab_to_snake(p.name) for p in func.params]
                 store_params = ", ".join(["_store: Store"] + typed_params)
                 call_args = ", ".join(param_names)
+
+                # Detect list→list pattern for length validation:
+                # if return type is list and there's exactly one list param,
+                # validate that the callback returns the expected number of
+                # elements (a mismatch would cause a WASM trap).
+                length_check_param: str | None = None
+                resolved_result = _resolve_type(func.result, type_map)
+                if isinstance(resolved_result, WitList):
+                    list_params = [
+                        p
+                        for p in func.params
+                        if isinstance(_resolve_type(p.type, type_map), WitList)
+                    ]
+                    if len(list_params) == 1:
+                        length_check_param = kebab_to_snake(list_params[0].name)
+
                 lines.append("")
                 lines.append(f"            def {wrapper_name}({store_params}):")
                 lines.append(f"                results = {local_name}({call_args})")
+                if length_check_param is not None:
+                    lines.append(
+                        f"                if len(results) != len({length_check_param}):"
+                    )
+                    lines.append(
+                        f"                    raise ValueError("
+                        f'"callback returned %d results, expected %d"'
+                        f" % (len(results), len({length_check_param})))"
+                    )
                 lines.append(f"                return {conversion_expr}")
                 lines.append("")
                 lines.append(

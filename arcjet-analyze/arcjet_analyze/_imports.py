@@ -103,6 +103,11 @@ def wire_imports(
 
             def _wrap_sensitive_info_detect(_store: Store, tokens: list[str]):
                 results = sensitive_info_detect_fn(tokens)
+                if len(results) != len(tokens):
+                    raise ValueError(
+                        "callback returned %d results, expected %d"
+                        % (len(results), len(tokens))
+                    )
                 return [
                     None if _r is None else to_wasm_sensitive_info_entity(_r)
                     for _r in results
