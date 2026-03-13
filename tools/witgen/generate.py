@@ -545,9 +545,6 @@ def _gen_from_wasm_variant(
             lines.append(f"        return {cls}()")
         else:
             assert case.payload is not None
-            field_name = _variant_payload_field_name(
-                variant.name, case.name, case.payload, type_map
-            )
             resolved_payload = _resolve_type(case.payload, type_map)
             if (
                 isinstance(resolved_payload, WitPrimitive)
@@ -752,8 +749,6 @@ def _gen_record_from_raw(
         else:
             accessor = f"raw.{kebab_name}"
 
-        # Check if field type needs conversion (e.g., list<detected-sensitive-info-entity>)
-        resolved = _resolve_type(field.type, type_map)
         value_expr = _gen_field_from_wasm(accessor, field.type, type_map)
         lines.append(f"{pad}    {py_name}={value_expr},")
     lines.append(f"{pad})")
@@ -766,7 +761,6 @@ def _gen_field_from_wasm(
     type_map: dict[str, WitTypeDef],
 ) -> str:
     """Generate expression to convert a field value from wasmtime."""
-    resolved = _resolve_type(ty, type_map)
     if isinstance(ty, WitRef):
         defn = type_map.get(ty.name)
         if isinstance(defn, WitRecord):
@@ -777,7 +771,6 @@ def _gen_field_from_wasm(
             converter = f"from_wasm_{kebab_to_snake(ty.name)}"
             return f"{converter}({accessor})"
     elif isinstance(ty, WitList):
-        inner_resolved = _resolve_type(ty.element, type_map)
         if isinstance(ty.element, WitRef):
             defn = type_map.get(ty.element.name)
             if isinstance(defn, WitRecord) and _record_needs_from_wasm(defn, type_map):
@@ -791,7 +784,6 @@ def _record_needs_from_wasm(record: WitRecord, type_map: dict[str, WitTypeDef]) 
     for field in record.fields:
         if "-" in field.name:
             return True
-        resolved = _resolve_type(field.type, type_map)
         if isinstance(field.type, WitRef):
             defn = type_map.get(field.type.name)
             if isinstance(defn, WitVariant):
@@ -957,7 +949,6 @@ def _gen_export_method(export: WitFunc, type_map: dict[str, WitTypeDef]) -> list
     call_args: list[str] = []
     for p in export.params:
         py_name = kebab_to_snake(p.name)
-        resolved = _resolve_type(p.type, type_map)
         if isinstance(p.type, WitRef):
             defn = type_map.get(p.type.name)
             if isinstance(defn, WitVariant):
