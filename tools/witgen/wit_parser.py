@@ -33,12 +33,19 @@ from .ir import (
 
 def extract_wit(wasm_path: str | Path) -> str:
     """Run wasm-tools to extract WIT from a WASM component binary."""
-    result = subprocess.run(
-        ["wasm-tools", "component", "wit", str(wasm_path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["wasm-tools", "component", "wit", str(wasm_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            "wasm-tools not found on PATH. Install it with: "
+            "cargo install wasm-tools "
+            "(or use the devcontainer which includes it)"
+        ) from None
     return result.stdout
 
 

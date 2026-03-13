@@ -972,9 +972,12 @@ def _gen_export_method(export: WitFunc, type_map: dict[str, WitTypeDef]) -> list
     args_str = ", ".join(call_args)
 
     # Generate call + conversion
-    converter_name = f"from_wasm_{method_name}"
-    lines.append(f'        raw = self._call("{export.name}", {args_str})')
-    lines.append(f"        return {converter_name}(raw)")
+    if export.result is not None:
+        converter_name = f"from_wasm_{method_name}"
+        lines.append(f'        raw = self._call("{export.name}", {args_str})')
+        lines.append(f"        return {converter_name}(raw)")
+    else:
+        lines.append(f'        self._call("{export.name}", {args_str})')
 
     return lines
 
