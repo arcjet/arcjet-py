@@ -1281,6 +1281,7 @@ def arcjet(
     *,
     key: str,
     rules: Sequence[RuleSpec],
+    characteristics: Sequence[str] = (),
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
     stack: str | None = None,
@@ -1297,6 +1298,9 @@ def arcjet(
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
+        characteristics: Global fingerprint characteristics applied to all
+            rate-limit rules that don't define their own. Defaults to empty
+            (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
@@ -1371,6 +1375,7 @@ def arcjet(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClient(
@@ -1378,7 +1383,7 @@ def arcjet(
     )
     return Arcjet(
         _key=key,
-        _rules=tuple(rules),
+        _rules=resolved_rules,
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
@@ -1396,6 +1401,7 @@ def arcjet_sync(
     *,
     key: str,
     rules: Sequence[RuleSpec],
+    characteristics: Sequence[str] = (),
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
     stack: str | None = None,
@@ -1415,6 +1421,9 @@ def arcjet_sync(
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
+        characteristics: Global fingerprint characteristics applied to all
+            rate-limit rules that don't define their own. Defaults to empty
+            (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
@@ -1489,6 +1498,7 @@ def arcjet_sync(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClientSync(
@@ -1497,7 +1507,7 @@ def arcjet_sync(
 
     return ArcjetSync(
         _key=key,
-        _rules=tuple(rules),
+        _rules=resolved_rules,
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
