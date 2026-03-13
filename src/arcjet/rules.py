@@ -1123,5 +1123,3 @@ def detect_sensitive_info(
         detect=detect,
         characteristics=tuple(str(c) for c in characteristics),
     )
-
-
