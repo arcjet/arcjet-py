@@ -88,6 +88,8 @@ class _Parser:
         return None
 
     def advance(self) -> str:
+        if self.pos >= len(self.tokens):
+            raise SyntaxError(f"Unexpected end of input at position {self.pos}")
         tok = self.tokens[self.pos]
         self.pos += 1
         return tok

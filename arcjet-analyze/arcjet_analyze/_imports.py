@@ -60,8 +60,7 @@ def wire_imports(
 
     Returns a single-element mutable list holding the active
     ``sensitive_info_detect`` callback.  The caller can swap ``ref[0]`` to
-    override the callback for subsequent calls (thread safety is the caller's
-    responsibility).
+    override the callback for subsequent calls.
     """
     cb = callbacks or ImportCallbacks()
 
@@ -83,7 +82,6 @@ def wire_imports(
     is_disposable_email_fn = cb.is_disposable_email or _default_is_disposable_email
     has_mx_records_fn = cb.has_mx_records or _default_has_mx_records
     has_gravatar_fn = cb.has_gravatar or _default_has_gravatar
-    # Mutable container so detect callback can be swapped per-call
     si_detect_ref: list[
         Callable[[list[str]], list[SensitiveInfoEntity | None]] | None
     ] = [cb.sensitive_info_detect or _default_sensitive_info_detect]
@@ -110,6 +108,11 @@ def wire_imports(
                 if fn is None:
                     return [None] * len(tokens)
                 results = fn(tokens)
+                if len(results) != len(tokens):
+                    raise ValueError(
+                        f"sensitive_info_detect callback returned {len(results)} results "
+                        f"for {len(tokens)} tokens"
+                    )
                 out: list[Variant | None] = []
                 for r in results:
                     if r is None:
