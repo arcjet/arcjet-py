@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = { text = "Apache-2.0" }
 dependencies = [
-  "arcjet-analyze",  # local: path dependency via [tool.uv.sources]
+  "arcjet-analyze>=0.1.0,<0.2.0",  # local: path dependency via [tool.uv.sources]
   "connect-python>=0.8.1",
   "pyqwest>=0.3.3",
   # Explanation of upper bound:
