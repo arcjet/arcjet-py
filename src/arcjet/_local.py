@@ -22,6 +22,7 @@ from arcjet_analyze import (
     DenyEmailValidationConfig,
     DetectedSensitiveInfoEntity,
     Err,
+    FilterResult,
     Ok,
     SensitiveInfoConfig,
     SensitiveInfoEntitiesAllow,
@@ -42,6 +43,7 @@ from .context import RequestContext
 from .rules import (
     BotDetection,
     EmailValidation,
+    Filter,
     SensitiveInfoDetection,
     SensitiveInfoEntityType,
 )
@@ -437,6 +439,78 @@ def evaluate_sensitive_info_locally(
     # Intentional: server uses empty rule_id too (arcjet-decide #4740).
     # The report handler passes rules/results independently without joining
     # on rule_id, so an empty string is safe here.
+    return decide_pb2.RuleResult(
+        rule_id="",
+        state=state,
+        conclusion=conclusion,
+        reason=reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Filter evaluation
+# ---------------------------------------------------------------------------
+
+
+def evaluate_filter_locally(
+    ctx: RequestContext,
+    rule: Filter,
+) -> decide_pb2.RuleResult | None:
+    """Evaluate a Filter rule locally via WASM.
+
+    Returns a proto RuleResult, or None if WASM is unavailable.
+    """
+    component = _get_component()
+    if component is None:
+        return None
+
+    request_json = _context_to_analyze_request(ctx)
+
+    # Serialize filter_local fields to JSON for the WASM component.
+    # Per ADR 2026-01-28, serialization failures must be handled gracefully
+    # (not propagated as unhandled exceptions).
+    local_fields = "{}"
+    if ctx.filter_local:
+        try:
+            local_fields = json.dumps(ctx.filter_local)
+        except (TypeError, ValueError) as exc:
+            logger.debug("filter_local serialization error: %s", exc)
+            return None
+
+    expressions = list(rule.allow or rule.deny)
+    allow_if_match = len(rule.allow) > 0
+
+    try:
+        result = component.match_filters(
+            request_json, local_fields, expressions, allow_if_match
+        )
+    except Exception as exc:
+        logger.debug("local filter evaluation error: %s", exc)
+        return None
+
+    if isinstance(result, Err):
+        logger.debug("local filter evaluation returned error: %s", result.value)
+        return None
+
+    if not isinstance(result, Ok):
+        logger.debug(
+            "local filter evaluation returned unexpected type: %s", type(result)
+        )
+        return None
+    fr: FilterResult = result.value
+
+    conclusion = (
+        decide_pb2.CONCLUSION_ALLOW if fr.allowed else decide_pb2.CONCLUSION_DENY
+    )
+    state = _rule_state(rule.mode)
+
+    reason = decide_pb2.Reason(
+        filter=decide_pb2.FilterReason(
+            matched_expressions=list(fr.matched_expressions),
+            undetermined_expressions=list(fr.undetermined_expressions),
+        )
+    )
+
     return decide_pb2.RuleResult(
         rule_id="",
         state=state,
