@@ -16,11 +16,14 @@ Flask/Werkzeug `Request`, Django `HttpRequest`) or a pre-built
 from __future__ import annotations
 
 import asyncio
+import atexit
 import inspect
 import logging
 import os
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
@@ -35,6 +38,10 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 )
 
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
+from ._local import (
+    evaluate_bot_locally,
+    evaluate_email_locally,
+)
 from ._logging import logger
 from .cache import DecisionCache, make_cache_key
 from .context import (
@@ -43,7 +50,31 @@ from .context import (
     request_details_from_context,
 )
 from .decision import Decision
-from .rules import EmailValidation, PromptInjectionDetection, RuleSpec, TokenBucket
+from .rules import (
+    BotDetection,
+    EmailValidation,
+    PromptInjectionDetection,
+    RuleSpec,
+    TokenBucket,
+)
+
+# Lazy thread pool for fire-and-forget report requests (sync client).
+# Initialized on first use so async-only callers don't pay for thread creation.
+_report_pool: ThreadPoolExecutor | None = None
+_report_pool_lock = threading.Lock()
+
+
+def _get_report_pool() -> ThreadPoolExecutor:
+    global _report_pool
+    if _report_pool is not None:
+        return _report_pool
+    with _report_pool_lock:
+        if _report_pool is None:
+            _report_pool = ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="arcjet-report"
+            )
+            atexit.register(_report_pool.shutdown, wait=True, cancel_futures=False)
+        return _report_pool
 
 
 def _new_local_request_id() -> str:
@@ -144,6 +175,70 @@ def _sdk_version(default: str = "0.0.0") -> str:
     except PackageNotFoundError:
         # Happens when running from source without installed metadata.
         return default
+
+
+def _run_local_rules(
+    ctx: RequestContext,
+    rules: tuple[RuleSpec, ...],
+) -> Decision | None:
+    """Run local WASM evaluation for rules that support it.
+
+    Returns a DENY Decision if any rule denies in LIVE mode (short-circuit),
+    or None if all locally-evaluated rules allow (proceed to remote API).
+    """
+    local_results: list[decide_pb2.RuleResult] = []
+
+    for rule in rules:
+        result: decide_pb2.RuleResult | None = None
+        if isinstance(rule, BotDetection):
+            result = evaluate_bot_locally(ctx, rule)
+        elif isinstance(rule, EmailValidation):
+            result = evaluate_email_locally(ctx, rule)
+
+        if result is None:
+            continue
+
+        local_results.append(result)
+
+        # Short-circuit: if a local rule denies in RUN mode, return immediately
+        if (
+            result.conclusion == decide_pb2.CONCLUSION_DENY
+            and result.state == decide_pb2.RULE_STATE_RUN
+        ):
+            decision = decide_pb2.Decision(
+                id=_new_local_request_id(),
+                conclusion=decide_pb2.CONCLUSION_DENY,
+                reason=result.reason,
+                rule_results=local_results,
+            )
+            return Decision(decision)
+
+    return None
+
+
+def _build_local_deny_report(
+    sdk_stack_val: str | None,
+    sdk_version: str,
+    ctx: RequestContext,
+    local_decision: Decision,
+    rules: tuple[RuleSpec, ...],
+) -> decide_pb2.ReportRequest:
+    """Build a ReportRequest for a local DENY decision.
+
+    This mirrors the cache-hit report pattern: the server receives the
+    decision so it appears in the Arcjet dashboard even though no remote
+    Decide call was made.
+    """
+    dec = local_decision.to_proto()
+    rep = decide_pb2.ReportRequest(
+        sdk_stack=_sdk_stack(sdk_stack_val),
+        sdk_version=sdk_version,
+        details=request_details_from_context(ctx),
+        decision=dec,
+    )
+    rep.rules.extend([r.to_proto() for r in rules])
+    return rep
+
 
 
 @dataclass(slots=True)
@@ -347,20 +442,8 @@ class Arcjet:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
-        )
+        if merged_extra:
+            ctx = replace(ctx, extra=merged_extra)
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
@@ -436,6 +519,53 @@ class Arcjet:
                     },
                 )
             return cached
+
+        # Local WASM evaluation: run bot/email rules locally before remote API
+        local_decision = _run_local_rules(ctx, self._rules)
+        if local_decision is not None:
+            # Fire-and-forget report so local denies appear in the dashboard
+            try:
+                rep = _build_local_deny_report(
+                    self._sdk_stack,
+                    self._sdk_version,
+                    ctx,
+                    local_decision,
+                    self._rules,
+                )
+
+                async def _send_local_report():
+                    try:
+                        await self._client.report(
+                            rep,
+                            headers=_auth_headers(self._key),
+                            timeout_ms=self._timeout_ms,
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "report error on local decision: error=%s",
+                            str(e),
+                            extra={
+                                "event": "arcjet_report_error",
+                                "error": str(e),
+                            },
+                        )
+
+                asyncio.create_task(_send_local_report())
+            except Exception as e:
+                logger.debug(
+                    "local decision report scheduling error: error=%s",
+                    str(e),
+                    extra={
+                        "event": "arcjet_report_schedule_error",
+                        "error": str(e),
+                    },
+                )
+            logger.debug(
+                "local decision: id=%s conclusion=%s",
+                local_decision.id,
+                decide_pb2.Conclusion.Name(local_decision.conclusion),
+            )
+            return local_decision
 
         req = decide_pb2.DecideRequest(
             sdk_stack=_sdk_stack(self._sdk_stack),
@@ -782,20 +912,8 @@ class ArcjetSync:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
-        )
+        if merged_extra:
+            ctx = replace(ctx, extra=merged_extra)
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
@@ -830,9 +948,7 @@ class ArcjetSync:
                             },
                         )
 
-                import threading
-
-                threading.Thread(target=_send_report_sync, daemon=True).start()
+                _get_report_pool().submit(_send_report_sync)
 
                 if logger.isEnabledFor(logging.DEBUG):
                     t_prepare_end = time.perf_counter()
@@ -871,6 +987,53 @@ class ArcjetSync:
                     },
                 )
             return cached
+
+        # Local WASM evaluation: run bot/email rules locally before remote API
+        local_decision = _run_local_rules(ctx, self._rules)
+        if local_decision is not None:
+            # Fire-and-forget report so local denies appear in the dashboard
+            try:
+                rep = _build_local_deny_report(
+                    self._sdk_stack,
+                    self._sdk_version,
+                    ctx,
+                    local_decision,
+                    self._rules,
+                )
+
+                def _send_local_report_sync():
+                    try:
+                        self._client.report(
+                            rep,
+                            headers=_auth_headers(self._key),
+                            timeout_ms=self._timeout_ms,
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "report error on local decision (sync): error=%s",
+                            str(e),
+                            extra={
+                                "event": "arcjet_report_error",
+                                "error": str(e),
+                            },
+                        )
+
+                _get_report_pool().submit(_send_local_report_sync)
+            except Exception as e:
+                logger.debug(
+                    "local decision report scheduling error (sync): error=%s",
+                    str(e),
+                    extra={
+                        "event": "arcjet_report_schedule_error",
+                        "error": str(e),
+                    },
+                )
+            logger.debug(
+                "local decision: id=%s conclusion=%s",
+                local_decision.id,
+                decide_pb2.Conclusion.Name(local_decision.conclusion),
+            )
+            return local_decision
 
         req = decide_pb2.DecideRequest(
             sdk_stack=_sdk_stack(self._sdk_stack),
