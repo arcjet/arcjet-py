@@ -14,7 +14,6 @@ from arcjet_analyze import (
     SensitiveInfoConfig,
     SensitiveInfoEntitiesAllow,
     SensitiveInfoEntitiesDeny,
-    SensitiveInfoEntityCustom,
     SensitiveInfoEntityEmail,
     SensitiveInfoEntityPhoneNumber,
 )

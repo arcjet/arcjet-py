@@ -1378,9 +1378,7 @@ def arcjet(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
-    resolved_rules = _apply_global_characteristics(
-        tuple(rules), tuple(characteristics)
-    )
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClient(
@@ -1500,9 +1498,7 @@ def arcjet_sync(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
-    resolved_rules = _apply_global_characteristics(
-        tuple(rules), tuple(characteristics)
-    )
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClientSync(

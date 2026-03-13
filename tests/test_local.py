@@ -15,15 +15,8 @@ from arcjet_analyze import (
     Ok,
 )
 
+import arcjet._local as _local
 from arcjet._enums import Mode
-from arcjet._local import (
-    _FAILED,
-    _MISSING,
-    _context_to_analyze_request,
-    _get_component,
-    evaluate_bot_locally,
-    evaluate_email_locally,
-)
 from arcjet.client import _build_local_deny_report, _run_local_rules
 from arcjet.context import RequestContext
 from arcjet.decision import Decision
@@ -40,7 +33,7 @@ class TestContextToAnalyzeRequest:
         import json
 
         ctx = RequestContext()
-        result = json.loads(_context_to_analyze_request(ctx))
+        result = json.loads(_local._context_to_analyze_request(ctx))
         assert result == {}
 
     def test_full_context(self):
@@ -55,7 +48,7 @@ class TestContextToAnalyzeRequest:
             cookies="session=abc",
             query="q=hello",
         )
-        result = json.loads(_context_to_analyze_request(ctx))
+        result = json.loads(_local._context_to_analyze_request(ctx))
         assert result["ip"] == "1.2.3.4"
         assert result["method"] == "GET"
         assert result["host"] == "example.com"
@@ -68,7 +61,7 @@ class TestContextToAnalyzeRequest:
         import json
 
         ctx = RequestContext(headers={"X-Custom-Header": "value"})
-        result = json.loads(_context_to_analyze_request(ctx))
+        result = json.loads(_local._context_to_analyze_request(ctx))
         assert "x-custom-header" in result["headers"]
 
 
@@ -79,75 +72,71 @@ class TestContextToAnalyzeRequest:
 
 class TestGetComponent:
     def test_returns_none_when_wasm_not_loadable(self):
-        import arcjet._local as mod
 
         # Reset the singleton to force re-initialization
-        old = mod._component_state
-        mod._component_state = mod._MISSING
+        old = _local._component_state
+        _local._component_state = _local._MISSING
         try:
             with patch(
                 "arcjet._local.AnalyzeComponent",
                 side_effect=RuntimeError("no wasm"),
             ):
-                component = _get_component()
+                component = _local._get_component()
             assert component is None
         finally:
-            mod._component_state = old
+            _local._component_state = old
 
     def test_caches_result(self):
-        import arcjet._local as mod
 
-        old = mod._component_state
-        mod._component_state = mod._MISSING
+        old = _local._component_state
+        _local._component_state = _local._MISSING
         try:
             with patch(
                 "arcjet._local.AnalyzeComponent",
                 side_effect=FileNotFoundError("no wasm"),
             ):
-                c1 = _get_component()
-                c2 = _get_component()
+                c1 = _local._get_component()
+                c2 = _local._get_component()
             assert c1 is None
             assert c2 is None
         finally:
-            mod._component_state = old
+            _local._component_state = old
 
     def test_retries_on_transient_error(self):
         """Transient errors (e.g. RuntimeError) should allow retry on next call."""
-        import arcjet._local as mod
 
-        old = mod._component_state
-        mod._component_state = mod._MISSING
+        old = _local._component_state
+        _local._component_state = _local._MISSING
         try:
             mock_component = MagicMock()
             with patch(
                 "arcjet._local.AnalyzeComponent",
                 side_effect=[RuntimeError("transient"), mock_component],
             ):
-                c1 = _get_component()
+                c1 = _local._get_component()
                 assert c1 is None  # first call fails
-                c2 = _get_component()
+                c2 = _local._get_component()
                 assert c2 is mock_component  # second call succeeds
         finally:
-            mod._component_state = old
+            _local._component_state = old
 
     def test_permanent_error_latches(self):
         """Permanent errors (FileNotFoundError) should latch — no retry."""
-        import arcjet._local as mod
 
-        old = mod._component_state
-        mod._component_state = mod._MISSING
+        old = _local._component_state
+        _local._component_state = _local._MISSING
         try:
             mock_component = MagicMock()
             with patch(
                 "arcjet._local.AnalyzeComponent",
                 side_effect=[FileNotFoundError("no file"), mock_component],
             ):
-                c1 = _get_component()
+                c1 = _local._get_component()
                 assert c1 is None
-                c2 = _get_component()
+                c2 = _local._get_component()
                 assert c2 is None  # still None — latched on permanent error
         finally:
-            mod._component_state = old
+            _local._component_state = old
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +151,7 @@ class TestEvaluateBotLocally:
             mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
         )
         with patch("arcjet._local._get_component", return_value=None):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
         assert result is None
 
     def test_returns_allow_result(self):
@@ -180,7 +169,7 @@ class TestEvaluateBotLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_ALLOW
@@ -201,7 +190,7 @@ class TestEvaluateBotLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_DENY
@@ -220,7 +209,7 @@ class TestEvaluateBotLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_DENY
@@ -236,7 +225,7 @@ class TestEvaluateBotLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
 
         assert result is None
 
@@ -250,7 +239,7 @@ class TestEvaluateBotLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_bot_locally(ctx, rule)
+            result = _local.evaluate_bot_locally(ctx, rule)
 
         assert result is None
 
@@ -272,7 +261,7 @@ class TestEvaluateEmailLocally:
             characteristics=(),
         )
         with patch("arcjet._local._get_component", return_value=None):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
         assert result is None
 
     def test_returns_none_when_no_email(self):
@@ -286,7 +275,7 @@ class TestEvaluateEmailLocally:
             characteristics=(),
         )
         with patch("arcjet._local._get_component", return_value=MagicMock()):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
         assert result is None
 
     def test_returns_allow_for_valid_email(self):
@@ -305,7 +294,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_ALLOW
@@ -326,7 +315,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_DENY
@@ -347,7 +336,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_DENY
@@ -371,7 +360,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_DENY
@@ -396,7 +385,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is None
 
@@ -417,7 +406,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            result = evaluate_email_locally(ctx, rule)
+            result = _local.evaluate_email_locally(ctx, rule)
 
         assert result is not None
         assert result.conclusion == decide_pb2.CONCLUSION_ALLOW
@@ -445,7 +434,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            evaluate_email_locally(ctx, rule)
+            _local.evaluate_email_locally(ctx, rule)
 
         call_args = mock_component.is_valid_email.call_args
         config = call_args[0][1]
@@ -470,7 +459,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            evaluate_bot_locally(ctx, rule)
+            _local.evaluate_bot_locally(ctx, rule)
 
         call_args = mock_component.detect_bot.call_args
         config = call_args[0][1]
@@ -494,7 +483,7 @@ class TestEvaluateEmailLocally:
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
-            evaluate_bot_locally(ctx, rule)
+            _local.evaluate_bot_locally(ctx, rule)
 
         call_args = mock_component.detect_bot.call_args
         config = call_args[0][1]

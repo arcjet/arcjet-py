@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .ir import (
     WitEnum,
-    WitField,
     WitFunc,
     WitInterface,
     WitList,
@@ -16,7 +15,6 @@ from .ir import (
     WitType,
     WitTypeAlias,
     WitTypeDef,
-    WitUse,
     WitVariant,
     WitVariantCase,
     WitWorld,

@@ -17,8 +17,6 @@ from ._types import (
     AllowEmailValidationConfig,
     BotConfig,
     BotResult,
-    DeniedBotConfig,
-    DenyEmailValidationConfig,
     DetectedSensitiveInfoEntity,
     EmailValidationConfig,
     EmailValidationResult,

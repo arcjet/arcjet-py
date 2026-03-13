@@ -24,12 +24,8 @@ from ._convert import (
 )
 from ._imports import ImportCallbacks, wire_imports
 from ._types import (
-    AllowedBotConfig,
-    AllowEmailValidationConfig,
     BotConfig,
     BotResult,
-    DeniedBotConfig,
-    DenyEmailValidationConfig,
     EmailValidationConfig,
     EmailValidationResult,
     FilterResult,
@@ -151,7 +147,5 @@ class AnalyzeComponent:
                 finally:
                     self._si_detect_ref[0] = prev
         else:
-            raw = self._call(
-                "detect-sensitive-info", content, wasm_opts
-            )
+            raw = self._call("detect-sensitive-info", content, wasm_opts)
         return from_wasm_detect_sensitive_info(raw)

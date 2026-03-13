@@ -24,7 +24,6 @@ from .ir import (
     WitResult,
     WitType,
     WitTypeAlias,
-    WitTypeDef,
     WitUse,
     WitVariant,
     WitVariantCase,

@@ -422,9 +422,7 @@ def test_converting_sensitive_info_reason_with_entities() -> None:
     proto_reason = decide_pb2.Reason(
         sensitive_info=decide_pb2.SensitiveInfoReason(
             allowed=[
-                decide_pb2.IdentifiedEntity(
-                    identified_type="EMAIL", start=0, end=16
-                ),
+                decide_pb2.IdentifiedEntity(identified_type="EMAIL", start=0, end=16),
             ],
             denied=[
                 decide_pb2.IdentifiedEntity(
