@@ -38,7 +38,9 @@ class AnalyzeComponent(AnalyzeComponentBase):
             Callable[[list[str]], list[SensitiveInfoEntity | None]] | None
         ] = [cb.sensitive_info_detect or _default_sensitive_info_detect]
 
-        # Re-wire si-detect to read from mutable ref (linker.allow_shadowing = True)
+        # Re-wire si-detect to read from mutable ref (linker.allow_shadowing = True).
+        # Only mutate index 0; never reassign the list itself — the closure
+        # below captures this reference and would not see a new list object.
         si_detect_ref = self._si_detect_ref
 
         with self._linker.root() as root:

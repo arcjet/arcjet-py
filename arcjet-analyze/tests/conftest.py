@@ -28,14 +28,14 @@ BOT_REQUEST = json.dumps(
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def wasm_path() -> str:
     """Path to the full composite WASM component."""
     assert os.path.exists(WASM_PATH), f"WASM not found: {WASM_PATH}"
     return WASM_PATH
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def component(wasm_path: str) -> AnalyzeComponent:
     """Default AnalyzeComponent with no custom callbacks."""
     return AnalyzeComponent(wasm_path)
