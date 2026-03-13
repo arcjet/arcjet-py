@@ -3,8 +3,8 @@
 Re-generate with: uv run python -m tools.witgen
 """
 
-from ._component import AnalyzeComponent
 from ._imports import ImportCallbacks
+from ._overrides import AnalyzeComponent
 from ._types import (
     AllowedBotConfig,
     AllowEmailValidationConfig,

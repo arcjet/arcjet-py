@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .config import Config
 from .ir import (
     WitEnum,
     WitFunc,
@@ -831,13 +832,14 @@ def _gen_from_wasm_direct_record(
 # ---------------------------------------------------------------------------
 
 
-def generate_component(world: WitWorld) -> str:
+def generate_component(world: WitWorld, config: Config) -> str:
     """Generate _component.py content."""
     type_map = _build_type_map(world)
+    class_name = config.component_class
     lines: list[str] = [GENERATED_HEADER]
     lines.append("from __future__ import annotations\n")
     lines.append("import threading\n")
-    lines.append("from typing import Any, Callable\n")
+    lines.append("from typing import Any\n")
     lines.append("from wasmtime import Engine, Store")
     lines.append("from wasmtime import component as cm\n")
 
@@ -859,7 +861,7 @@ def generate_component(world: WitWorld) -> str:
 
     # Class definition
     lines.append("")
-    lines.append("class AnalyzeComponent:")
+    lines.append(f"class {class_name}:")
     lines.append(
         '    """Reusable wrapper around the full arcjet-analyze WASM component."""\n'
     )
@@ -877,9 +879,7 @@ def generate_component(world: WitWorld) -> str:
     lines.append("        self._linker = cm.Linker(self._engine)")
     lines.append("        self._linker.allow_shadowing = True")
     lines.append("")
-    lines.append(
-        "        self._si_detect_ref = wire_imports(self._linker, self._component, callbacks)"
-    )
+    lines.append("        wire_imports(self._linker, self._component, callbacks)")
     lines.append("")
     lines.append(
         "        # Lock for thread safety: wasmtime-py wrappers have unprotected"
@@ -963,57 +963,6 @@ def _gen_export_method(export: WitFunc, type_map: dict[str, WitTypeDef]) -> list
 
     args_str = ", ".join(call_args)
 
-    # Special case: detect-sensitive-info supports per-call callback override
-    if export.name == "detect-sensitive-info":
-        params.append(
-            "detect: Callable[[list[str]], list[SensitiveInfoEntity | None]] | None = None"
-        )
-        # Rebuild signature with the extra parameter
-        param_str = ",\n        ".join(params)
-        lines = []
-        lines.append(f"    def {method_name}(")
-        lines.append(f"        {param_str},")
-        lines.append(f"    ) -> {ret_type}:")
-        lines.append(f'        """Run ``{export.name}`` on the component.')
-        lines.append("")
-        lines.append(
-            "        If *detect* is provided, it temporarily overrides the default"
-        )
-        lines.append(
-            "        ``sensitive_info_detect`` import callback for this single invocation"
-        )
-        lines.append("        (thread-safe — swapped under the instance lock).")
-        lines.append('        """')
-        lines.append(f"        wasm_opts = {call_args[-1]}")
-        lines.append("        if detect is not None:")
-        lines.append("            with self._call_lock:")
-        lines.append("                prev = self._si_detect_ref[0]")
-        lines.append("                self._si_detect_ref[0] = detect")
-        lines.append("                try:")
-        lines.append("                    store = Store(self._engine)")
-        lines.append(
-            "                    instance = self._linker.instantiate(store, self._component)"
-        )
-        lines.append(
-            f'                    func = instance.get_func(store, "{export.name}")'
-        )
-        lines.append("                    if func is None:")
-        lines.append(
-            f'                        raise RuntimeError("{export.name} export not found in component")'
-        )
-        lines.append(
-            f"                    raw = func(store, {', '.join(call_args[:-1])}, wasm_opts)"
-        )
-        lines.append("                finally:")
-        lines.append("                    self._si_detect_ref[0] = prev")
-        # In the else branch, reuse wasm_opts instead of re-calling converter
-        else_args = ", ".join(call_args[:-1] + ["wasm_opts"])
-        lines.append("        else:")
-        lines.append(f'            raw = self._call("{export.name}", {else_args})')
-        converter_name = f"from_wasm_{method_name}"
-        lines.append(f"        return {converter_name}(raw)")
-        return lines
-
     # Generate call + conversion
     converter_name = f"from_wasm_{method_name}"
     lines.append(f'        raw = self._call("{export.name}", {args_str})')
@@ -1054,9 +1003,6 @@ def _collect_component_type_imports(
         # Param types
         for p in export.params:
             _collect_type_refs(p.type, type_map, names)
-        # detect-sensitive-info has a per-call callback parameter using SensitiveInfoEntity
-        if export.name == "detect-sensitive-info":
-            names.add("SensitiveInfoEntity")
     return names
 
 
@@ -1100,7 +1046,7 @@ def _collect_type_refs(
 # ---------------------------------------------------------------------------
 
 
-def generate_imports(world: WitWorld) -> str:
+def generate_imports(world: WitWorld, config: Config) -> str:
     """Generate _imports.py content."""
     type_map = _build_type_map(world)
     lines: list[str] = [GENERATED_HEADER]
@@ -1110,39 +1056,69 @@ def generate_imports(world: WitWorld) -> str:
     lines.append("from wasmtime import Store")
     lines.append("from wasmtime import component as cm\n")
 
-    # FIXME comment and imports
-    lines.append("# FIXME(wasmtime-py): v40 does not export these from a public path;")
-    lines.append(
-        "# wasmtime.component._types is the only way to access them.  Revisit when"
-    )
-    lines.append("# wasmtime-py exposes a public API for component-model types.")
-    lines.append("from wasmtime.component._types import (")
-    lines.append("    OptionType,")
-    lines.append("    ResultType,")
-    lines.append("    Variant,")
-    lines.append("    VariantLikeType,")
-    lines.append("    VariantType,")
-    lines.append(")\n")
+    # Check if any import returns a variant (needing Variant type + conversion)
+    converter_names: set[str] = set()
+    for imp in world.imports:
+        for func in imp.funcs:
+            if func.result is not None:
+                _collect_variant_converters(func.result, type_map, converter_names)
+    needs_variant_wiring = len(converter_names) > 0
 
-    # Import from _convert and _types
-    lines.append("from ._convert import to_wasm_sensitive_info_entity")
-    lines.append("from ._types import SensitiveInfoEntity\n")
+    if needs_variant_wiring:
+        # FIXME comment and imports
+        lines.append(
+            "# FIXME(wasmtime-py): v40 does not export these from a public path;"
+        )
+        lines.append(
+            "# wasmtime.component._types is the only way to access them.  Revisit when"
+        )
+        lines.append("# wasmtime-py exposes a public API for component-model types.")
+        lines.append("from wasmtime.component._types import (")
+        lines.append("    OptionType,")
+        lines.append("    ResultType,")
+        lines.append("    Variant,")
+        lines.append("    VariantLikeType,")
+        lines.append("    VariantType,")
+        lines.append(")\n")
 
-    # MRO fix
-    lines.append(
-        "# FIXME(wasmtime-py): v40 MRO bug workaround — remove when fixed upstream."
-    )
-    lines.append("try:")
-    lines.append("    _real_add_classes = VariantLikeType.add_classes")
-    lines.append("    for _cls in (VariantType, OptionType, ResultType):")
-    lines.append("        if _cls.add_classes is not _real_add_classes:")
-    lines.append(
-        "            _cls.add_classes = _real_add_classes  # type: ignore[assignment]"
-    )
-    lines.append("except (AttributeError, TypeError):")
-    lines.append(
-        "    pass  # Future wasmtime-py may fix this or restructure these classes"
-    )
+    # Import from _convert (generically collected converters)
+    if converter_names:
+        lines.append("from ._convert import (")
+        for name in sorted(converter_names, key=str.casefold):
+            lines.append(f"    {name},")
+        lines.append(")")
+
+    # Import from _types (generically collected type refs)
+    type_names: set[str] = set()
+    for imp in world.imports:
+        for func in imp.funcs:
+            for p in func.params:
+                _collect_type_refs(p.type, type_map, type_names)
+            if func.result is not None:
+                _collect_type_refs(func.result, type_map, type_names)
+    if type_names:
+        lines.append("from ._types import (")
+        for name in sorted(type_names, key=str.casefold):
+            lines.append(f"    {name},")
+        lines.append(")")
+    lines.append("")
+
+    if needs_variant_wiring:
+        # MRO fix
+        lines.append(
+            "# FIXME(wasmtime-py): v40 MRO bug workaround — remove when fixed upstream."
+        )
+        lines.append("try:")
+        lines.append("    _real_add_classes = VariantLikeType.add_classes")
+        lines.append("    for _cls in (VariantType, OptionType, ResultType):")
+        lines.append("        if _cls.add_classes is not _real_add_classes:")
+        lines.append(
+            "            _cls.add_classes = _real_add_classes  # type: ignore[assignment]"
+        )
+        lines.append("except (AttributeError, TypeError):")
+        lines.append(
+            "    pass  # Future wasmtime-py may fix this or restructure these classes"
+        )
 
     # ImportCallbacks dataclass
     lines.append("")
@@ -1153,8 +1129,8 @@ def generate_imports(world: WitWorld) -> str:
     # Generate one field per import function
     for imp in world.imports:
         for func in imp.funcs:
-            field_name = _import_callback_field_name(imp.name, func)
-            cb_type = _import_callback_type(func, type_map, imp)
+            field_name = _import_callback_field_name(imp.name, func, config)
+            cb_type = _import_callback_type(func, type_map)
             lines.append(f"    {field_name}: {cb_type} | None = None")
 
     # wire_imports
@@ -1164,19 +1140,10 @@ def generate_imports(world: WitWorld) -> str:
     lines.append("    linker: cm.Linker,")
     lines.append("    component: cm.Component,")
     lines.append("    callbacks: ImportCallbacks | None = None,")
+    lines.append(") -> None:")
     lines.append(
-        ") -> list[Callable[[list[str]], list[SensitiveInfoEntity | None]] | None]:"
+        '    """Wire all import interfaces into *linker* using trap-then-shadow."""'
     )
-    lines.append(
-        '    """Wire all import interfaces into *linker* using trap-then-shadow.'
-    )
-    lines.append("")
-    lines.append("    Returns a single-element mutable list holding the active")
-    lines.append(
-        "    ``sensitive_info_detect`` callback.  The caller can swap ``ref[0]`` to"
-    )
-    lines.append("    override the callback for subsequent calls.")
-    lines.append('    """')
     lines.append("    cb = callbacks or ImportCallbacks()")
     lines.append("")
     lines.append("    # 1. Trap everything first")
@@ -1187,7 +1154,7 @@ def generate_imports(world: WitWorld) -> str:
     default_names: list[str] = []
     for imp in world.imports:
         for func in imp.funcs:
-            default_names.append(_import_default_func_name(imp.name, func))
+            default_names.append(_import_default_func_name(imp.name, func, config))
     lines.append("    from ._import_defaults import (")
     for name in sorted(default_names, key=str.casefold):
         lines.append(f"        {name},")
@@ -1196,21 +1163,10 @@ def generate_imports(world: WitWorld) -> str:
     # Resolve callbacks with defaults
     for imp in world.imports:
         for func in imp.funcs:
-            field_name = _import_callback_field_name(imp.name, func)
-            default_name = _import_default_func_name(imp.name, func)
-            is_si_detect = (
-                "sensitive-information-identifier" in imp.name and func.name == "detect"
-            )
-            if is_si_detect:
-                # Mutable container so detect callback can be swapped per-call
-                lines.append(f"    si_detect_ref: list[")
-                lines.append(
-                    f"        Callable[[list[str]], list[SensitiveInfoEntity | None]] | None"
-                )
-                lines.append(f"    ] = [cb.{field_name} or {default_name}]")
-            else:
-                local_name = f"{field_name}_fn"
-                lines.append(f"    {local_name} = cb.{field_name} or {default_name}")
+            field_name = _import_callback_field_name(imp.name, func, config)
+            default_name = _import_default_func_name(imp.name, func, config)
+            local_name = f"{field_name}_fn"
+            lines.append(f"    {local_name} = cb.{field_name} or {default_name}")
     lines.append("")
 
     # Wire imports
@@ -1220,49 +1176,37 @@ def generate_imports(world: WitWorld) -> str:
         iface_name = imp.name
         lines.append(f'        with root.add_instance("{iface_name}") as iface:')
         for func in imp.funcs:
-            field_name = _import_callback_field_name(imp.name, func)
+            field_name = _import_callback_field_name(imp.name, func, config)
             local_name = f"{field_name}_fn"
             wit_func_name = func.name
 
-            # Check if this is the sensitive-info-detect special case
-            is_si_detect = (
-                "sensitive-information-identifier" in iface_name
-                and func.name == "detect"
-            )
+            # Check if this import needs a conversion wrapper
+            conversion_expr = None
+            if func.result is not None:
+                conversion_expr = _gen_return_to_wasm_expr(
+                    "results", func.result, type_map
+                )
 
-            if is_si_detect:
-                # Special handling: read from mutable si_detect_ref, convert SensitiveInfoEntity → Variant
+            if conversion_expr is not None:
+                # Named wrapper for imports with variant return types
+                wrapper_name = f"_wrap_{field_name}"
+                typed_params = [
+                    f"{kebab_to_snake(p.name)}: {_py_type_annotation(p.type, type_map)}"
+                    for p in func.params
+                ]
+                param_names = [kebab_to_snake(p.name) for p in func.params]
+                store_params = ", ".join(["_store: Store"] + typed_params)
+                call_args = ", ".join(param_names)
+                lines.append("")
+                lines.append(f"            def {wrapper_name}({store_params}):")
+                lines.append(f"                results = {local_name}({call_args})")
+                lines.append(f"                return {conversion_expr}")
                 lines.append("")
                 lines.append(
-                    f"            def _si_detect(_store: Store, tokens: list[str]) -> list[Variant | None]:"
-                )
-                lines.append(f"                fn = si_detect_ref[0]")
-                lines.append(f"                if fn is None:")
-                lines.append(f"                    return [None] * len(tokens)")
-                lines.append(f"                results = fn(tokens)")
-                lines.append(f"                if len(results) != len(tokens):")
-                lines.append(f"                    raise ValueError(")
-                lines.append(
-                    f'                        f"sensitive_info_detect callback returned '
-                    f'{{len(results)}} results "'
-                )
-                lines.append(f'                        f"for {{len(tokens)}} tokens"')
-                lines.append(f"                    )")
-                lines.append(f"                out: list[Variant | None] = []")
-                lines.append(f"                for r in results:")
-                lines.append(f"                    if r is None:")
-                lines.append(f"                        out.append(None)")
-                lines.append(f"                    else:")
-                lines.append(
-                    f"                        out.append(to_wasm_sensitive_info_entity(r))"
-                )
-                lines.append(f"                return out")
-                lines.append("")
-                lines.append(
-                    f'            iface.add_func("{wit_func_name}", _si_detect)'
+                    f'            iface.add_func("{wit_func_name}", {wrapper_name})'
                 )
             else:
-                # Standard wiring
+                # Standard wiring with lambda
                 param_count = len(func.params)
                 if param_count == 1:
                     lines.append(
@@ -1285,37 +1229,67 @@ def generate_imports(world: WitWorld) -> str:
 
         lines.append("")
 
-    lines.append("    return si_detect_ref")
     lines.append("")
     return "\n".join(lines)
 
 
-def _import_callback_field_name(iface_name: str, func: WitFunc) -> str:
+def _gen_return_to_wasm_expr(
+    var: str, ty: WitType, type_map: dict[str, WitTypeDef]
+) -> str | None:
+    """Generate an expression to convert a callback return value to wasmtime format.
+
+    Returns None if no conversion is needed.
+    """
+    if isinstance(ty, WitRef):
+        defn = type_map.get(ty.name)
+        if isinstance(defn, WitVariant):
+            return f"to_wasm_{kebab_to_snake(ty.name)}({var})"
+        return None
+    if isinstance(ty, WitOption):
+        inner = _gen_return_to_wasm_expr(var, ty.inner, type_map)
+        if inner is not None:
+            return f"None if {var} is None else {inner}"
+        return None
+    if isinstance(ty, WitList):
+        inner = _gen_return_to_wasm_expr("_r", ty.element, type_map)
+        if inner is not None:
+            return f"[{inner} for _r in {var}]"
+        return None
+    return None
+
+
+def _collect_variant_converters(
+    ty: WitType, type_map: dict[str, WitTypeDef], names: set[str]
+) -> None:
+    """Recursively collect to_wasm_* converter names needed for a type."""
+    if isinstance(ty, WitRef):
+        defn = type_map.get(ty.name)
+        if isinstance(defn, WitVariant):
+            names.add(f"to_wasm_{kebab_to_snake(ty.name)}")
+    elif isinstance(ty, WitOption):
+        _collect_variant_converters(ty.inner, type_map, names)
+    elif isinstance(ty, WitList):
+        _collect_variant_converters(ty.element, type_map, names)
+
+
+def _import_callback_field_name(iface_name: str, func: WitFunc, config: Config) -> str:
     """Generate the ImportCallbacks field name for an import function."""
     short_iface = iface_name.split("/")[-1] if "/" in iface_name else iface_name
-    # Special cases for well-known patterns
-    if short_iface == "filter-overrides" and func.name == "ip-lookup":
-        return "ip_lookup"
-    if short_iface == "bot-identifier" and func.name == "detect":
-        return "bot_detect"
-    if short_iface == "verify-bot" and func.name == "verify":
-        return "bot_verify"
-    if short_iface == "sensitive-information-identifier" and func.name == "detect":
-        return "sensitive_info_detect"
-    # Default: use func name directly
+    key = f"{short_iface}.{func.name}"
+    if key in config.import_callback_names:
+        return config.import_callback_names[key]
     return kebab_to_snake(func.name)
 
 
-def _import_default_func_name(iface_name: str, func: WitFunc) -> str:
+def _import_default_func_name(iface_name: str, func: WitFunc, config: Config) -> str:
     """Generate the default function name for an import function."""
-    field = _import_callback_field_name(iface_name, func)
+    field = _import_callback_field_name(iface_name, func, config)
     return f"_default_{field}"
 
 
 def _import_callback_type(
     func: WitFunc,
     type_map: dict[str, WitTypeDef],
-    iface: WitInterface,
 ) -> str:
     """Generate the Callable type annotation for an import callback."""
     param_types: list[str] = []
@@ -1328,11 +1302,6 @@ def _import_callback_type(
     else:
         ret = "None"
 
-    # Special case for sensitive-info detect
-    iface_short = iface.name.split("/")[-1] if "/" in iface.name else iface.name
-    if iface_short == "sensitive-information-identifier" and func.name == "detect":
-        return "Callable[[list[str]], list[SensitiveInfoEntity | None]]"
-
     params = ", ".join(param_types)
     return f"Callable[[{params}], {ret}]"
 
@@ -1342,11 +1311,14 @@ def _import_callback_type(
 # ---------------------------------------------------------------------------
 
 
-def generate_init(world: WitWorld) -> str:
+def generate_init(world: WitWorld, config: Config) -> str:
     """Generate __init__.py content."""
     type_map = _build_type_map(world)
     lines: list[str] = [GENERATED_HEADER]
-    lines.append("from ._component import AnalyzeComponent")
+    if config.overrides_module:
+        lines.append(f"from .{config.overrides_module} import AnalyzeComponent")
+    else:
+        lines.append("from ._component import AnalyzeComponent")
     lines.append("from ._imports import ImportCallbacks")
 
     # Collect all public type names

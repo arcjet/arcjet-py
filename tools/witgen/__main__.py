@@ -41,9 +41,9 @@ def main() -> None:
     files = {
         "_types.py": generate_types(world),
         "_convert.py": generate_convert(world),
-        "_component.py": generate_component(world),
-        "_imports.py": generate_imports(world),
-        "__init__.py": generate_init(world),
+        "_component.py": generate_component(world, config),
+        "_imports.py": generate_imports(world, config),
+        "__init__.py": generate_init(world, config),
     }
 
     for filename, content in files.items():

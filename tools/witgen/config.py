@@ -15,6 +15,9 @@ class Config:
     wasm_path: str
     output_dir: str
     field_overrides: dict[str, str] = field(default_factory=dict)
+    component_class: str = "AnalyzeComponent"
+    overrides_module: str | None = None
+    import_callback_names: dict[str, str] = field(default_factory=dict)
 
 
 def load_config(path: str | Path = "witgen.toml") -> Config:
@@ -27,4 +30,7 @@ def load_config(path: str | Path = "witgen.toml") -> Config:
         wasm_path=witgen["wasm_path"],
         output_dir=witgen["output_dir"],
         field_overrides=raw.get("field_overrides", {}),
+        component_class=witgen.get("component_class", "AnalyzeComponent"),
+        overrides_module=witgen.get("overrides_module"),
+        import_callback_names=raw.get("import_callback_names", {}),
     )
