@@ -7,7 +7,6 @@ import pytest
 from tools.witgen.ir import (
     WitEnum,
     WitField,
-    WitFunc,
     WitList,
     WitOption,
     WitPrimitive,
@@ -19,7 +18,6 @@ from tools.witgen.ir import (
     WitVariantCase,
 )
 from tools.witgen.wit_parser import _Parser, _tokenize, parse_wit
-
 
 # ---------------------------------------------------------------------------
 # Tokenizer tests
