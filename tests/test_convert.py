@@ -396,6 +396,64 @@ def test_converting_missing_ip_details() -> None:
     assert _ip_details_from_proto(None) is None
 
 
+def test_converting_sensitive_info_reason_empty() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet.dataclasses import SensitiveInfoReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        sensitive_info=decide_pb2.SensitiveInfoReason(allowed=[], denied=[])
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, SensitiveInfoReason)
+    assert reason.type == "SENSITIVE_INFO"
+    assert reason.allowed == []
+    assert reason.denied == []
+
+
+def test_converting_sensitive_info_reason_with_entities() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet.dataclasses import IdentifiedEntity, SensitiveInfoReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        sensitive_info=decide_pb2.SensitiveInfoReason(
+            allowed=[
+                decide_pb2.IdentifiedEntity(identified_type="EMAIL", start=0, end=16),
+            ],
+            denied=[
+                decide_pb2.IdentifiedEntity(
+                    identified_type="CREDIT_CARD_NUMBER", start=17, end=33
+                ),
+                decide_pb2.IdentifiedEntity(
+                    identified_type="CUSTOM_PII", start=34, end=40
+                ),
+            ],
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, SensitiveInfoReason)
+    assert reason.type == "SENSITIVE_INFO"
+
+    assert len(reason.allowed) == 1
+    assert isinstance(reason.allowed[0], IdentifiedEntity)
+    assert reason.allowed[0].identified_type == "EMAIL"
+    assert reason.allowed[0].start == 0
+    assert reason.allowed[0].end == 16
+
+    assert len(reason.denied) == 2
+    assert reason.denied[0].identified_type == "CREDIT_CARD_NUMBER"
+    assert reason.denied[0].start == 17
+    assert reason.denied[0].end == 33
+    assert reason.denied[1].identified_type == "CUSTOM_PII"
+    assert reason.denied[1].start == 34
+    assert reason.denied[1].end == 40
+
+
 def test_converting_unsupported_reason_type() -> None:
     """Test that unsupported reason types return ErrorReason."""
     from arcjet._convert import _reason_from_proto
