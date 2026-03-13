@@ -120,8 +120,10 @@ class TestSensitiveInfoDetectionValidation:
     def test_characteristics_must_be_tuple(self):
         with pytest.raises(TypeError, match="characteristics must be a tuple"):
             SensitiveInfoDetection(
-                mode=Mode.LIVE, deny=("EMAIL",), characteristics=["a"]
-            )  # type: ignore[arg-type]
+                mode=Mode.LIVE,
+                deny=("EMAIL",),
+                characteristics=["a"],  # type: ignore[arg-type]
+            )
 
 
 # ---------------------------------------------------------------------------
