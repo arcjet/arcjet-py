@@ -80,6 +80,7 @@ exclude = [
 
 [tool.ruff.lint]
 select = [
+  "F401", # Unused imports
   "I", # Import formatting
 ]
 

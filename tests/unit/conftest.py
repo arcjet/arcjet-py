@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-# Import fixtures directly
-from fixtures.protobuf_stubs import mock_protobuf_modules
+# Import fixtures directly — re-exported for pytest discovery
+from fixtures.protobuf_stubs import mock_protobuf_modules  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
