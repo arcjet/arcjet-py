@@ -337,6 +337,32 @@ def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules
     assert aj._timeout_ms == 200
 
 
+def test_global_characteristics_applied_to_rules_by_factory(mock_protobuf_modules):
+    """Regression: arcjet() must apply global characteristics to rate-limit rules.
+
+    _apply_global_characteristics is wired into the arcjet() factory so that
+    rate-limit rules without their own characteristics inherit the global ones.
+    This test catches if that wiring is accidentally removed (e.g. during rebase).
+    """
+    from arcjet import arcjet
+    from arcjet.rules import fixed_window, shield, token_bucket
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[
+            token_bucket(refill_rate=1, interval=1, capacity=1),
+            fixed_window(max=10, window=60),
+            shield(),
+        ],
+        characteristics=["userId"],
+    )
+    # Rate-limit rules should have the global characteristic applied
+    assert aj._rules[0].get_characteristics() == ("userId",)
+    assert aj._rules[1].get_characteristics() == ("userId",)
+    # Shield is not a rate-limit rule — no characteristics attribute
+    assert aj._rules[2].get_characteristics() == ()
+
+
 def test_sensitive_info_content_survives_context_reconstruction(
     mock_protobuf_modules,
     make_allow_decision,
