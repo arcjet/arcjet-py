@@ -58,6 +58,18 @@ from .rules import (
     TokenBucket,
 )
 
+
+def _fire_and_forget(coro: Any) -> None:
+    """Schedule a coroutine as a fire-and-forget task.
+
+    Suppresses 'Task exception was never retrieved' warnings by attaching
+    a done callback that consumes the exception (the coroutine itself should
+    already log any errors it catches).
+    """
+    task = asyncio.create_task(coro)
+    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+
 # Lazy thread pool for fire-and-forget report requests (sync client).
 # Initialized on first use so async-only callers don't pay for thread creation.
 _report_pool: ThreadPoolExecutor | None = None
@@ -201,17 +213,21 @@ def _run_local_rules(
         local_results.append(result)
 
         # Short-circuit: if a local rule denies in RUN mode, return immediately
-        if (
-            result.conclusion == decide_pb2.CONCLUSION_DENY
-            and result.state == decide_pb2.RULE_STATE_RUN
-        ):
-            decision = decide_pb2.Decision(
-                id=_new_local_request_id(),
-                conclusion=decide_pb2.CONCLUSION_DENY,
-                reason=result.reason,
-                rule_results=local_results,
-            )
-            return Decision(decision)
+        if result.conclusion == decide_pb2.CONCLUSION_DENY:
+            if result.state == decide_pb2.RULE_STATE_RUN:
+                decision = decide_pb2.Decision(
+                    id=_new_local_request_id(),
+                    conclusion=decide_pb2.CONCLUSION_DENY,
+                    reason=result.reason,
+                    rule_results=local_results,
+                )
+                return Decision(decision)
+            else:
+                # DRY_RUN deny — log but don't short-circuit
+                logger.debug(
+                    "local rule would deny (dry-run): rule=%s",
+                    type(rule).__name__,
+                )
 
     return None
 
@@ -479,7 +495,7 @@ class Arcjet:
                             },
                         )
 
-                asyncio.create_task(_send_report())
+                _fire_and_forget(_send_report())
                 # Log cache-hit report scheduling with latency figures similar to decide
                 if logger.isEnabledFor(logging.DEBUG):
                     t_prepare_end = time.perf_counter()
@@ -549,7 +565,7 @@ class Arcjet:
                             },
                         )
 
-                asyncio.create_task(_send_local_report())
+                _fire_and_forget(_send_local_report())
             except Exception as e:
                 logger.debug(
                     "local decision report scheduling error: error=%s",

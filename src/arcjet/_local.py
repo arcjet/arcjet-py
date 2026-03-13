@@ -152,14 +152,15 @@ def evaluate_bot_locally(
 
     request_json = _context_to_analyze_request(ctx)
 
-    # Build the WASM config from the rule's allow/deny lists
-    entities = [str(e) for e in (rule.allow or rule.deny)]
-    skip_custom = False
-
+    # Build the WASM config from the rule's allow/deny lists.
+    # allow takes precedence over deny (matches JS SDK); the builder API
+    # prevents both being set, but we handle it defensively here.
     if rule.allow:
-        config = AllowedBotConfig(entities=entities, skip_custom_detect=skip_custom)
+        entities = [str(e) for e in rule.allow]
+        config = AllowedBotConfig(entities=entities, skip_custom_detect=False)
     else:
-        config = DeniedBotConfig(entities=entities, skip_custom_detect=skip_custom)
+        entities = [str(e) for e in rule.deny]
+        config = DeniedBotConfig(entities=entities, skip_custom_detect=False)
 
     try:
         result = component.detect_bot(request_json, config)
