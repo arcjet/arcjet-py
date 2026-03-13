@@ -70,6 +70,35 @@ Configuration note: `pyproject.toml` has `addopts = ["-q", "--cov=src/arcjet",
 "--cov-report=term-missing"]` for test coverage reporting with an 80% minimum
 threshold.
 
+### Benchmarks
+
+WASM performance benchmarks live in `benchmarks/` and use `pytest-benchmark`.
+They are **not** collected during normal test runs (separate `testpaths` and
+`python_files` pattern).
+
+```bash
+# Run all benchmarks (table output)
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v -o "python_files=bench_*.py test_*.py"
+
+# Save results to JSON for comparison
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-json=benchmark-results.json
+
+# Compare against a saved baseline
+uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-compare=benchmark-results.json
+```
+
+**Important**: Always pass `--no-cov` — coverage instrumentation distorts
+timing. The `--benchmark-warmup=on` flag lets pytest-benchmark's warmup phase
+run before measurement, giving wasmtime-py time to settle its execution
+profile. pytest-benchmark auto-calibrates round counts to get stable results.
+
+Benchmark modules:
+- `bench_wasm_per_call.py` — per-call WASM cost (Store + instantiate + invoke)
+- `bench_protect.py` — full `protect()` path comparison (baseline vs WASM)
+- `bench_local_evaluators.py` — `evaluate_bot_locally` / `evaluate_email_locally`
+- `bench_serialization.py` — Python-side JSON/proto serialization
+- `bench_wasm_init.py` — one-time cold-start cost
+
 ### Linting and Formatting
 
 The project uses multiple tools for code quality:
@@ -152,6 +181,18 @@ tests/
 ├── flask/               # Flask integration tests
 │   └── test_flask.py
 └── test_convert.py      # Conversion utility tests
+```
+
+### Benchmark Structure
+
+```
+benchmarks/
+├── conftest.py              # Session fixtures: component, configs, contexts, mocked client
+├── bench_wasm_init.py       # Cold-start cost (AnalyzeComponent creation)
+├── bench_wasm_per_call.py   # Per-call Store+instantiate+invoke for each WASM export
+├── bench_serialization.py   # Python-side JSON/proto serialization costs
+├── bench_local_evaluators.py # evaluate_bot_locally / evaluate_email_locally
+└── bench_protect.py         # Full protect() with mocked remote, comparing paths
 ```
 
 ## Coding Conventions
