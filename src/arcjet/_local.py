@@ -376,14 +376,18 @@ def evaluate_sensitive_info_locally(
     # Build the WASM config from the rule's allow/deny lists.
     # Use .value for enum members; str() on 3.10 str enums returns
     # "ClassName.MEMBER" rather than the value.
-    wasm_entities = [
-        _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
-        for e in (rule.allow or rule.deny)
-    ]
-
+    # allow takes precedence over deny (matches JS SDK and decide API).
     if rule.allow:
+        wasm_entities = [
+            _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
+            for e in rule.allow
+        ]
         entities_config = SensitiveInfoEntitiesAllow(entities=wasm_entities)
     else:
+        wasm_entities = [
+            _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
+            for e in rule.deny
+        ]
         entities_config = SensitiveInfoEntitiesDeny(entities=wasm_entities)
 
     config = SensitiveInfoConfig(
