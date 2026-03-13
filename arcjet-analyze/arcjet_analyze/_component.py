@@ -24,12 +24,8 @@ from ._convert import (
 )
 from ._imports import ImportCallbacks, wire_imports
 from ._types import (
-    AllowedBotConfig,
-    AllowEmailValidationConfig,
     BotConfig,
     BotResult,
-    DeniedBotConfig,
-    DenyEmailValidationConfig,
     EmailValidationConfig,
     EmailValidationResult,
     FilterResult,
