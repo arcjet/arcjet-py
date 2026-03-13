@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install wasm-tools (needed by witgen to extract WIT from WASM binaries)
+# Install wasm-tools (needed by witgen to extract WIT from WASM binaries).
+# Pin to a specific version for reproducibility; bump manually when needed.
 ARCH=$(uname -m)
-TAG=$(curl -sL https://api.github.com/repos/bytecodealliance/wasm-tools/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+TAG="v1.245.1"
 VER=${TAG#v}
 TARBALL="wasm-tools-${VER}-${ARCH}-linux.tar.gz"
 curl -sL "https://github.com/bytecodealliance/wasm-tools/releases/download/${TAG}/${TARBALL}" \
