@@ -162,6 +162,48 @@ class ShieldReason:
 
 
 @dataclass(frozen=True, slots=True)
+class IdentifiedEntity:
+    """A sensitive information entity detected in content.
+
+    Returned in ``SensitiveInfoReason.allowed`` and ``SensitiveInfoReason.denied``
+    with the entity type name and its character offsets in the scanned content.
+    """
+
+    identified_type: str
+    """Entity type name (e.g. ``"EMAIL"``, ``"CREDIT_CARD_NUMBER"``, or a custom string)."""
+
+    start: int
+    """Start character offset (inclusive) of the entity in the scanned content."""
+
+    end: int
+    """End character offset (exclusive) of the entity in the scanned content."""
+
+
+@dataclass(frozen=True, slots=True)
+class SensitiveInfoReason:
+    """Reason returned when a sensitive info detection rule triggers.
+
+    Access via ``decision.reason_v2`` when ``reason_v2.type == "SENSITIVE_INFO"``.
+    ``allowed`` and ``denied`` list the detected entities with their positions.
+
+    Example::
+
+        if decision.reason_v2.type == "SENSITIVE_INFO":
+            for entity in decision.reason_v2.denied:
+                print(f"Denied: {entity.identified_type} at [{entity.start}:{entity.end}]")
+    """
+
+    allowed: Sequence[IdentifiedEntity]
+    """Detected entities that were allowed by the rule configuration."""
+
+    denied: Sequence[IdentifiedEntity]
+    """Detected entities that were denied by the rule configuration."""
+
+    type: Literal["SENSITIVE_INFO"] = "SENSITIVE_INFO"
+    """Discriminator field. Always ``"SENSITIVE_INFO"``."""
+
+
+@dataclass(frozen=True, slots=True)
 class PromptInjectionReason:
     """Reason returned when a prompt injection detection rule triggers.
 
@@ -186,6 +228,7 @@ Reason = (
     | FilterReason
     | PromptInjectionReason
     | RateLimitReason
+    | SensitiveInfoReason
     | ShieldReason
 )
 """Decision reason returned by ``decision.reason_v2`` or ``result.reason_v2``.
@@ -198,6 +241,7 @@ Each variant has a ``type`` discriminator field you can use to narrow the type:
 - ``"FILTER"`` → ``FilterReason`` (request filter)
 - ``"PROMPT_INJECTION"`` → ``PromptInjectionReason`` (prompt injection detection)
 - ``"RATE_LIMIT"`` → ``RateLimitReason`` (rate limiting)
+- ``"SENSITIVE_INFO"`` → ``SensitiveInfoReason`` (sensitive info detection)
 - ``"SHIELD"`` → ``ShieldReason`` (Shield WAF)
 
 Example::

@@ -641,3 +641,173 @@ class TestRunLocalRulesSensitiveInfo:
             result = _run_local_rules(ctx, (rule,))
 
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# detect callback support
+# ---------------------------------------------------------------------------
+
+
+class TestDetectCallback:
+    """Tests for the custom detect callback on SensitiveInfoDetection."""
+
+    def test_factory_accepts_detect_callback(self):
+        """detect_sensitive_info() stores the callback on the rule."""
+
+        def my_detect(tokens: list[str]) -> list[str | None]:
+            return [None] * len(tokens)
+
+        rule = detect_sensitive_info(deny=["CUSTOM"], detect=my_detect)
+        assert rule.detect is my_detect
+
+    def test_factory_default_detect_is_none(self):
+        rule = detect_sensitive_info(deny=["EMAIL"])
+        assert rule.detect is None
+
+    def test_skip_custom_detect_true_without_callback(self):
+        """skip_custom_detect is True when no detect callback is provided."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        ctx = RequestContext(sensitive_info_content="test")
+        rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        config = mock_component.detect_sensitive_info.call_args[0][1]
+        assert config.skip_custom_detect is True
+
+    def test_skip_custom_detect_false_with_callback(self):
+        """skip_custom_detect is False when a detect callback is provided."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        ctx = RequestContext(sensitive_info_content="test")
+        rule = detect_sensitive_info(
+            deny=["CUSTOM"], detect=lambda tokens: [None] * len(tokens)
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        config = mock_component.detect_sensitive_info.call_args[0][1]
+        assert config.skip_custom_detect is False
+
+    def test_detect_callback_passed_to_component(self):
+        """The wrapped detect callback is passed as detect= kwarg."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        ctx = RequestContext(sensitive_info_content="test")
+        rule = detect_sensitive_info(
+            deny=["CUSTOM"], detect=lambda tokens: [None] * len(tokens)
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        call_kwargs = mock_component.detect_sensitive_info.call_args[1]
+        assert "detect" in call_kwargs
+        assert call_kwargs["detect"] is not None
+        assert callable(call_kwargs["detect"])
+
+    def test_detect_callback_not_passed_when_none(self):
+        """When no detect callback, detect=None is passed to component."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        ctx = RequestContext(sensitive_info_content="test")
+        rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        call_kwargs = mock_component.detect_sensitive_info.call_args[1]
+        assert call_kwargs.get("detect") is None
+
+    def test_detect_callback_converts_strings_to_entities(self):
+        """User callback returns strings; wrapper converts to SensitiveInfoEntity."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        def my_detect(tokens: list[str]) -> list[str | None]:
+            return ["CUSTOM_PII" if "secret" in t else None for t in tokens]
+
+        ctx = RequestContext(sensitive_info_content="this is secret data")
+        rule = detect_sensitive_info(deny=["CUSTOM_PII"], detect=my_detect)
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        # Get the wrapped callback that was passed to the component
+        wasm_detect = mock_component.detect_sensitive_info.call_args[1]["detect"]
+
+        # Call it directly to verify conversion
+        results = wasm_detect(["hello", "secret", "world"])
+        assert results[0] is None
+        assert isinstance(results[1], SensitiveInfoEntityCustom)
+        assert results[1].value == "CUSTOM_PII"
+        assert results[2] is None
+
+    def test_detect_callback_converts_builtin_entity_strings(self):
+        """User callback returning 'EMAIL' gets converted to SensitiveInfoEntityEmail."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+
+        def my_detect(tokens: list[str]) -> list[str | None]:
+            return ["EMAIL" if "@" in t else None for t in tokens]
+
+        ctx = RequestContext(sensitive_info_content="test@example.com hello")
+        rule = detect_sensitive_info(deny=["EMAIL"], detect=my_detect)
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            evaluate_sensitive_info_locally(ctx, rule)
+
+        wasm_detect = mock_component.detect_sensitive_info.call_args[1]["detect"]
+        results = wasm_detect(["test@example.com", "hello"])
+        assert isinstance(results[0], SensitiveInfoEntityEmail)
+        assert results[1] is None
+
+    def test_detect_callback_with_deny_produces_deny(self):
+        """Full flow: custom detect finds entity → component returns deny → DENY result."""
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[],
+            denied=[
+                DetectedSensitiveInfoEntity(
+                    start=8,
+                    end=14,
+                    identified_type=SensitiveInfoEntityCustom(value="CUSTOM_PII"),
+                ),
+            ],
+        )
+
+        def my_detect(tokens: list[str]) -> list[str | None]:
+            return ["CUSTOM_PII" if "secret" in t else None for t in tokens]
+
+        ctx = RequestContext(sensitive_info_content="this is secret data")
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE, deny=["CUSTOM_PII"], detect=my_detect
+        )
+
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            result = evaluate_sensitive_info_locally(ctx, rule)
+
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_DENY
+        si = result.reason.sensitive_info
+        assert len(si.denied) == 1
+        assert si.denied[0].identified_type == "CUSTOM_PII"
