@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 
 import pytest
-
-# Ensure the package is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from arcjet_analyze import AnalyzeComponent
 
 WASM_PATH = os.path.join(
