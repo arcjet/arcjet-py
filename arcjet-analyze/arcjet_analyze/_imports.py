@@ -22,8 +22,12 @@ from wasmtime.component._types import (
     VariantType,
 )
 
-from ._convert import to_wasm_sensitive_info_entity
-from ._types import SensitiveInfoEntity
+from ._convert import (
+    to_wasm_sensitive_info_entity,
+)
+from ._types import (
+    SensitiveInfoEntity,
+)
 
 # FIXME(wasmtime-py): v40 MRO bug workaround — remove when fixed upstream.
 try:
@@ -55,13 +59,8 @@ def wire_imports(
     linker: cm.Linker,
     component: cm.Component,
     callbacks: ImportCallbacks | None = None,
-) -> list[Callable[[list[str]], list[SensitiveInfoEntity | None]] | None]:
-    """Wire all import interfaces into *linker* using trap-then-shadow.
-
-    Returns a single-element mutable list holding the active
-    ``sensitive_info_detect`` callback.  The caller can swap ``ref[0]`` to
-    override the callback for subsequent calls.
-    """
+) -> None:
+    """Wire all import interfaces into *linker* using trap-then-shadow."""
     cb = callbacks or ImportCallbacks()
 
     # 1. Trap everything first
@@ -82,9 +81,9 @@ def wire_imports(
     is_disposable_email_fn = cb.is_disposable_email or _default_is_disposable_email
     has_mx_records_fn = cb.has_mx_records or _default_has_mx_records
     has_gravatar_fn = cb.has_gravatar or _default_has_gravatar
-    si_detect_ref: list[
-        Callable[[list[str]], list[SensitiveInfoEntity | None]] | None
-    ] = [cb.sensitive_info_detect or _default_sensitive_info_detect]
+    sensitive_info_detect_fn = (
+        cb.sensitive_info_detect or _default_sensitive_info_detect
+    )
     bot_verify_fn = cb.bot_verify or _default_bot_verify
     bot_detect_fn = cb.bot_detect or _default_bot_detect
     ip_lookup_fn = cb.ip_lookup or _default_ip_lookup
@@ -103,25 +102,14 @@ def wire_imports(
             "arcjet:js-req/sensitive-information-identifier"
         ) as iface:
 
-            def _si_detect(_store: Store, tokens: list[str]) -> list[Variant | None]:
-                fn = si_detect_ref[0]
-                if fn is None:
-                    return [None] * len(tokens)
-                results = fn(tokens)
-                if len(results) != len(tokens):
-                    raise ValueError(
-                        f"sensitive_info_detect callback returned {len(results)} results "
-                        f"for {len(tokens)} tokens"
-                    )
-                out: list[Variant | None] = []
-                for r in results:
-                    if r is None:
-                        out.append(None)
-                    else:
-                        out.append(to_wasm_sensitive_info_entity(r))
-                return out
+            def _wrap_sensitive_info_detect(_store: Store, tokens: list[str]):
+                results = sensitive_info_detect_fn(tokens)
+                return [
+                    None if _r is None else to_wasm_sensitive_info_entity(_r)
+                    for _r in results
+                ]
 
-            iface.add_func("detect", _si_detect)
+            iface.add_func("detect", _wrap_sensitive_info_detect)
 
         with root.add_instance("arcjet:js-req/verify-bot") as iface:
             iface.add_func("verify", lambda _store, a, b: bot_verify_fn(a, b))
@@ -131,5 +119,3 @@ def wire_imports(
 
         with root.add_instance("arcjet:js-req/filter-overrides") as iface:
             iface.add_func("ip-lookup", lambda _store, a: ip_lookup_fn(a))
-
-    return si_detect_ref
