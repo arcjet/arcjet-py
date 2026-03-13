@@ -25,7 +25,6 @@ drives them via wasmtime-py.
 
 ```
 arcjet-analyze/
-├── filter.wit                            # WIT interface definition (filter subset)
 ├── arcjet_analyze/                       # Typed host-side bindings package
 │   ├── __init__.py                       # Public API re-exports (GENERATED)
 │   ├── _types.py                         # Frozen dataclasses for all WIT types (GENERATED)
