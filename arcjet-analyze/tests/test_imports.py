@@ -54,6 +54,12 @@ class TestDefaultCallbacks:
             ),
         )
 
+    def test_default_bot_verify_directly(self) -> None:
+        """Default bot_verify returns 'unverifiable' for any input."""
+        from arcjet_analyze._import_defaults import _default_bot_verify
+
+        assert _default_bot_verify("googlebot", "66.249.66.1") == "unverifiable"
+
     def test_default_is_free_email_gmail(self, component: AnalyzeComponent) -> None:
         """Default is_free_email blocks gmail.com."""
         config = AllowEmailValidationConfig(
