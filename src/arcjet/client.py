@@ -464,21 +464,7 @@ class Arcjet:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            sensitive_info_content=ctx.sensitive_info_content,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
-        )
+        ctx = replace(ctx, extra=merged_extra or None)
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
@@ -950,21 +936,7 @@ class ArcjetSync:
                 else:
                     merged_extra[str(k)] = str(v)
 
-        ctx = RequestContext(
-            ip=ctx.ip,
-            method=ctx.method,
-            protocol=ctx.protocol,
-            host=ctx.host,
-            path=ctx.path,
-            headers=ctx.headers,
-            cookies=ctx.cookies,
-            query=ctx.query,
-            body=ctx.body,
-            email=ctx.email,
-            sensitive_info_content=ctx.sensitive_info_content,
-            detect_prompt_injection_message=ctx.detect_prompt_injection_message,
-            extra=merged_extra or None,
-        )
+        ctx = replace(ctx, extra=merged_extra or None)
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)

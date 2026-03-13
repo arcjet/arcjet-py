@@ -523,6 +523,11 @@ class SensitiveInfoDetection(RuleSpec):
                     raise ValueError(
                         f"SensitiveInfoDetection.{name} entries cannot be empty strings"
                     )
+        if self.allow and self.deny:
+            raise ValueError(
+                "SensitiveInfoDetection: expressions must be passed in either "
+                "allow or deny, not both"
+            )
         if not isinstance(self.characteristics, tuple):
             raise TypeError(
                 "SensitiveInfoDetection.characteristics must be a tuple of strings"
