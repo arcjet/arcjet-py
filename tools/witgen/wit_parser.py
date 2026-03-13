@@ -78,9 +78,7 @@ def _tokenize(text: str) -> list[str]:
         tokens.append(tok)
     if last_end != len(text):
         skipped = text[last_end:]
-        raise SyntaxError(
-            f"Unexpected character(s) {skipped!r} at position {last_end}"
-        )
+        raise SyntaxError(f"Unexpected character(s) {skipped!r} at position {last_end}")
     return tokens
 
 

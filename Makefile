@@ -6,8 +6,9 @@
 
 check: lint typecheck apicheck  ## Run all lint, type, and API checks
 
-lint:  ## Ruff lint (F401, import sorting)
+lint:  ## Ruff lint + format check (F401, import sorting, formatting)
 	uv run ruff check
+	uv run ruff format --check
 
 typecheck:  ## ty + pyright
 	uv run ty check
