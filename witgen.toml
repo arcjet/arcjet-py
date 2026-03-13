@@ -1,0 +1,17 @@
+[witgen]
+wasm_path = "arcjet-analyze/arcjet_analyze/wasm/arcjet_analyze_js_req.component.wasm"
+output_dir = "arcjet-analyze/arcjet_analyze"
+component_class = "AnalyzeComponentBase"
+overrides_module = "_overrides"
+
+# Variant case field name overrides (default is "value")
+[field_overrides]
+"sensitive-info-entities.allow" = "entities"
+"sensitive-info-entities.deny" = "entities"
+
+# Import callback field name overrides (default is kebab_to_snake(func.name))
+[import_callback_names]
+"sensitive-information-identifier.detect" = "sensitive_info_detect"
+"filter-overrides.ip-lookup" = "ip_lookup"
+"bot-identifier.detect" = "bot_detect"
+"verify-bot.verify" = "bot_verify"

@@ -5,7 +5,6 @@ from arcjet.dataclasses import ErrorReason
 
 def test_converting_bot_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import BotReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(bot=decide_pb2.BotReason())

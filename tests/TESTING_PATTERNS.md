@@ -170,6 +170,146 @@ async def test_feature_with_specific_condition():
 - Add ids for readability: `@pytest.mark.parametrize("x", [1, 2], ids=["small",
   "large"])`
 
+## WASM Component Testing (`arcjet-analyze/tests/`)
+
+The `arcjet-analyze` package has its own test suite for WASM bindings. These
+tests exercise the wasmtime-py component model and are separate from the main
+SDK tests.
+
+### Shared Fixtures for Expensive Resources
+
+WASM component creation is expensive (~50ms). Use fixtures to share the
+component across tests:
+
+```python
+# arcjet-analyze/tests/conftest.py
+@pytest.fixture()
+def wasm_path() -> str:
+    """Path to the full composite WASM component."""
+    assert os.path.exists(WASM_PATH), f"WASM not found: {WASM_PATH}"
+    return WASM_PATH
+
+@pytest.fixture()
+def component(wasm_path: str) -> AnalyzeComponent:
+    """Default AnalyzeComponent with no custom callbacks."""
+    return AnalyzeComponent(wasm_path)
+```
+
+### Shared Request Payloads
+
+Define reusable request JSON constants in `conftest.py`:
+
+```python
+# arcjet-analyze/tests/conftest.py
+BOT_REQUEST = json.dumps({
+    "ip": "1.2.3.4",
+    "method": "GET",
+    "host": "example.com",
+    "path": "/",
+    "headers": {"user-agent": "curl/8.0"},
+})
+
+# In test files, import and optionally alias:
+from conftest import BOT_REQUEST as CURL_REQUEST
+```
+
+### Test Class Organization
+
+Group related tests into classes for readability:
+
+```python
+class TestDetectBot:
+    def test_allowed_bot_config(self, component: AnalyzeComponent) -> None:
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(CURL_REQUEST, config)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, BotResult)
+
+    def test_fail_without_user_agent(self, component: AnalyzeComponent) -> None:
+        """Missing user-agent header returns Err."""
+        request = json.dumps({"ip": "127.0.0.1"})
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        result = component.detect_bot(request, config)
+        assert isinstance(result, Err)
+        assert "user-agent" in result.value.lower()
+```
+
+### Result Type Assertions
+
+WASM exports return `Ok`/`Err` result types. Use `isinstance` to check which
+variant was returned, then access `.value` for the payload:
+
+```python
+result = component.detect_bot(request, config)
+assert isinstance(result, Ok)          # or Err for error cases
+assert isinstance(result.value, BotResult)
+assert result.value.denied == ["CURL"]
+```
+
+### Thread Safety Testing
+
+Use `ThreadPoolExecutor` to verify concurrent WASM access is safe:
+
+```python
+def test_concurrent_calls(self, component: AnalyzeComponent) -> None:
+    """Concurrent calls don't crash or corrupt state."""
+    num_calls = 32
+    errors: list[Exception] = []
+
+    def _call(i: int):
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        return component.detect_bot(CURL_REQUEST, config)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_call, i) for i in range(num_calls)]
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as exc:
+                errors.append(exc)
+
+    assert errors == [], f"Concurrent calls raised: {errors}"
+```
+
+### Custom Callback Testing
+
+When testing user-provided import callbacks, annotate return types with the
+full union type (lists are invariant in Python typing):
+
+```python
+def test_custom_detect_called(self, wasm_path: str) -> None:
+    all_tokens: list[list[str]] = []
+
+    # Use the full SensitiveInfoEntity union, not a narrower subtype
+    def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+        all_tokens.append(tokens)
+        return [None] * len(tokens)
+
+    ac = AnalyzeComponent(
+        wasm_path,
+        callbacks=ImportCallbacks(sensitive_info_detect=my_detect),
+    )
+    config = SensitiveInfoConfig(...)
+    ac.detect_sensitive_info("a b c", config)
+    assert len(all_tokens) > 0
+```
+
+### Running arcjet-analyze Tests
+
+```bash
+# Via Makefile (recommended)
+make test-analyze
+
+# Or directly with coverage
+uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
+```
+
+Coverage is measured only for hand-maintained code (`_overrides.py`,
+`_import_defaults.py`). The five witgen-generated files (`__init__.py`,
+`_types.py`, `_convert.py`, `_component.py`, `_imports.py`) are excluded via
+`[tool.coverage.run] omit` in `pyproject.toml`. The same 80% minimum threshold
+applies.
+
 ## References
 
 - [datasette-enrichments
