@@ -55,8 +55,14 @@ def wire_imports(
     linker: cm.Linker,
     component: cm.Component,
     callbacks: ImportCallbacks | None = None,
-) -> None:
-    """Wire all import interfaces into *linker* using trap-then-shadow."""
+) -> list[Callable[[list[str]], list[SensitiveInfoEntity | None]] | None]:
+    """Wire all import interfaces into *linker* using trap-then-shadow.
+
+    Returns a single-element mutable list holding the active
+    ``sensitive_info_detect`` callback.  The caller can swap ``ref[0]`` to
+    override the callback for subsequent calls (thread safety is the caller's
+    responsibility).
+    """
     cb = callbacks or ImportCallbacks()
 
     # 1. Trap everything first
@@ -77,9 +83,10 @@ def wire_imports(
     is_disposable_email_fn = cb.is_disposable_email or _default_is_disposable_email
     has_mx_records_fn = cb.has_mx_records or _default_has_mx_records
     has_gravatar_fn = cb.has_gravatar or _default_has_gravatar
-    sensitive_info_detect_fn = (
-        cb.sensitive_info_detect or _default_sensitive_info_detect
-    )
+    # Mutable container so detect callback can be swapped per-call
+    si_detect_ref: list[
+        Callable[[list[str]], list[SensitiveInfoEntity | None]] | None
+    ] = [cb.sensitive_info_detect or _default_sensitive_info_detect]
     bot_verify_fn = cb.bot_verify or _default_bot_verify
     bot_detect_fn = cb.bot_detect or _default_bot_detect
     ip_lookup_fn = cb.ip_lookup or _default_ip_lookup
@@ -99,7 +106,10 @@ def wire_imports(
         ) as iface:
 
             def _si_detect(_store: Store, tokens: list[str]) -> list[Variant | None]:
-                results = sensitive_info_detect_fn(tokens)
+                fn = si_detect_ref[0]
+                if fn is None:
+                    return [None] * len(tokens)
+                results = fn(tokens)
                 out: list[Variant | None] = []
                 for r in results:
                     if r is None:
@@ -118,3 +128,5 @@ def wire_imports(
 
         with root.add_instance("arcjet:js-req/filter-overrides") as iface:
             iface.add_func("ip-lookup", lambda _store, a: ip_lookup_fn(a))
+
+    return si_detect_ref

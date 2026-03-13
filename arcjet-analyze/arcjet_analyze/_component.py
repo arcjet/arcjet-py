@@ -6,7 +6,7 @@ Re-generate with: uv run python -m tools.witgen
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from wasmtime import Engine, Store
 from wasmtime import component as cm
@@ -35,6 +35,7 @@ from ._types import (
     FilterResult,
     Result,
     SensitiveInfoConfig,
+    SensitiveInfoEntity,
     SensitiveInfoResult,
 )
 
@@ -52,7 +53,7 @@ class AnalyzeComponent:
         self._linker = cm.Linker(self._engine)
         self._linker.allow_shadowing = True
 
-        wire_imports(self._linker, self._component, callbacks)
+        self._si_detect_ref = wire_imports(self._linker, self._component, callbacks)
 
         # Lock for thread safety: wasmtime-py wrappers have unprotected
         # mutable state (Slab globals, attribute reads). A per-instance
@@ -125,9 +126,32 @@ class AnalyzeComponent:
         self,
         content: str,
         options: SensitiveInfoConfig,
+        detect: Callable[[list[str]], list[SensitiveInfoEntity | None]] | None = None,
     ) -> SensitiveInfoResult:
-        """Run ``detect-sensitive-info`` on the component."""
-        raw = self._call(
-            "detect-sensitive-info", content, to_wasm_sensitive_info_config(options)
-        )
+        """Run ``detect-sensitive-info`` on the component.
+
+        If *detect* is provided, it temporarily overrides the default
+        ``sensitive_info_detect`` import callback for this single invocation
+        (thread-safe — swapped under the instance lock).
+        """
+        wasm_opts = to_wasm_sensitive_info_config(options)
+        if detect is not None:
+            with self._call_lock:
+                prev = self._si_detect_ref[0]
+                self._si_detect_ref[0] = detect
+                try:
+                    store = Store(self._engine)
+                    instance = self._linker.instantiate(store, self._component)
+                    func = instance.get_func(store, "detect-sensitive-info")
+                    if func is None:
+                        raise RuntimeError(
+                            "detect-sensitive-info export not found in component"
+                        )
+                    raw = func(store, content, wasm_opts)
+                finally:
+                    self._si_detect_ref[0] = prev
+        else:
+            raw = self._call(
+                "detect-sensitive-info", content, wasm_opts
+            )
         return from_wasm_detect_sensitive_info(raw)
