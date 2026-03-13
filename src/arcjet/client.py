@@ -240,7 +240,6 @@ def _build_local_deny_report(
     return rep
 
 
-
 @dataclass(slots=True)
 class Arcjet:
     """Async Arcjet client.
