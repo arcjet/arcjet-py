@@ -138,6 +138,58 @@ def test_rule_spec_get_characteristics_conversion_fails():
     assert chars == ()
 
 
+def test_apply_global_characteristics_to_rate_limit_rules():
+    """Global characteristics are applied to rate-limit rules without their own."""
+    from arcjet.client import _apply_global_characteristics
+    from arcjet.rules import (
+        Mode,
+        fixed_window,
+        shield,
+        sliding_window,
+        token_bucket,
+    )
+
+    tb = token_bucket(refill_rate=1, interval=1, capacity=1)
+    fw = fixed_window(max=10, window=60)
+    sw = sliding_window(max=10, interval=60)
+    sh = shield(mode=Mode.LIVE)
+
+    rules = (tb, fw, sw, sh)
+    result = _apply_global_characteristics(rules, ("userId",))
+
+    # Rate-limit rules get global characteristics
+    assert result[0].characteristics == ("userId",)
+    assert result[1].characteristics == ("userId",)
+    assert result[2].characteristics == ("userId",)
+    # Shield is not a rate-limit rule, unchanged
+    assert result[3].characteristics == ()
+
+
+def test_apply_global_characteristics_does_not_override_per_rule():
+    """Per-rule characteristics take precedence over global characteristics."""
+    from arcjet.client import _apply_global_characteristics
+    from arcjet.rules import token_bucket
+
+    tb = token_bucket(
+        refill_rate=1, interval=1, capacity=1, characteristics=("ip.src",)
+    )
+    result = _apply_global_characteristics((tb,), ("userId",))
+
+    # Should keep the per-rule characteristics
+    assert result[0].characteristics == ("ip.src",)
+
+
+def test_apply_global_characteristics_noop_when_empty():
+    """Empty global characteristics returns rules unchanged."""
+    from arcjet.client import _apply_global_characteristics
+    from arcjet.rules import token_bucket
+
+    tb = token_bucket(refill_rate=1, interval=1, capacity=1)
+    result = _apply_global_characteristics((tb,), ())
+
+    assert result[0].characteristics == ()
+
+
 def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
     """Test detect_prompt_injection rule converts to protobuf with mode and threshold."""
     from arcjet.rules import Mode, detect_prompt_injection

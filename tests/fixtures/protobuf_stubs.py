@@ -131,15 +131,35 @@ class StubEmailRule:
         self.deny: list[int] = []
 
 
+class StubSensitiveInfoRule:
+    """Stub for protobuf SensitiveInfoRule message."""
+
+    def __init__(self, mode: int = 0) -> None:
+        self.mode = mode
+        self.allow: list[str] = []
+        self.deny: list[str] = []
+
+
+class StubFilterRule:
+    """Stub for protobuf FilterRule message."""
+
+    def __init__(self, mode: int = 0) -> None:
+        self.mode = mode
+        self.allow: list[str] = []
+        self.deny: list[str] = []
+
+
 class StubRule:
     """Stub for protobuf Rule message (oneof wrapper)."""
 
     def __init__(self, **kwargs: Any) -> None:
-        # oneof: shield | bot_v2 | rate_limit | email | prompt_injection_detection
+        # oneof: shield | bot_v2 | rate_limit | email | sensitive_info | filter | prompt_injection_detection
         self.shield = kwargs.get("shield")
         self.bot_v2 = kwargs.get("bot_v2")
         self.rate_limit = kwargs.get("rate_limit")
         self.email = kwargs.get("email")
+        self.sensitive_info = kwargs.get("sensitive_info")
+        self.filter = kwargs.get("filter")
         self.prompt_injection_detection = kwargs.get("prompt_injection_detection")
 
 
@@ -472,6 +492,8 @@ def mock_protobuf_modules(
         BotV2Rule=StubBotV2Rule,
         RateLimitRule=StubRateLimitRule,
         EmailRule=StubEmailRule,
+        SensitiveInfoRule=StubSensitiveInfoRule,
+        FilterRule=StubFilterRule,
         Rule=StubRule,
         PromptInjectionReason=StubPromptInjectionReason,
         ErrorReason=StubErrorReason,
