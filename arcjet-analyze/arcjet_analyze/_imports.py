@@ -17,7 +17,6 @@ from wasmtime import component as cm
 from wasmtime.component._types import (
     OptionType,
     ResultType,
-    Variant,
     VariantLikeType,
     VariantType,
 )

@@ -6,7 +6,6 @@ from .config import Config
 from .ir import (
     WitEnum,
     WitFunc,
-    WitInterface,
     WitList,
     WitOption,
     WitPrimitive,
@@ -994,16 +993,46 @@ def _collect_convert_imports(
 def _collect_component_type_imports(
     world: WitWorld, type_map: dict[str, WitTypeDef]
 ) -> set[str]:
-    """Collect type names needed in _component.py."""
+    """Collect type names needed in _component.py.
+
+    Uses shallow collection — only the names that appear directly in
+    method signatures, not the inner members of union/variant types.
+    """
     names: set[str] = set()
     for export in world.exports:
         # Return type
         if export.result is not None:
-            _collect_type_refs(export.result, type_map, names)
+            _collect_annotation_type_refs(export.result, type_map, names)
         # Param types
         for p in export.params:
-            _collect_type_refs(p.type, type_map, names)
+            _collect_annotation_type_refs(p.type, type_map, names)
     return names
+
+
+def _collect_annotation_type_refs(
+    ty: WitType,
+    type_map: dict[str, WitTypeDef],
+    names: set[str],
+) -> None:
+    """Collect Python type names that appear in annotations (no variant member expansion)."""
+    if isinstance(ty, WitRef):
+        defn = type_map.get(ty.name)
+        if isinstance(defn, WitEnum):
+            return  # enums are str
+        if isinstance(defn, WitTypeAlias):
+            _collect_annotation_type_refs(defn.target, type_map, names)
+            return
+        names.add(kebab_to_pascal(ty.name))
+    elif isinstance(ty, WitResult):
+        names.add("Result")
+        if ty.ok:
+            _collect_annotation_type_refs(ty.ok, type_map, names)
+        if ty.err:
+            _collect_annotation_type_refs(ty.err, type_map, names)
+    elif isinstance(ty, WitList):
+        _collect_annotation_type_refs(ty.element, type_map, names)
+    elif isinstance(ty, WitOption):
+        _collect_annotation_type_refs(ty.inner, type_map, names)
 
 
 def _collect_type_refs(
@@ -1076,7 +1105,6 @@ def generate_imports(world: WitWorld, config: Config) -> str:
         lines.append("from wasmtime.component._types import (")
         lines.append("    OptionType,")
         lines.append("    ResultType,")
-        lines.append("    Variant,")
         lines.append("    VariantLikeType,")
         lines.append("    VariantType,")
         lines.append(")\n")
