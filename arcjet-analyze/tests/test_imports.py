@@ -144,7 +144,7 @@ class TestCustomIpLookup:
 
         def my_ip_lookup(ip: str) -> str | None:
             calls.append(ip)
-            return "US"
+            return json.dumps({"country": "US"})
 
         ac = AnalyzeComponent(
             wasm_path, callbacks=ImportCallbacks(ip_lookup=my_ip_lookup)

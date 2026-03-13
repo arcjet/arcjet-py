@@ -141,8 +141,8 @@ def _variant_payload_field_name(
 ) -> str:
     """Determine the field name for a variant case payload.
 
-    Uses config overrides or defaults to 'value'. For list payloads
-    of entity types, returns 'entities' based on the field_overrides config.
+    Returns the name from ``field_overrides`` if configured for this
+    ``variant_name.case_name`` key, otherwise defaults to ``'value'``.
     """
     key = f"{variant_name}.{case_name}"
     if key in _field_overrides:

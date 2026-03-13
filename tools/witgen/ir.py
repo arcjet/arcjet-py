@@ -28,7 +28,7 @@ class WitOption:
 @dataclass(frozen=True, slots=True)
 class WitResult:
     ok: WitType | None  # None for result<_, E>
-    err: WitType | None
+    err: WitType | None  # None allowed: WIT permits result<T> without an error type
 
 
 @dataclass(frozen=True, slots=True)
