@@ -561,7 +561,7 @@ class SensitiveInfoDetection(RuleSpec):
 class Filter(RuleSpec):
     """Expression-based request filter rule configuration.
 
-    Prefer the ``filter()`` factory function over constructing this directly.
+    Prefer the ``filter_request()`` factory function over constructing this directly.
     """
 
     mode: Mode

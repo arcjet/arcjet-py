@@ -41,6 +41,7 @@ from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._local import (
     evaluate_bot_locally,
     evaluate_email_locally,
+    evaluate_filter_locally,
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
@@ -54,9 +55,12 @@ from .decision import Decision
 from .rules import (
     BotDetection,
     EmailValidation,
+    Filter,
+    FixedWindow,
     PromptInjectionDetection,
     RuleSpec,
     SensitiveInfoDetection,
+    SlidingWindow,
     TokenBucket,
 )
 
@@ -210,6 +214,8 @@ def _run_local_rules(
             result = evaluate_email_locally(ctx, rule)
         elif isinstance(rule, SensitiveInfoDetection):
             result = evaluate_sensitive_info_locally(ctx, rule)
+        elif isinstance(rule, Filter):
+            result = evaluate_filter_locally(ctx, rule)
 
         if result is None:
             continue
@@ -283,7 +289,6 @@ def _apply_global_characteristics(
             r = replace(r, characteristics=characteristics)
         out.append(r)
     return tuple(out)
-
 
 
 @dataclass(slots=True)
@@ -374,6 +379,7 @@ class Arcjet:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        filter_local: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request.
@@ -399,6 +405,9 @@ class Arcjet:
                 ``detect_prompt_injection()`` rule is configured.
             extra: Additional key/value pairs forwarded verbatim to the Arcjet
                 Decide API. Useful for custom metadata or debugging.
+            filter_local: Additional key/value pairs available as ``local.<key>``
+                in ``filter_request()`` expressions. Only used when a
+                ``filter_request()`` rule is configured.
             ip_src: Override the detected client IP. Only valid when
                 ``disable_automatic_ip_detection=True`` was set on the client.
                 **Caution:** only pass IPs from sources you trust. See
@@ -451,6 +460,8 @@ class Arcjet:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
             )
+        if filter_local:
+            ctx = replace(ctx, filter_local=filter_local)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
@@ -891,6 +902,7 @@ class ArcjetSync:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        filter_local: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request (sync).
@@ -928,6 +940,8 @@ class ArcjetSync:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
             )
+        if filter_local:
+            ctx = replace(ctx, filter_local=filter_local)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(

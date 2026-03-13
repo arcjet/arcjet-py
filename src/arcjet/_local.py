@@ -477,8 +477,13 @@ def evaluate_filter_locally(
             logger.debug("filter_local serialization error: %s", exc)
             return None
 
-    expressions = list(rule.allow or rule.deny)
-    allow_if_match = len(rule.allow) > 0
+    # allow takes precedence over deny (matches JS SDK and decide API).
+    if rule.allow:
+        expressions = list(rule.allow)
+        allow_if_match = True
+    else:
+        expressions = list(rule.deny)
+        allow_if_match = False
 
     try:
         result = component.match_filters(
