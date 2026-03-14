@@ -51,9 +51,11 @@ result = func(store, request_json, expressions, allow_if_match)
 `WasmtimeError: cannot use linker while it's in use by other instances`.
 Always use `with` context managers.
 
-**2. `define_unknown_imports_as_traps` defines ALL imports.** Despite the name,
-it defines traps for every import — not just missing ones. If you define your
-real function first, the trap overwrites it. And without `allow_shadowing`,
+**2. `define_unknown_imports_as_traps` overwrites functions inside instances.**
+The Rust implementation skips top-level items that are already defined, but
+always recurses into component instances — defining traps for every function
+inside them, even if you already wired real implementations. If you define your
+real functions first, the traps overwrite them. Without `allow_shadowing`,
 defining the same import twice raises:
 `WasmtimeError: map entry '...' defined twice`.
 **Fix:** Set `linker.allow_shadowing = True`, call traps FIRST, then override.
