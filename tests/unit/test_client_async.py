@@ -335,3 +335,127 @@ def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules
         timeout_ms=200,
     )
     assert aj._timeout_ms == 200
+
+
+def test_global_characteristics_applied_to_rules_by_factory(mock_protobuf_modules):
+    """Regression: arcjet() must apply global characteristics to rate-limit rules.
+
+    _apply_global_characteristics is wired into the arcjet() factory so that
+    rate-limit rules without their own characteristics inherit the global ones.
+    This test catches if that wiring is accidentally removed (e.g. during rebase).
+    """
+    from arcjet import arcjet
+    from arcjet.rules import fixed_window, shield, token_bucket
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[
+            token_bucket(refill_rate=1, interval=1, capacity=1),
+            fixed_window(max=10, window=60),
+            shield(),
+        ],
+        characteristics=["userId"],
+    )
+    # Rate-limit rules should have the global characteristic applied
+    assert aj._rules[0].get_characteristics() == ("userId",)
+    assert aj._rules[1].get_characteristics() == ("userId",)
+    # Shield is not a rate-limit rule — no characteristics attribute
+    assert aj._rules[2].get_characteristics() == ()
+
+
+def test_sensitive_info_content_survives_context_reconstruction(
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression: sensitive_info_content must survive RequestContext reconstruction.
+
+    protect() reconstructs the RequestContext to merge extras. Previously,
+    sensitive_info_content was omitted from the reconstruction, silently
+    disabling local WASM evaluation for sensitive info rules.
+    """
+    import asyncio
+
+    from arcjet import arcjet
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+    from arcjet.rules import detect_sensitive_info
+
+    captured_ctx = {}
+
+    def capture_local_rules(ctx, rules):
+        captured_ctx["sensitive_info_content"] = ctx.sensitive_info_content
+        return None  # proceed to remote
+
+    import arcjet.client as client_module
+
+    monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
+
+    def allow_decide(req):
+        decision = make_allow_decision()
+        return mock_protobuf_modules["DecideResponse"](decision)
+
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", allow_decide, raising=False
+    )
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[detect_sensitive_info(deny=["EMAIL"])],
+    )
+    asyncio.run(
+        aj.protect(
+            {"headers": [], "type": "http"},
+            sensitive_info_content="my email is test@example.com",
+        )
+    )
+    assert captured_ctx["sensitive_info_content"] == "my email is test@example.com"
+
+
+def test_filter_local_survives_context_reconstruction(
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression: filter_local must survive RequestContext reconstruction.
+
+    protect() reconstructs the RequestContext to merge extras. Previously,
+    filter_local was omitted from the reconstruction, silently disabling
+    local WASM evaluation for filter rules.
+    """
+    import asyncio
+
+    from arcjet import arcjet
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+    from arcjet.rules import filter_request
+
+    captured_ctx = {}
+
+    def capture_local_rules(ctx, rules):
+        captured_ctx["filter_local"] = ctx.filter_local
+        return None
+
+    import arcjet.client as client_module
+
+    monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
+
+    def allow_decide(req):
+        decision = make_allow_decision()
+        return mock_protobuf_modules["DecideResponse"](decision)
+
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", allow_decide, raising=False
+    )
+
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[filter_request(deny=["x == 1"])],
+    )
+    asyncio.run(
+        aj.protect(
+            {"headers": [], "type": "http"},
+            filter_local={"x": "1"},
+        )
+    )
+    assert captured_ctx["filter_local"] == {"x": "1"}
