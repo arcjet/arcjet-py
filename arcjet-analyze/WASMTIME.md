@@ -28,10 +28,10 @@ component = cm.Component.from_file(engine, "path/to/component.wasm")
 linker = cm.Linker(engine)
 linker.allow_shadowing = True
 
-# 1. Trap ALL imports first
+# 1. Define traps for all imports (including functions inside instances)
 linker.define_unknown_imports_as_traps(component)
 
-# 2. Override the specific import(s) you need (shadows the trap)
+# 2. Shadow the specific import(s) you need with real implementations
 with linker.root() as root:
     with root.add_instance("arcjet:js-req/filter-overrides") as iface:
         iface.add_func("ip-lookup", my_ip_lookup)
@@ -40,7 +40,7 @@ with linker.root() as root:
 store = Store(engine)
 instance = linker.instantiate(store, component)
 func = instance.get_func(store, "match-filters")
-result = func(store, request_json, expressions, allow_if_match)
+result = func(store, request_json, local_fields_json, expressions, allow_if_match)
 ```
 
 ## Three pitfalls and their solutions
