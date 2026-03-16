@@ -95,13 +95,13 @@ def to_wasm_sensitive_info_entity(entity: SensitiveInfoEntity) -> Variant:
     """Convert a SensitiveInfoEntity to a wasmtime Variant."""
     if isinstance(entity, SensitiveInfoEntityEmail):
         return Variant("email")
-    if isinstance(entity, SensitiveInfoEntityPhoneNumber):
+    elif isinstance(entity, SensitiveInfoEntityPhoneNumber):
         return Variant("phone-number")
-    if isinstance(entity, SensitiveInfoEntityIpAddress):
+    elif isinstance(entity, SensitiveInfoEntityIpAddress):
         return Variant("ip-address")
-    if isinstance(entity, SensitiveInfoEntityCreditCardNumber):
+    elif isinstance(entity, SensitiveInfoEntityCreditCardNumber):
         return Variant("credit-card-number")
-    if isinstance(entity, SensitiveInfoEntityCustom):
+    elif isinstance(entity, SensitiveInfoEntityCustom):
         return Variant("custom", entity.value)
     raise TypeError(f"Unknown SensitiveInfoEntity: {type(entity)}")
 
@@ -112,7 +112,7 @@ def to_wasm_sensitive_info_entities(entity: SensitiveInfoEntities) -> Variant:
         return Variant(
             "allow", [to_wasm_sensitive_info_entity(e) for e in entity.entities]
         )
-    if isinstance(entity, SensitiveInfoEntitiesDeny):
+    elif isinstance(entity, SensitiveInfoEntitiesDeny):
         return Variant(
             "deny", [to_wasm_sensitive_info_entity(e) for e in entity.entities]
         )
@@ -130,11 +130,16 @@ def to_wasm_sensitive_info_config(config: SensitiveInfoConfig) -> Record:
 
 def from_wasm_filter_result(raw: Any) -> FilterResult:
     """Convert a wasmtime Record to FilterResult."""
-    return FilterResult(
-        allowed=raw.allowed,
-        matched_expressions=getattr(raw, "matched-expressions"),
-        undetermined_expressions=getattr(raw, "undetermined-expressions"),
-    )
+    try:
+        return FilterResult(
+            allowed=raw.allowed,
+            matched_expressions=getattr(raw, "matched-expressions"),
+            undetermined_expressions=getattr(raw, "undetermined-expressions"),
+        )
+    except AttributeError as exc:
+        raise TypeError(
+            f"failed to convert wasmtime Record to FilterResult: {exc}"
+        ) from exc
 
 
 def from_wasm_sensitive_info_entity(raw: Any) -> SensitiveInfoEntity:
@@ -144,48 +149,63 @@ def from_wasm_sensitive_info_entity(raw: Any) -> SensitiveInfoEntity:
     tag = raw.tag
     if tag == "email":
         return SensitiveInfoEntityEmail()
-    if tag == "phone-number":
+    elif tag == "phone-number":
         return SensitiveInfoEntityPhoneNumber()
-    if tag == "ip-address":
+    elif tag == "ip-address":
         return SensitiveInfoEntityIpAddress()
-    if tag == "credit-card-number":
+    elif tag == "credit-card-number":
         return SensitiveInfoEntityCreditCardNumber()
-    if tag == "custom":
+    elif tag == "custom":
         return SensitiveInfoEntityCustom(str(raw.payload))
     raise ValueError(f"Unknown sensitive-info-entity tag: {tag}")
 
 
 def from_wasm_detected_sensitive_info_entity(raw: Any) -> DetectedSensitiveInfoEntity:
     """Convert a wasmtime Record to DetectedSensitiveInfoEntity."""
-    return DetectedSensitiveInfoEntity(
-        start=raw.start,
-        end=raw.end,
-        identified_type=from_wasm_sensitive_info_entity(
-            getattr(raw, "identified-type")
-        ),
-    )
+    try:
+        return DetectedSensitiveInfoEntity(
+            start=raw.start,
+            end=raw.end,
+            identified_type=from_wasm_sensitive_info_entity(
+                getattr(raw, "identified-type")
+            ),
+        )
+    except AttributeError as exc:
+        raise TypeError(
+            f"failed to convert wasmtime Record to DetectedSensitiveInfoEntity: {exc}"
+        ) from exc
 
 
 def from_wasm_sensitive_info_result(raw: Any) -> SensitiveInfoResult:
     """Convert a wasmtime Record to SensitiveInfoResult."""
-    return SensitiveInfoResult(
-        allowed=[from_wasm_detected_sensitive_info_entity(e) for e in raw.allowed],
-        denied=[from_wasm_detected_sensitive_info_entity(e) for e in raw.denied],
-    )
+    try:
+        return SensitiveInfoResult(
+            allowed=[from_wasm_detected_sensitive_info_entity(e) for e in raw.allowed],
+            denied=[from_wasm_detected_sensitive_info_entity(e) for e in raw.denied],
+        )
+    except AttributeError as exc:
+        raise TypeError(
+            f"failed to convert wasmtime Record to SensitiveInfoResult: {exc}"
+        ) from exc
 
 
 def from_wasm_detect_bot(raw: Any) -> Result[BotResult, str]:
     """Convert detect-bot result."""
     if isinstance(raw, str):
         return Err(raw)
-    return Ok(
-        BotResult(
-            allowed=raw.allowed,
-            denied=raw.denied,
-            verified=raw.verified,
-            spoofed=raw.spoofed,
+    try:
+        return Ok(
+            BotResult(
+                allowed=raw.allowed,
+                denied=raw.denied,
+                verified=raw.verified,
+                spoofed=raw.spoofed,
+            )
         )
-    )
+    except AttributeError as exc:
+        raise TypeError(
+            f"failed to convert wasmtime Record in detect-bot result: {exc}"
+        ) from exc
 
 
 def from_wasm_match_filters(raw: Any) -> Result[FilterResult, str]:
@@ -205,7 +225,7 @@ def from_wasm_generate_fingerprint(raw: Any) -> Result[str, str]:
         )
     if raw.tag == "ok":
         return Ok(raw.payload)
-    if raw.tag == "err":
+    elif raw.tag == "err":
         return Err(raw.payload)
     raise ValueError(f"Unknown generate-fingerprint result tag: {raw.tag}")
 
@@ -225,12 +245,17 @@ def from_wasm_is_valid_email(raw: Any) -> Result[EmailValidationResult, str]:
     """Convert is-valid-email result."""
     if isinstance(raw, str):
         return Err(raw)
-    return Ok(
-        EmailValidationResult(
-            validity=raw.validity,
-            blocked=raw.blocked,
+    try:
+        return Ok(
+            EmailValidationResult(
+                validity=raw.validity,
+                blocked=raw.blocked,
+            )
         )
-    )
+    except AttributeError as exc:
+        raise TypeError(
+            f"failed to convert wasmtime Record in is-valid-email result: {exc}"
+        ) from exc
 
 
 def from_wasm_detect_sensitive_info(raw: Any) -> SensitiveInfoResult:

@@ -80,6 +80,8 @@ class AnalyzeComponent(AnalyzeComponentBase):
         (thread-safe — swapped under the instance lock).
         """
         wasm_opts = to_wasm_sensitive_info_config(options)
+        if self._closed:
+            raise RuntimeError("AnalyzeComponent is closed")
         if detect is not None:
             with self._call_lock:
                 prev = self._si_detect_ref[0]

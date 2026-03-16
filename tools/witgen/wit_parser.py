@@ -167,8 +167,11 @@ class _Parser:
             ok_type = None
         else:
             ok_type = self.parse_type()
-        self.expect(",")
-        err_type = self.parse_type()
+        if self.at(","):
+            self.advance()
+            err_type = self.parse_type()
+        else:
+            err_type = None
         self.expect(">")
         return WitResult(ok_type, err_type)
 

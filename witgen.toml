@@ -3,6 +3,7 @@ wasm_path = "arcjet-analyze/arcjet_analyze/wasm/arcjet_analyze_js_req.component.
 output_dir = "arcjet-analyze/arcjet_analyze"
 component_class = "AnalyzeComponentBase"
 overrides_module = "_overrides"
+singleton_module = "_singleton"
 
 # Variant case field name overrides (default is "value")
 [field_overrides]

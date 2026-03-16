@@ -17,6 +17,7 @@ class Config:
     field_overrides: dict[str, str] = field(default_factory=dict)
     component_class: str = "AnalyzeComponent"
     overrides_module: str | None = None
+    singleton_module: str | None = None
     import_callback_names: dict[str, str] = field(default_factory=dict)
 
 
@@ -32,5 +33,6 @@ def load_config(path: str | Path = "witgen.toml") -> Config:
         field_overrides=raw.get("field_overrides", {}),
         component_class=witgen.get("component_class", "AnalyzeComponent"),
         overrides_module=witgen.get("overrides_module"),
+        singleton_module=witgen.get("singleton_module"),
         import_callback_names=raw.get("import_callback_names", {}),
     )

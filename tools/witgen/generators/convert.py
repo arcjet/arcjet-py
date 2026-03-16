@@ -216,10 +216,11 @@ def _gen_to_wasm_variant(
     # Mixed variant (unit + payload cases)
     lines.append(f"def {func_name}(entity: {py_type}) -> Variant:")
     lines.append(f'    """Convert a {py_type} to a wasmtime Variant."""')
-    for case in variant.cases:
+    for i, case in enumerate(variant.cases):
         cls = variant_case_class_name(variant.name, case.name)
+        prefix = "if" if i == 0 else "elif"
         if _is_unit_variant_case(case):
-            lines.append(f"    if isinstance(entity, {cls}):")
+            lines.append(f"    {prefix} isinstance(entity, {cls}):")
             lines.append(f'        return Variant("{case.name}")')
         else:
             assert case.payload is not None
@@ -229,7 +230,7 @@ def _gen_to_wasm_variant(
             # Check if the payload needs conversion
             value_expr = f"entity.{field_name}"
             value_expr = _gen_field_to_wasm(value_expr, case.payload, type_map)
-            lines.append(f"    if isinstance(entity, {cls}):")
+            lines.append(f"    {prefix} isinstance(entity, {cls}):")
             lines.append(f'        return Variant("{case.name}", {value_expr})')
     # Fallback (should be unreachable)
     lines.append(f'    raise TypeError(f"Unknown {py_type}: {{type(entity)}}")')
@@ -270,10 +271,11 @@ def _gen_from_wasm_variant(
         f'        raise TypeError(f"expected Variant for {variant.name}, got {{type(raw)}}")'
     )
     lines.append("    tag = raw.tag")
-    for case in variant.cases:
+    for i, case in enumerate(variant.cases):
         cls = variant_case_class_name(variant.name, case.name)
+        prefix = "if" if i == 0 else "elif"
         if _is_unit_variant_case(case):
-            lines.append(f'    if tag == "{case.name}":')
+            lines.append(f'    {prefix} tag == "{case.name}":')
             lines.append(f"        return {cls}()")
         else:
             assert case.payload is not None
@@ -285,7 +287,7 @@ def _gen_from_wasm_variant(
                 payload_expr = "str(raw.payload)"
             else:
                 payload_expr = "raw.payload"
-            lines.append(f'    if tag == "{case.name}":')
+            lines.append(f'    {prefix} tag == "{case.name}":')
             lines.append(f"        return {cls}({payload_expr})")
     lines.append(f'    raise ValueError(f"Unknown {variant.name} tag: {{tag}}")')
     return lines
@@ -300,7 +302,8 @@ def _gen_from_wasm_standalone_record(
     lines: list[str] = []
     lines.append(f"def {func_name}(raw: Any) -> {cls}:")
     lines.append(f'    """Convert a wasmtime Record to {cls}."""')
-    lines.append(f"    return {cls}(")
+    lines.append("    try:")
+    lines.append(f"        return {cls}(")
     for field in record.fields:
         py_name = kebab_to_snake(field.name)
         kebab_name = field.name
@@ -309,8 +312,12 @@ def _gen_from_wasm_standalone_record(
         else:
             accessor = f"raw.{kebab_name}"
         value_expr = _gen_field_from_wasm(accessor, field.type, type_map)
-        lines.append(f"        {py_name}={value_expr},")
-    lines.append(f"    )")
+        lines.append(f"            {py_name}={value_expr},")
+    lines.append(f"        )")
+    lines.append("    except AttributeError as exc:")
+    lines.append(
+        f'        raise TypeError(f"failed to convert wasmtime Record to {cls}: {{exc}}") from exc'
+    )
     return lines
 
 
@@ -436,7 +443,7 @@ def _gen_from_wasm_result(
         )
         lines.append('    if raw.tag == "ok":')
         lines.append("        return Ok(raw.payload)")
-        lines.append('    if raw.tag == "err":')
+        lines.append('    elif raw.tag == "err":')
         lines.append("        return Err(raw.payload)")
         lines.append(
             f'    raise ValueError(f"Unknown {export_name} result tag: {{raw.tag}}")'
@@ -453,11 +460,19 @@ def _gen_from_wasm_result(
             converter = f"from_wasm_{kebab_to_snake(ok_type.name)}"
             lines.append(f"    return Ok({converter}(raw))")
         else:
-            lines.append("    return Ok(")
-            lines.extend(_gen_record_from_raw(record_def, type_map, indent=8))
-            lines.append("    )")
+            lines.append("    try:")
+            lines.append("        return Ok(")
+            lines.extend(_gen_record_from_raw(record_def, type_map, indent=12))
+            lines.append("        )")
+            lines.append("    except AttributeError as exc:")
+            lines.append(
+                f'        raise TypeError(f"failed to convert wasmtime Record in {export_name} result: {{exc}}") from exc'
+            )
     else:
-        lines.append("    return raw  # TODO: unhandled result type")
+        raise NotImplementedError(
+            f"unhandled result type for export {export_name!r}: "
+            f"ok={ok_type!r}, err={err_type!r}"
+        )
 
     return lines
 
@@ -527,7 +542,8 @@ def _gen_from_wasm_direct_record(
     if _record_needs_from_wasm(record, type_map) and standalone != func_name:
         lines.append(f"    return {standalone}(raw)")
     else:
-        lines.append(f"    return {cls}(")
+        lines.append("    try:")
+        lines.append(f"        return {cls}(")
         for field in record.fields:
             py_name = kebab_to_snake(field.name)
             kebab_name = field.name
@@ -536,6 +552,10 @@ def _gen_from_wasm_direct_record(
             else:
                 accessor = f"raw.{kebab_name}"
             value_expr = _gen_field_from_wasm(accessor, field.type, type_map)
-            lines.append(f"        {py_name}={value_expr},")
-        lines.append(f"    )")
+            lines.append(f"            {py_name}={value_expr},")
+        lines.append(f"        )")
+        lines.append("    except AttributeError as exc:")
+        lines.append(
+            f'        raise TypeError(f"failed to convert wasmtime Record to {cls}: {{exc}}") from exc'
+        )
     return lines

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from arcjet_analyze import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
@@ -438,3 +439,148 @@ class TestCustomSensitiveInfoDetect:
             if isinstance(e.identified_type, SensitiveInfoEntityPhoneNumber)
         ]
         assert len(phone_entities) >= 1
+
+
+class TestCallbackErrorPropagation:
+    """Verify that exceptions from callbacks propagate cleanly to the caller."""
+
+    def test_bot_detect_exception_propagates(self, wasm_path: str) -> None:
+        """An exception in bot_detect surfaces to the caller."""
+
+        def bad_detect(_req: str) -> list[str]:
+            raise ValueError("boom from bot_detect")
+
+        ac = AnalyzeComponent(
+            wasm_path, callbacks=ImportCallbacks(bot_detect=bad_detect)
+        )
+        config = AllowedBotConfig(entities=[], skip_custom_detect=False)
+        with pytest.raises(ValueError, match="boom from bot_detect"):
+            ac.detect_bot(BOT_REQUEST, config)
+
+    def test_is_free_email_exception_propagates(self, wasm_path: str) -> None:
+        """An exception in is_free_email surfaces to the caller."""
+
+        def bad_is_free(_domain: str) -> str:
+            raise RuntimeError("boom from is_free_email")
+
+        ac = AnalyzeComponent(
+            wasm_path, callbacks=ImportCallbacks(is_free_email=bad_is_free)
+        )
+        config = AllowEmailValidationConfig(
+            require_top_level_domain=True,
+            allow_domain_literal=False,
+            allow=[],
+        )
+        with pytest.raises(RuntimeError, match="boom from is_free_email"):
+            ac.is_valid_email("test@example.com", config)
+
+    def test_sensitive_info_detect_exception_propagates(self, wasm_path: str) -> None:
+        """An exception in sensitive_info_detect surfaces to the caller."""
+
+        def bad_detect(_tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            raise TypeError("boom from sensitive_info_detect")
+
+        ac = AnalyzeComponent(
+            wasm_path,
+            callbacks=ImportCallbacks(sensitive_info_detect=bad_detect),
+        )
+        config = SensitiveInfoConfig(
+            entities=SensitiveInfoEntitiesDeny(entities=[]),
+            context_window_size=1,
+            skip_custom_detect=False,
+        )
+        with pytest.raises(TypeError, match="boom from sensitive_info_detect"):
+            ac.detect_sensitive_info("hello world", config)
+
+    def test_sensitive_info_detect_length_mismatch(self, wasm_path: str) -> None:
+        """sensitive_info_detect returning wrong length raises ValueError."""
+
+        def wrong_length(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            # Return fewer results than tokens
+            return [None]
+
+        ac = AnalyzeComponent(
+            wasm_path,
+            callbacks=ImportCallbacks(sensitive_info_detect=wrong_length),
+        )
+        config = SensitiveInfoConfig(
+            entities=SensitiveInfoEntitiesDeny(entities=[]),
+            context_window_size=3,
+            skip_custom_detect=False,
+        )
+        with pytest.raises(ValueError, match="results for .* tokens"):
+            ac.detect_sensitive_info("a b c d e", config)
+
+    def test_per_call_detect_exception_propagates(self, wasm_path: str) -> None:
+        """An exception in a per-call detect override surfaces to the caller."""
+
+        def bad_detect(_tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            raise RuntimeError("boom from per-call detect")
+
+        ac = AnalyzeComponent(wasm_path)
+        config = SensitiveInfoConfig(
+            entities=SensitiveInfoEntitiesDeny(entities=[]),
+            context_window_size=1,
+            skip_custom_detect=False,
+        )
+        with pytest.raises(RuntimeError, match="boom from per-call detect"):
+            ac.detect_sensitive_info("hello world", config, detect=bad_detect)
+
+    def test_per_call_detect_length_mismatch(self, wasm_path: str) -> None:
+        """Per-call detect returning wrong length raises ValueError."""
+
+        def wrong_length(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            return [None]
+
+        ac = AnalyzeComponent(wasm_path)
+        config = SensitiveInfoConfig(
+            entities=SensitiveInfoEntitiesDeny(entities=[]),
+            context_window_size=3,
+            skip_custom_detect=False,
+        )
+        with pytest.raises(ValueError, match="results for .* tokens"):
+            ac.detect_sensitive_info("a b c d e", config, detect=wrong_length)
+
+
+class TestCloseAndContextManager:
+    """Verify close() and context manager behavior."""
+
+    def test_close_prevents_further_calls(self, wasm_path: str) -> None:
+        """After close(), calling any export raises RuntimeError."""
+        ac = AnalyzeComponent(wasm_path)
+        # Sanity: works before close
+        ac.match_filters("{}", "{}", [], True)
+        ac.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            ac.match_filters("{}", "{}", [], True)
+
+    def test_context_manager_closes_on_exit(self, wasm_path: str) -> None:
+        """Exiting a with-block closes the component."""
+        with AnalyzeComponent(wasm_path) as ac:
+            ac.match_filters("{}", "{}", [], True)
+        with pytest.raises(RuntimeError, match="closed"):
+            ac.match_filters("{}", "{}", [], True)
+
+    def test_close_prevents_detect_sensitive_info_override(
+        self, wasm_path: str
+    ) -> None:
+        """close() also blocks the per-call override path in detect_sensitive_info."""
+        ac = AnalyzeComponent(wasm_path)
+        ac.close()
+        config = SensitiveInfoConfig(
+            entities=SensitiveInfoEntitiesDeny(entities=[]),
+            context_window_size=1,
+            skip_custom_detect=False,
+        )
+        with pytest.raises(RuntimeError, match="closed"):
+            ac.detect_sensitive_info(
+                "hello",
+                config,
+                detect=lambda t: [None] * len(t),
+            )
+
+    def test_close_is_idempotent(self, wasm_path: str) -> None:
+        """Calling close() multiple times does not raise."""
+        ac = AnalyzeComponent(wasm_path)
+        ac.close()
+        ac.close()  # Should not raise

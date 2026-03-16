@@ -5,6 +5,7 @@ Re-generate with: uv run python -m tools.witgen
 
 from ._imports import ImportCallbacks
 from ._overrides import AnalyzeComponent
+from ._singleton import get_component, reset_component
 from ._types import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
@@ -35,6 +36,8 @@ from ._types import (
 __all__ = [
     "AnalyzeComponent",
     "ImportCallbacks",
+    "get_component",
+    "reset_component",
     "AllowEmailValidationConfig",
     "AllowedBotConfig",
     "BotConfig",

@@ -112,6 +112,7 @@ def _gen_variant(variant: WitVariant, type_map: dict[str, WitTypeDef]) -> list[s
             lines.append(
                 f'    """WIT ``{variant.name}::{case.name}`` (unit variant case)."""'
             )
+            lines.append("    pass")
             lines.append("")
             lines.append("")
         else:

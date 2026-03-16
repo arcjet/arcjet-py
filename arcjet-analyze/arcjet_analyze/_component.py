@@ -55,9 +55,12 @@ class AnalyzeComponentBase:
         # lock around _call() provides defensive safety at negligible
         # cost (WASM calls are 1-5ms).
         self._call_lock = threading.Lock()
+        self._closed = False
 
     def _call(self, export_name: str, *args: Any) -> Any:
         """Call a named export with a fresh Store."""
+        if self._closed:
+            raise RuntimeError("AnalyzeComponent is closed")
         with self._call_lock:
             store = Store(self._engine)
             instance = self._linker.instantiate(store, self._component)
@@ -65,6 +68,18 @@ class AnalyzeComponentBase:
             if func is None:
                 raise RuntimeError(f"{export_name} export not found in component")
             return func(store, *args)
+
+    def close(self) -> None:
+        """Release WASM engine resources."""
+        self._closed = True
+
+    def __enter__(self) -> AnalyzeComponentBase:
+        """Support use as a context manager."""
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        """Close on context manager exit."""
+        self.close()
 
     def detect_bot(
         self,

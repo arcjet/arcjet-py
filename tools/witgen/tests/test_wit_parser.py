@@ -120,6 +120,14 @@ class TestParseType:
         result = self._parse("result<my-record, string>")
         assert result == WitResult(WitRef("my-record"), WitPrimitive("string"))
 
+    def test_result_without_error_type(self) -> None:
+        result = self._parse("result<string>")
+        assert result == WitResult(WitPrimitive("string"), None)
+
+    def test_result_without_error_type_ref(self) -> None:
+        result = self._parse("result<my-record>")
+        assert result == WitResult(WitRef("my-record"), None)
+
 
 # ---------------------------------------------------------------------------
 # parse_wit tests — small WIT snippets

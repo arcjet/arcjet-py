@@ -26,6 +26,10 @@ def generate_init(world: WitWorld, config: Config) -> str:
         lines.append(f"from .{config.overrides_module} import AnalyzeComponent")
     else:
         lines.append("from ._component import AnalyzeComponent")
+    if config.singleton_module:
+        lines.append(
+            f"from .{config.singleton_module} import get_component, reset_component"
+        )
 
     # Collect all public type names
     all_names: list[str] = []
@@ -60,6 +64,13 @@ def generate_init(world: WitWorld, config: Config) -> str:
 
     # __all__
     all_exports = ["AnalyzeComponent", "ImportCallbacks"] + sorted(set(all_names))
+    if config.singleton_module:
+        all_exports = [
+            "AnalyzeComponent",
+            "ImportCallbacks",
+            "get_component",
+            "reset_component",
+        ] + sorted(set(all_names))
     lines.append("__all__ = [")
     for name in all_exports:
         lines.append(f'    "{name}",')

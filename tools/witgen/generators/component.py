@@ -81,11 +81,14 @@ def generate_component(world: WitWorld, config: Config) -> str:
     )
     lines.append("        # cost (WASM calls are 1-5ms).")
     lines.append("        self._call_lock = threading.Lock()")
+    lines.append("        self._closed = False")
 
     # _call
     lines.append("")
     lines.append("    def _call(self, export_name: str, *args: Any) -> Any:")
     lines.append('        """Call a named export with a fresh Store."""')
+    lines.append("        if self._closed:")
+    lines.append('            raise RuntimeError("AnalyzeComponent is closed")')
     lines.append("        with self._call_lock:")
     lines.append("            store = Store(self._engine)")
     lines.append(
@@ -97,6 +100,20 @@ def generate_component(world: WitWorld, config: Config) -> str:
         '                raise RuntimeError(f"{export_name} export not found in component")'
     )
     lines.append("            return func(store, *args)")
+
+    # close + context manager
+    lines.append("")
+    lines.append("    def close(self) -> None:")
+    lines.append('        """Release WASM engine resources."""')
+    lines.append("        self._closed = True")
+    lines.append("")
+    lines.append(f"    def __enter__(self) -> {class_name}:")
+    lines.append('        """Support use as a context manager."""')
+    lines.append("        return self")
+    lines.append("")
+    lines.append("    def __exit__(self, *args: Any) -> None:")
+    lines.append('        """Close on context manager exit."""')
+    lines.append("        self.close()")
 
     # Export methods
     for export in world.exports:
