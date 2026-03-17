@@ -198,8 +198,6 @@ The `.protect()` method returns a `Decision` object with:
 
 ## Known limitations
 
-- **`skip_custom_detect` hardcoded to `False`:** `BotDetection` has no
-  corresponding field for the WASM component's config flag.
 - **Local evaluation timing not captured:** Remote Decide logs timing metrics;
   local decisions do not.
 - **No caching of local decisions:** Remote decisions use `DecisionCache`;

@@ -464,7 +464,7 @@ class TestEvaluateEmailLocally:
         config = call_args[0][1]
         assert isinstance(config, DeniedBotConfig)
         assert config.entities == ["CURL", "GOOGLEBOT"]
-        assert config.skip_custom_detect is False
+        assert config.skip_custom_detect is True
 
     def test_bot_passes_correct_allowed_config(self):
         """Verify AllowedBotConfig is constructed with correct entities."""
