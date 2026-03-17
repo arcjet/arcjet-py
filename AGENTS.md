@@ -177,6 +177,7 @@ src/arcjet/
 ├── dataclasses.py       # Reason types and data structures
 ├── _enums.py            # Enums (Mode, etc.)
 ├── _errors.py           # Exception types
+├── _local.py            # Local WASM-based rule evaluation via arcjet-analyze
 ├── _logging.py          # Logging configuration
 ├── _convert.py          # Protobuf conversion utilities
 └── proto/               # Generated protobuf code (DO NOT EDIT)
@@ -253,7 +254,10 @@ tests/
 benchmarks/
 ├── conftest.py              # Session fixtures: component, configs, contexts, mocked client
 ├── bench_wasm_init.py       # Cold-start cost (AnalyzeComponent creation)
-└── bench_wasm_per_call.py   # Per-call Store+instantiate+invoke for each WASM export
+├── bench_wasm_per_call.py   # Per-call Store+instantiate+invoke for each WASM export
+├── bench_protect.py         # Full protect() path comparison (baseline vs WASM)
+├── bench_local_evaluators.py # evaluate_bot_locally / evaluate_email_locally
+└── bench_serialization.py   # Python-side JSON/proto serialization
 ```
 
 ## Coding conventions
@@ -311,6 +315,22 @@ requests to a common `RequestContext` type.
   when set
 
 ## WASM component integration
+
+### SDK integration
+
+Local WASM evaluation is wired into the main SDK at `src/arcjet/_local.py`:
+
+- **Lazy singleton:** `_get_component()` loads the WASM binary once, latches on
+  permanent errors, retries on transient errors. Protected by `_component_lock`.
+- **Bot detection:** `evaluate_bot_locally()` runs `detect-bot` and returns a
+  proto `RuleResult`.
+- **Email validation:** `evaluate_email_locally()` runs `is-valid-email` and
+  maps blocked reasons to proto `EmailType` values.
+- **Client integration:** `_run_local_rules()` in `client.py` runs bot/email
+  rules locally before the remote Decide API call; short-circuits on DENY in
+  LIVE mode.
+- **Reporting:** Fire-and-forget `ReportRequest` sent on local DENY so
+  decisions appear in the Arcjet dashboard.
 
 ### Thread safety
 
