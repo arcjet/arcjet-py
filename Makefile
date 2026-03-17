@@ -33,4 +33,4 @@ test:  ## All tests (unit + integration + analyze, with coverage)
 	uv run pytest
 
 bench:  ## Run benchmarks
-	uv run pytest tests/benchmarks/ --benchmark-only --no-cov
+	uv run pytest tests/benchmarks/ --benchmark-only --no-cov -o "addopts=" -o "python_files=bench_*.py"
