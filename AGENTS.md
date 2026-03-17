@@ -36,9 +36,8 @@ Always prefix commands with `uv run`. Common tasks are wrapped in the
 ```bash
 make check       # All lint + type + API-break checks (single command)
 make format      # Auto-fix imports and format code
-make test        # SDK tests (unit + integration, with coverage)
-make test-analyze  # arcjet-analyze WASM binding tests
-make test-all    # Both test suites
+make test        # All tests (unit + integration + analyze, with coverage)
+make bench       # Run benchmarks
 ```
 
 ## Build, test, and lint commands
@@ -62,12 +61,7 @@ all tests to run together without cross-contamination. See
 (`fail_under = 80` in `pyproject.toml`). Generated code (protobuf and witgen
 output) is excluded from coverage via `[tool.coverage.run] omit`.
 
-The `arcjet-analyze` package has its own test suite:
-
-```bash
-make test-analyze  # or:
-uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
-```
+WASM binding tests are in `tests/analyze/` and run as part of the main test suite.
 
 ### Linting, formatting, and type checking
 
@@ -108,13 +102,13 @@ keeping the existing API surface intact with internal changes.
 - `src/arcjet/` — Main SDK package. Public API in `__init__.py`, client in
   `client.py`, rules in `rules.py`, local WASM evaluation in `_local.py`.
   Protobuf code in `proto/` is **generated — do not edit**.
-- `arcjet-analyze/` — WASM component integration with typed Python bindings.
-  See `arcjet-analyze/WITGEN.md` for binding generation and
-  `arcjet-analyze/WASMTIME.md` for wasmtime-py details.
+- `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
+  See `docs/WITGEN.md` for binding generation and
+  `docs/WASMTIME.md` for wasmtime-py details.
 - `tools/witgen/` — WIT-to-Python code generator (configured by `witgen.toml`).
-- `tests/` — Unit tests (`tests/unit/`) and integration tests
-  (`tests/fastapi/`, `tests/flask/`). See `tests/TESTING_PATTERNS.md`.
-- `benchmarks/` — WASM performance benchmarks. See `arcjet-analyze/WASMTIME.md`.
+- `tests/` — Unit tests (`tests/unit/`), integration tests
+  (`tests/fastapi/`, `tests/flask/`), WASM binding tests (`tests/analyze/`),
+  and benchmarks (`tests/benchmarks/`). See `tests/TESTING_PATTERNS.md`.
 
 ## Coding conventions
 
@@ -185,7 +179,7 @@ The lock provides defensive safety at negligible cost (WASM calls are 1–5ms).
 swapping under the same lock.
 
 For detailed wasmtime-py reference (linker setup, type mapping, known bugs),
-see [arcjet-analyze/WASMTIME.md](arcjet-analyze/WASMTIME.md).
+see [docs/WASMTIME.md](docs/WASMTIME.md).
 
 ## Key design patterns
 
@@ -219,7 +213,7 @@ The `.protect()` method returns a `Decision` object with:
 Before submitting a PR:
 - [ ] Run `make format` to fix imports and format code
 - [ ] Run `make check` to run all lint, type, and API-break checks
-- [ ] Run `make test-all` to run both SDK and arcjet-analyze test suites
+- [ ] Run `make test` to run all tests
 - [ ] Add `breaking` label if introducing intentional API breaking changes
 - [ ] Ensure all new code is fully type-annotated and follows coding conventions
 - [ ] Add new tests to aim for 80%+ coverage (current threshold)

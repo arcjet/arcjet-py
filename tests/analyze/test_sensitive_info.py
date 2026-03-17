@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from arcjet_analyze import (
+from arcjet._analyze import (
     AnalyzeComponent,
     DetectedSensitiveInfoEntity,
     SensitiveInfoConfig,

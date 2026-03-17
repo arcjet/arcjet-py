@@ -5,14 +5,16 @@ from __future__ import annotations
 import threading
 
 import pytest
-from arcjet_analyze import (
+
+from arcjet._analyze import (
     AnalyzeComponent,
     Ok,
     get_component,
     reset_component,
 )
-from arcjet_analyze._types import AllowedBotConfig
-from conftest import BOT_REQUEST, WASM_PATH
+from arcjet._analyze._types import AllowedBotConfig
+
+from .conftest import BOT_REQUEST, WASM_PATH
 
 
 @pytest.fixture(autouse=True)

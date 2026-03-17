@@ -1,19 +1,17 @@
-"""Shared fixtures for arcjet_analyze tests."""
+"""Shared fixtures for arcjet._analyze tests."""
 
 from __future__ import annotations
 
+import importlib.resources as _res
 import json
 import os
 
 import pytest
-from arcjet_analyze import AnalyzeComponent
 
-WASM_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..",
-    "arcjet_analyze",
-    "wasm",
-    "arcjet_analyze_js_req.component.wasm",
+from arcjet._analyze import AnalyzeComponent
+
+WASM_PATH = str(
+    _res.files("arcjet._analyze") / "wasm" / "arcjet_analyze_js_req.component.wasm"
 )
 
 # Shared request payloads used across test files

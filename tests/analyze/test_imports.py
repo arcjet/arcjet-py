@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from arcjet_analyze import (
+
+from arcjet._analyze import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
     AnalyzeComponent,
@@ -20,7 +21,8 @@ from arcjet_analyze import (
     SensitiveInfoEntityEmail,
     SensitiveInfoEntityPhoneNumber,
 )
-from conftest import BOT_REQUEST
+
+from .conftest import BOT_REQUEST
 
 FILTER_REQUEST = json.dumps({"ip": "1.2.3.4"})
 
@@ -57,7 +59,7 @@ class TestDefaultCallbacks:
 
     def test_default_bot_verify_directly(self) -> None:
         """Default bot_verify returns 'unverifiable' for any input."""
-        from arcjet_analyze._import_defaults import _default_bot_verify
+        from arcjet._analyze._import_defaults import _default_bot_verify
 
         assert _default_bot_verify("googlebot", "66.249.66.1") == "unverifiable"
 

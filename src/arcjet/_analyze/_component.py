@@ -98,9 +98,7 @@ class AnalyzeComponentBase:
         allow_if_match: bool,
     ) -> Result[FilterResult, str]:
         """Run ``match-filters`` on the component."""
-        raw = self._call(
-            "match-filters", request, local_fields, expressions, allow_if_match
-        )
+        raw = self._call("match-filters", request, local_fields, expressions, allow_if_match)
         return from_wasm_match_filters(raw)
 
     def generate_fingerprint(
@@ -127,9 +125,7 @@ class AnalyzeComponentBase:
         options: EmailValidationConfig,
     ) -> Result[EmailValidationResult, str]:
         """Run ``is-valid-email`` on the component."""
-        raw = self._call(
-            "is-valid-email", candidate, to_wasm_email_validation_config(options)
-        )
+        raw = self._call("is-valid-email", candidate, to_wasm_email_validation_config(options))
         return from_wasm_is_valid_email(raw)
 
     def detect_sensitive_info(
@@ -138,7 +134,5 @@ class AnalyzeComponentBase:
         options: SensitiveInfoConfig,
     ) -> SensitiveInfoResult:
         """Run ``detect-sensitive-info`` on the component."""
-        raw = self._call(
-            "detect-sensitive-info", content, to_wasm_sensitive_info_config(options)
-        )
+        raw = self._call("detect-sensitive-info", content, to_wasm_sensitive_info_config(options))
         return from_wasm_detect_sensitive_info(raw)

@@ -47,8 +47,8 @@ tools/witgen/
 
 ```toml
 [witgen]
-wasm_path = "arcjet-analyze/arcjet_analyze/wasm/arcjet_analyze_js_req.component.wasm"
-output_dir = "arcjet-analyze/arcjet_analyze"
+wasm_path = "src/arcjet/_analyze/wasm/arcjet_analyze_js_req.component.wasm"
+output_dir = "src/arcjet/_analyze"
 component_class = "AnalyzeComponentBase"   # class name in _component.py
 overrides_module = "_overrides"            # module re-exporting AnalyzeComponent
 
@@ -88,8 +88,8 @@ uv run python -m tools.witgen
 uv run ruff check --select I --fix && uv run ruff format
 
 # Verify:
-uv run pytest arcjet-analyze/tests/ --no-cov -q
-uv run pyright arcjet-analyze/arcjet_analyze/ tools/witgen/
+uv run pytest tests/analyze/ --no-cov -q
+uv run pyright src/arcjet/_analyze/ tools/witgen/
 ```
 
 ## Design: generic generator + hand-maintained overrides

@@ -8,7 +8,7 @@ Uses pedantic mode with few rounds since init is inherently slow.
 
 from __future__ import annotations
 
-from arcjet_analyze import AnalyzeComponent
+from arcjet._analyze import AnalyzeComponent
 
 
 def test_bench_analyze_component_init(benchmark, wasm_path: str):

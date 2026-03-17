@@ -14,7 +14,7 @@ import json
 import threading
 from typing import Callable
 
-from arcjet_analyze import (
+from arcjet._analyze import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
     AnalyzeComponent,
@@ -34,7 +34,6 @@ from arcjet_analyze import (
     SensitiveInfoEntityIpAddress,
     SensitiveInfoEntityPhoneNumber,
 )
-
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._enums import Mode
@@ -88,9 +87,9 @@ def _get_component() -> AnalyzeComponent | None:
         if state is not _MISSING:
             return state if isinstance(state, AnalyzeComponent) else None
         try:
-            # The WASM binary lives inside the arcjet_analyze package
+            # The WASM binary lives inside the arcjet._analyze package
             wasm_ref = (
-                _res.files("arcjet_analyze")
+                _res.files("arcjet._analyze")
                 / "wasm"
                 / "arcjet_analyze_js_req.component.wasm"
             )

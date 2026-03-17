@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from arcjet_analyze import (
+import arcjet._local as _local
+from arcjet._analyze import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
     BotResult,
@@ -14,8 +15,6 @@ from arcjet_analyze import (
     Err,
     Ok,
 )
-
-import arcjet._local as _local
 from arcjet._enums import Mode
 from arcjet.client import _build_local_deny_report, _run_local_rules
 from arcjet.context import RequestContext

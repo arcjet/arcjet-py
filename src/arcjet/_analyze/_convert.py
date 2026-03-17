@@ -52,18 +52,12 @@ def to_wasm_bot_config(config: BotConfig) -> Variant:
     if isinstance(config, AllowedBotConfig):
         return Variant(
             "allowed-bot-config",
-            _rec(
-                entities=config.entities,
-                **{"skip-custom-detect": config.skip_custom_detect},
-            ),
+            _rec(entities=config.entities, **{"skip-custom-detect": config.skip_custom_detect}),
         )
     elif isinstance(config, DeniedBotConfig):
         return Variant(
             "denied-bot-config",
-            _rec(
-                entities=config.entities,
-                **{"skip-custom-detect": config.skip_custom_detect},
-            ),
+            _rec(entities=config.entities, **{"skip-custom-detect": config.skip_custom_detect}),
         )
     raise TypeError(f"Expected BotConfig, got {type(config).__name__}")
 
@@ -73,20 +67,12 @@ def to_wasm_email_validation_config(config: EmailValidationConfig) -> Variant:
     if isinstance(config, AllowEmailValidationConfig):
         return Variant(
             "allow-email-validation-config",
-            _rec(
-                **{"require-top-level-domain": config.require_top_level_domain},
-                **{"allow-domain-literal": config.allow_domain_literal},
-                allow=config.allow,
-            ),
+            _rec(**{"require-top-level-domain": config.require_top_level_domain}, **{"allow-domain-literal": config.allow_domain_literal}, allow=config.allow),
         )
     elif isinstance(config, DenyEmailValidationConfig):
         return Variant(
             "deny-email-validation-config",
-            _rec(
-                **{"require-top-level-domain": config.require_top_level_domain},
-                **{"allow-domain-literal": config.allow_domain_literal},
-                deny=config.deny,
-            ),
+            _rec(**{"require-top-level-domain": config.require_top_level_domain}, **{"allow-domain-literal": config.allow_domain_literal}, deny=config.deny),
         )
     raise TypeError(f"Expected EmailValidationConfig, got {type(config).__name__}")
 
@@ -109,13 +95,9 @@ def to_wasm_sensitive_info_entity(entity: SensitiveInfoEntity) -> Variant:
 def to_wasm_sensitive_info_entities(entity: SensitiveInfoEntities) -> Variant:
     """Convert a SensitiveInfoEntities to a wasmtime Variant."""
     if isinstance(entity, SensitiveInfoEntitiesAllow):
-        return Variant(
-            "allow", [to_wasm_sensitive_info_entity(e) for e in entity.entities]
-        )
+        return Variant("allow", [to_wasm_sensitive_info_entity(e) for e in entity.entities])
     elif isinstance(entity, SensitiveInfoEntitiesDeny):
-        return Variant(
-            "deny", [to_wasm_sensitive_info_entity(e) for e in entity.entities]
-        )
+        return Variant("deny", [to_wasm_sensitive_info_entity(e) for e in entity.entities])
     raise TypeError(f"Unknown SensitiveInfoEntities: {type(entity)}")
 
 
@@ -137,9 +119,7 @@ def from_wasm_filter_result(raw: Any) -> FilterResult:
             undetermined_expressions=getattr(raw, "undetermined-expressions"),
         )
     except AttributeError as exc:
-        raise TypeError(
-            f"failed to convert wasmtime Record to FilterResult: {exc}"
-        ) from exc
+        raise TypeError(f"failed to convert wasmtime Record to FilterResult: {exc}") from exc
 
 
 def from_wasm_sensitive_info_entity(raw: Any) -> SensitiveInfoEntity:
@@ -166,14 +146,10 @@ def from_wasm_detected_sensitive_info_entity(raw: Any) -> DetectedSensitiveInfoE
         return DetectedSensitiveInfoEntity(
             start=raw.start,
             end=raw.end,
-            identified_type=from_wasm_sensitive_info_entity(
-                getattr(raw, "identified-type")
-            ),
+            identified_type=from_wasm_sensitive_info_entity(getattr(raw, "identified-type")),
         )
     except AttributeError as exc:
-        raise TypeError(
-            f"failed to convert wasmtime Record to DetectedSensitiveInfoEntity: {exc}"
-        ) from exc
+        raise TypeError(f"failed to convert wasmtime Record to DetectedSensitiveInfoEntity: {exc}") from exc
 
 
 def from_wasm_sensitive_info_result(raw: Any) -> SensitiveInfoResult:
@@ -184,9 +160,7 @@ def from_wasm_sensitive_info_result(raw: Any) -> SensitiveInfoResult:
             denied=[from_wasm_detected_sensitive_info_entity(e) for e in raw.denied],
         )
     except AttributeError as exc:
-        raise TypeError(
-            f"failed to convert wasmtime Record to SensitiveInfoResult: {exc}"
-        ) from exc
+        raise TypeError(f"failed to convert wasmtime Record to SensitiveInfoResult: {exc}") from exc
 
 
 def from_wasm_detect_bot(raw: Any) -> Result[BotResult, str]:
@@ -203,9 +177,7 @@ def from_wasm_detect_bot(raw: Any) -> Result[BotResult, str]:
             )
         )
     except AttributeError as exc:
-        raise TypeError(
-            f"failed to convert wasmtime Record in detect-bot result: {exc}"
-        ) from exc
+        raise TypeError(f"failed to convert wasmtime Record in detect-bot result: {exc}") from exc
 
 
 def from_wasm_match_filters(raw: Any) -> Result[FilterResult, str]:
@@ -220,9 +192,7 @@ def from_wasm_generate_fingerprint(raw: Any) -> Result[str, str]:
     if not isinstance(raw, Variant):
         raise TypeError(f"expected Variant from generate-fingerprint, got {type(raw)}")
     if not isinstance(raw.payload, str):
-        raise TypeError(
-            f"expected str payload in generate-fingerprint result, got {type(raw.payload)}"
-        )
+        raise TypeError(f"expected str payload in generate-fingerprint result, got {type(raw.payload)}")
     if raw.tag == "ok":
         return Ok(raw.payload)
     elif raw.tag == "err":
@@ -235,9 +205,7 @@ def from_wasm_validate_characteristics(raw: Any) -> Result[None, str]:
     if raw is None:
         return Ok(None)
     if not isinstance(raw, str):
-        raise TypeError(
-            f"expected str error from validate-characteristics, got {type(raw)}"
-        )
+        raise TypeError(f"expected str error from validate-characteristics, got {type(raw)}")
     return Err(raw)
 
 
@@ -253,9 +221,7 @@ def from_wasm_is_valid_email(raw: Any) -> Result[EmailValidationResult, str]:
             )
         )
     except AttributeError as exc:
-        raise TypeError(
-            f"failed to convert wasmtime Record in is-valid-email result: {exc}"
-        ) from exc
+        raise TypeError(f"failed to convert wasmtime Record in is-valid-email result: {exc}") from exc
 
 
 def from_wasm_detect_sensitive_info(raw: Any) -> SensitiveInfoResult:
