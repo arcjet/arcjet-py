@@ -115,6 +115,11 @@ def _get_component() -> AnalyzeComponent | None:
 # ---------------------------------------------------------------------------
 
 
+# TTL (in seconds) applied to DENY results from local bot / filter evaluation,
+# matching the values used by the Go decide service (bot_v2_rule.go, filter_rule.go).
+_LOCAL_DENY_TTL_SECONDS = 60
+
+
 def _rule_state(mode: Mode) -> decide_pb2.RuleState:
     """Map a rule Mode to the corresponding proto RuleState value."""
     if mode == Mode.DRY_RUN:
@@ -204,6 +209,8 @@ def evaluate_bot_locally(
         )
     )
 
+    ttl = _LOCAL_DENY_TTL_SECONDS if has_deny else 0
+
     # Intentional: server uses empty rule_id too (arcjet-decide #4740).
     # The report handler passes rules/results independently without joining
     # on rule_id, so an empty string is safe here.
@@ -212,6 +219,7 @@ def evaluate_bot_locally(
         state=state,
         conclusion=conclusion,
         reason=reason,
+        ttl=ttl,
     )
 
 
@@ -515,9 +523,12 @@ def evaluate_filter_locally(
         )
     )
 
+    ttl = _LOCAL_DENY_TTL_SECONDS if not fr.allowed else 0
+
     return decide_pb2.RuleResult(
         rule_id="",
         state=state,
         conclusion=conclusion,
         reason=reason,
+        ttl=ttl,
     )

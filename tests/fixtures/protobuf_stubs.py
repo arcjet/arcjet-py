@@ -29,6 +29,12 @@ EMAIL_TYPE_NO_GRAVATAR = 4
 EMAIL_TYPE_INVALID = 5
 EMAIL_TYPE_UNSPECIFIED = 0
 
+RULE_STATE_UNSPECIFIED = 0
+RULE_STATE_RUN = 1
+RULE_STATE_NOT_RUN = 2
+RULE_STATE_DRY_RUN = 3
+RULE_STATE_CACHED = 4
+
 RATE_LIMIT_ALGORITHM_TOKEN_BUCKET = 1
 RATE_LIMIT_ALGORITHM_FIXED_WINDOW = 2
 RATE_LIMIT_ALGORITHM_SLIDING_WINDOW = 3
@@ -258,12 +264,14 @@ class StubRuleResult:
         conclusion: int = CONCLUSION_ALLOW,
         reason: Optional[StubReason] = None,
         fingerprint: str | None = None,
+        ttl: int = 0,
     ) -> None:
         self.rule_id = rule_id
         self.state = state
         self.conclusion = conclusion
         self.reason = reason
         self.fingerprint = fingerprint or ""
+        self.ttl = ttl
 
 
 class StubDecision:
@@ -485,6 +493,11 @@ def mock_protobuf_modules(
         RATE_LIMIT_ALGORITHM_TOKEN_BUCKET=RATE_LIMIT_ALGORITHM_TOKEN_BUCKET,
         RATE_LIMIT_ALGORITHM_FIXED_WINDOW=RATE_LIMIT_ALGORITHM_FIXED_WINDOW,
         RATE_LIMIT_ALGORITHM_SLIDING_WINDOW=RATE_LIMIT_ALGORITHM_SLIDING_WINDOW,
+        RULE_STATE_UNSPECIFIED=RULE_STATE_UNSPECIFIED,
+        RULE_STATE_RUN=RULE_STATE_RUN,
+        RULE_STATE_NOT_RUN=RULE_STATE_NOT_RUN,
+        RULE_STATE_DRY_RUN=RULE_STATE_DRY_RUN,
+        RULE_STATE_CACHED=RULE_STATE_CACHED,
         Conclusion=_Conclusion,
         RequestDetails=StubRequestDetails,
         ShieldRule=StubShieldRule,
