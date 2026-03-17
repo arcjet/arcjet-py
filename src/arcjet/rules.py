@@ -1187,6 +1187,9 @@ def filter_request(
     - ``'http.host == "example.com"'``
     - ``'http.request.uri.path contains "/admin"'``
 
+    See https://docs.arcjet.com/filters/reference#expression-language for
+    the full expression language reference and available fields.
+
     When this rule is configured, you can optionally pass
     ``filter_local={...}`` to ``protect()`` to provide additional fields
     available as ``local.<key>`` in expressions.
