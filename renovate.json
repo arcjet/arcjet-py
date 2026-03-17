@@ -13,7 +13,7 @@
       "dependencyDashboardCategory": "GitHub Actions updates"
     },
     {
-      "matchManagers": ["pep621", "uv"],
+      "matchManagers": ["pep621"],
       "dependencyDashboardCategory": "Python updates"
     },
     {
@@ -31,7 +31,7 @@
       "automerge": true
     },
     {
-      "matchManagers": ["pep621", "uv"],
+      "matchManagers": ["pep621"],
       "matchPackageNames": ["python"],
       "groupName": "python",
       "allowedVersions": "<4"
