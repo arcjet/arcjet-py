@@ -557,6 +557,44 @@ class SensitiveInfoDetection(RuleSpec):
         return decide_pb2.Rule(sensitive_info=sir)
 
 
+@dataclass(frozen=True, slots=True)
+class Filter(RuleSpec):
+    """Expression-based request filter rule configuration.
+
+    Prefer the ``filter_request()`` factory function over constructing this directly.
+    """
+
+    mode: Mode
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.mode, Mode):
+            raise TypeError("Filter.mode must be a Mode enum")
+        for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if not isinstance(seq, tuple):
+                raise TypeError(f"Filter.{name} must be a tuple of strings")
+            for item in seq:
+                if not isinstance(item, str):
+                    raise TypeError(f"Filter.{name} entries must be strings")
+                if item == "":
+                    raise ValueError(f"Filter.{name} entries cannot be empty strings")
+        if self.allow and self.deny:
+            raise ValueError(
+                "Filter: expressions must be passed in either allow or deny, not both"
+            )
+        if not self.allow and not self.deny:
+            raise ValueError(
+                "Filter: one or more expressions must be passed in allow or deny"
+            )
+
+    def to_proto(self) -> decide_pb2.Rule:
+        fr = decide_pb2.FilterRule(mode=_mode_to_proto(self.mode))
+        fr.allow.extend(self.allow)
+        fr.deny.extend(self.deny)
+        return decide_pb2.Rule(filter=fr)
+
+
 class EmailType(str, Enum):
     """Email address classifier types used by ``validate_email()``.
 
@@ -1127,4 +1165,60 @@ def detect_sensitive_info(
         context_window_size=context_window_size,
         detect=detect,
         characteristics=tuple(str(c) for c in characteristics),
+    )
+
+
+def filter_request(
+    *,
+    mode: Union[str, Mode] = Mode.LIVE,
+    allow: Sequence[str] = (),
+    deny: Sequence[str] = (),
+) -> Filter:
+    """Filter requests using expression-based rules.
+
+    Evaluate Wireshark-like filter expressions against request properties
+    (IP, headers, path, method, etc.) and locally-provided fields. Use
+    ``allow`` to permit requests matching any expression (deny everything
+    else), or ``deny`` to block matching requests (allow everything else).
+
+    Expressions reference request fields with dot notation, e.g.:
+
+    - ``'ip.src == "1.2.3.4"'``
+    - ``'http.host == "example.com"'``
+    - ``'http.request.uri.path contains "/admin"'``
+
+    See https://docs.arcjet.com/filters/reference#expression-language for
+    the full expression language reference and available fields.
+
+    When this rule is configured, you can optionally pass
+    ``filter_local={...}`` to ``protect()`` to provide additional fields
+    available as ``local.<key>`` in expressions.
+
+    Args:
+        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
+            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
+            ``Mode.LIVE``.
+        allow: Expressions that allow a request when matched. All other
+            requests are denied. Do not combine with ``deny``.
+        deny: Expressions that deny a request when matched. All other
+            requests are allowed. Do not combine with ``allow``.
+
+    Returns:
+        A ``Filter`` rule to include in the ``rules`` list of ``arcjet()``.
+
+    Example::
+
+        from arcjet import filter_request, Mode
+
+        rules = [
+            filter_request(
+                mode=Mode.LIVE,
+                deny=['ip.src == "1.2.3.4"'],
+            )
+        ]
+    """
+    return Filter(
+        mode=_coerce_mode(mode),
+        allow=tuple(str(e) for e in allow),
+        deny=tuple(str(e) for e in deny),
     )

@@ -80,6 +80,7 @@ class RequestContext:
     email: str | None = None
     sensitive_info_value: str | None = None
     detect_prompt_injection_message: str | None = None
+    filter_local: Mapping[str, str] | None = None
     extra: Mapping[str, str] | None = None
 
 
@@ -301,6 +302,14 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
     # Pass message through extra if present
     if ctx.detect_prompt_injection_message:
         d.extra["detectPromptInjectionMessage"] = ctx.detect_prompt_injection_message
+
+    # Redact sensitive fields that are only used for local WASM evaluation.
+    # The server needs to know these fields exist (for dashboard/logging) but
+    # must not receive the raw values.  Matches the JS SDK's redaction pattern.
+    if ctx.filter_local:
+        d.extra["filterLocal"] = "<redacted>"
+    if ctx.sensitive_info_value:
+        d.extra["sensitiveInfoValue"] = "<redacted>"
 
     return d
 

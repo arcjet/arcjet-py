@@ -182,6 +182,48 @@ def test_request_details_from_context_omits_message_key_when_none():
     assert "detectPromptInjectionMessage" not in d.extra
 
 
+def test_request_details_from_context_redacts_filter_local():
+    """filter_local is redacted when sent to the Decide API."""
+    ctx = RequestContext(
+        ip="203.0.113.6",
+        method="POST",
+        protocol="https",
+        host="ex",
+        path="/api",
+        filter_local={"username": "alice", "role": "admin"},
+    )
+    d = request_details_from_context(ctx)
+    assert d.extra["filterLocal"] == "<redacted>"
+
+
+def test_request_details_from_context_redacts_sensitive_info_value():
+    """sensitive_info_value is redacted when sent to the Decide API."""
+    ctx = RequestContext(
+        ip="203.0.113.6",
+        method="POST",
+        protocol="https",
+        host="ex",
+        path="/api",
+        sensitive_info_value="my SSN is 123-45-6789",
+    )
+    d = request_details_from_context(ctx)
+    assert d.extra["sensitiveInfoValue"] == "<redacted>"
+
+
+def test_request_details_from_context_omits_redacted_keys_when_absent():
+    """Redacted keys should not appear when the fields are not set."""
+    ctx = RequestContext(
+        ip="203.0.113.6",
+        method="GET",
+        protocol="https",
+        host="ex",
+        path="/p",
+    )
+    d = request_details_from_context(ctx)
+    assert "filterLocal" not in d.extra
+    assert "sensitiveInfoValue" not in d.extra
+
+
 def test_request_details_from_context_normalizes_query_string():
     """
     Decide server expects query string to include the leading '?' while

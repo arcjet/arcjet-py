@@ -36,12 +36,11 @@ Arcjet security features for protecting Python apps:
 - 📝 [Signup form protection](https://docs.arcjet.com/signup-protection) -
   combines rate limiting, bot protection, and email validation to protect your
   signup forms.
-
-> [!NOTE]
-> The Arcjet Python SDK currently doesn't support [sensitive information
-> detection](https://docs.arcjet.com/sensitive-info) or [request
-> filters](https://docs.arcjet.com/filters). These features are planned for a
-> future release when local analysis will be supported.
+- 🔍 [Sensitive information
+  detection](https://docs.arcjet.com/sensitive-info) - detect and block PII
+  (emails, phone numbers, credit cards) in request content.
+- 🔎 [Request filters](https://docs.arcjet.com/filters) - filter requests using
+  expression-based rules against request properties.
 
 ### Get help
 
@@ -390,6 +389,78 @@ if __name__ == "__main__":
 
 
 ```
+
+## Sensitive information detection
+
+Detect and optionally block sensitive information (PII) in request content such
+as email addresses, phone numbers, IP addresses, and credit card numbers.
+
+```py
+from arcjet import arcjet, detect_sensitive_info, SensitiveInfoEntityType, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+            ],
+        ),
+    ],
+)
+
+# Pass the content to scan on each protect() call
+decision = await aj.protect(request, sensitive_info_value="User input to scan")
+```
+
+You can also provide a custom detect callback to supplement the built-in
+detectors:
+
+```py
+def my_detect(tokens: list[str]) -> list[str | None]:
+    return ["CUSTOM_PII" if "secret" in t.lower() else None for t in tokens]
+
+rules = [
+    detect_sensitive_info(
+        mode=Mode.LIVE,
+        deny=["CUSTOM_PII"],
+        detect=my_detect,
+    ),
+]
+```
+
+## Request filters
+
+Filter requests using
+[expression-based rules](https://docs.arcjet.com/filters/reference#expression-language)
+against request properties (IP, headers, path, method, etc.).
+
+```py
+from arcjet import arcjet, filter_request, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        filter_request(
+            mode=Mode.LIVE,
+            deny=['ip.src == "1.2.3.4"'],
+        ),
+    ],
+)
+```
+
+You can also pass local fields for use in filter expressions:
+
+```py
+decision = await aj.protect(
+    request,
+    filter_local={"userId": current_user.id},
+)
+```
+
+These are then available as `local.userId` in expressions.
 
 ## Trusted proxies
 

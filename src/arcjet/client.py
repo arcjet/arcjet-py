@@ -41,6 +41,7 @@ from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._local import (
     evaluate_bot_locally,
     evaluate_email_locally,
+    evaluate_filter_locally,
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
@@ -54,9 +55,12 @@ from .decision import Decision
 from .rules import (
     BotDetection,
     EmailValidation,
+    Filter,
+    FixedWindow,
     PromptInjectionDetection,
     RuleSpec,
     SensitiveInfoDetection,
+    SlidingWindow,
     TokenBucket,
 )
 
@@ -210,6 +214,8 @@ def _run_local_rules(
             result = evaluate_email_locally(ctx, rule)
         elif isinstance(rule, SensitiveInfoDetection):
             result = evaluate_sensitive_info_locally(ctx, rule)
+        elif isinstance(rule, Filter):
+            result = evaluate_filter_locally(ctx, rule)
 
         if result is None:
             continue
@@ -258,6 +264,31 @@ def _build_local_deny_report(
     )
     rep.rules.extend([r.to_proto() for r in rules])
     return rep
+
+
+# Rate-limit rule types that inherit global characteristics when they have none.
+_RATE_LIMIT_TYPES = (TokenBucket, FixedWindow, SlidingWindow)
+
+
+def _apply_global_characteristics(
+    rules: tuple[RuleSpec, ...],
+    characteristics: tuple[str, ...],
+) -> tuple[RuleSpec, ...]:
+    """Apply global characteristics to rate-limit rules that lack their own.
+
+    Returns a new tuple with the same rules, except rate-limit rules whose
+    ``characteristics`` field is empty get a copy with the global value filled in.
+    Non-rate-limit rules and rules that already define characteristics are
+    returned unchanged.
+    """
+    if not characteristics:
+        return rules
+    out: list[RuleSpec] = []
+    for r in rules:
+        if isinstance(r, _RATE_LIMIT_TYPES) and not r.characteristics:
+            r = replace(r, characteristics=characteristics)
+        out.append(r)
+    return tuple(out)
 
 
 @dataclass(slots=True)
@@ -348,6 +379,7 @@ class Arcjet:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        filter_local: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request.
@@ -373,6 +405,9 @@ class Arcjet:
                 ``detect_prompt_injection()`` rule is configured.
             extra: Additional key/value pairs forwarded verbatim to the Arcjet
                 Decide API. Useful for custom metadata or debugging.
+            filter_local: Additional key/value pairs available as ``local.<key>``
+                in ``filter_request()`` expressions. Only used when a
+                ``filter_request()`` rule is configured.
             ip_src: Override the detected client IP. Only valid when
                 ``disable_automatic_ip_detection=True`` was set on the client.
                 **Caution:** only pass IPs from sources you trust. See
@@ -425,6 +460,8 @@ class Arcjet:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
             )
+        if filter_local:
+            ctx = replace(ctx, filter_local=filter_local)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
@@ -865,6 +902,7 @@ class ArcjetSync:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        filter_local: Mapping[str, str] | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request (sync).
@@ -902,6 +940,8 @@ class ArcjetSync:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
             )
+        if filter_local:
+            ctx = replace(ctx, filter_local=filter_local)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
@@ -1241,6 +1281,7 @@ def arcjet(
     *,
     key: str,
     rules: Sequence[RuleSpec],
+    characteristics: Sequence[str] = (),
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
     stack: str | None = None,
@@ -1257,6 +1298,9 @@ def arcjet(
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
+        characteristics: Global fingerprint characteristics applied to all
+            rate-limit rules that don't define their own. Defaults to empty
+            (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
@@ -1331,6 +1375,7 @@ def arcjet(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClient(
@@ -1338,7 +1383,7 @@ def arcjet(
     )
     return Arcjet(
         _key=key,
-        _rules=tuple(rules),
+        _rules=resolved_rules,
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
@@ -1356,6 +1401,7 @@ def arcjet_sync(
     *,
     key: str,
     rules: Sequence[RuleSpec],
+    characteristics: Sequence[str] = (),
     base_url: str = DEFAULT_BASE_URL,
     timeout_ms: int | None = None,
     stack: str | None = None,
@@ -1375,6 +1421,9 @@ def arcjet_sync(
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
+        characteristics: Global fingerprint characteristics applied to all
+            rate-limit rules that don't define their own. Defaults to empty
+            (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
@@ -1449,6 +1498,7 @@ def arcjet_sync(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     # Always enable HTTP/2 by default.
     transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
     client = DecideServiceClientSync(
@@ -1457,7 +1507,7 @@ def arcjet_sync(
 
     return ArcjetSync(
         _key=key,
-        _rules=tuple(rules),
+        _rules=resolved_rules,
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
