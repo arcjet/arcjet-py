@@ -1,6 +1,6 @@
 # wasmtime-py component model cookbook
 
-Reference guide for working with wasmtime-py v40 in the arcjet-analyze package.
+Reference guide for working with wasmtime-py v40 in the `arcjet._analyze` subpackage.
 For binding generation, see [WITGEN.md](WITGEN.md).
 
 ## Object lifetimes and reusability
@@ -162,21 +162,18 @@ test the `verified`/`spoofed` result fields.
 
 ## Benchmarks
 
-WASM performance benchmarks live in `benchmarks/` (at the repo root) and use
+WASM performance benchmarks live in `tests/benchmarks/` and use
 `pytest-benchmark`. They measure cold-start costs, per-call overhead, and
 end-to-end `protect()` latency to catch performance regressions in the WASM
-integration layer. They are **not** collected during normal test runs (separate
-`testpaths` and `python_files` pattern).
+integration layer. They are **not** collected during normal test runs (benchmark
+files use `bench_*.py` naming, and `python_files = ["test_*.py"]` in config).
 
 ```bash
 # Run all benchmarks (table output)
-uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v -o "python_files=bench_*.py test_*.py"
+make bench
 
-# Save results to JSON for comparison
-uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-json=benchmark-results.json
-
-# Compare against a saved baseline
-uv run --group benchmarks pytest benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -o "python_files=bench_*.py test_*.py" --benchmark-compare=benchmark-results.json
+# Or directly with options
+uv run pytest tests/benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v
 ```
 
 **Important**: Always pass `--no-cov` — coverage instrumentation distorts
@@ -187,7 +184,7 @@ profile. pytest-benchmark auto-calibrates round counts to get stable results.
 ### Benchmark structure
 
 ```
-benchmarks/
+tests/benchmarks/
 ├── conftest.py              # Session fixtures: component, configs, contexts, mocked client
 ├── bench_wasm_init.py       # Cold-start cost (AnalyzeComponent creation)
 ├── bench_wasm_per_call.py   # Per-call Store+instantiate+invoke for each WASM export

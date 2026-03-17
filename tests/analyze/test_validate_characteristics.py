@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from arcjet_analyze import AnalyzeComponent, Err, Ok
+from arcjet._analyze import AnalyzeComponent, Err, Ok
 
 REQUEST = json.dumps(
     {

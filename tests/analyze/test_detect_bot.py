@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from arcjet_analyze import (
+from arcjet._analyze import (
     AllowedBotConfig,
     AnalyzeComponent,
     BotResult,
@@ -13,7 +13,8 @@ from arcjet_analyze import (
     Err,
     Ok,
 )
-from conftest import BOT_REQUEST as CURL_REQUEST
+
+from .conftest import BOT_REQUEST as CURL_REQUEST
 
 
 def _request_with_ua(ua: str) -> str:

@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from arcjet_analyze import Err, FilterResult, Ok
 
+from arcjet._analyze import Err, FilterResult, Ok
 from arcjet._enums import Mode
 from arcjet._local import evaluate_filter_locally
 from arcjet.client import _run_local_rules

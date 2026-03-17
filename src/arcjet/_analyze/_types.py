@@ -12,6 +12,7 @@ T = TypeVar("T")
 E = TypeVar("E")
 
 
+
 @dataclass(frozen=True, slots=True)
 class Ok(Generic[T]):
     """Wraps the success value from a WIT ``result<T, E>``."""
@@ -149,28 +150,24 @@ class FilterResult:
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoEntityEmail:
     """WIT ``sensitive-info-entity::email`` (unit variant case)."""
-
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoEntityPhoneNumber:
     """WIT ``sensitive-info-entity::phone-number`` (unit variant case)."""
-
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoEntityIpAddress:
     """WIT ``sensitive-info-entity::ip-address`` (unit variant case)."""
-
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoEntityCreditCardNumber:
     """WIT ``sensitive-info-entity::credit-card-number`` (unit variant case)."""
-
     pass
 
 

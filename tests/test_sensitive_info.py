@@ -10,7 +10,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from arcjet_analyze import (
+
+from arcjet._analyze import (
     DetectedSensitiveInfoEntity,
     SensitiveInfoConfig,
     SensitiveInfoEntitiesAllow,
@@ -22,7 +23,6 @@ from arcjet_analyze import (
     SensitiveInfoEntityPhoneNumber,
     SensitiveInfoResult,
 )
-
 from arcjet._enums import Mode
 from arcjet._local import evaluate_sensitive_info_locally
 from arcjet.client import _run_local_rules

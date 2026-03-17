@@ -11,14 +11,14 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
-from arcjet_analyze import (
+
+from arcjet._analyze import (
     AllowedBotConfig,
     AllowEmailValidationConfig,
     AnalyzeComponent,
     DeniedBotConfig,
     DenyEmailValidationConfig,
 )
-
 from arcjet._enums import Mode
 from arcjet._local import _get_component
 from arcjet.context import RequestContext
@@ -32,7 +32,9 @@ from arcjet.rules import BotDetection, EmailType, EmailValidation, Shield
 @pytest.fixture(scope="session")
 def wasm_path() -> str:
     """Resolve the WASM binary via importlib.resources."""
-    ref = _res.files("arcjet_analyze") / "wasm" / "arcjet_analyze_js_req.component.wasm"
+    ref = (
+        _res.files("arcjet._analyze") / "wasm" / "arcjet_analyze_js_req.component.wasm"
+    )
     return str(ref)
 
 

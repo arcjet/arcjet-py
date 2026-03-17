@@ -1,4 +1,4 @@
-.PHONY: check lint typecheck apicheck format test test-analyze test-all
+.PHONY: check lint typecheck apicheck format test bench
 
 # ---------------------------------------------------------------------------
 # Lint + type-check (single command: `make check`)
@@ -29,10 +29,8 @@ format:  ## Auto-fix imports and format code
 # Tests
 # ---------------------------------------------------------------------------
 
-test:  ## SDK tests (unit + integration, with coverage)
+test:  ## All tests (unit + integration + analyze, with coverage)
 	uv run pytest
 
-test-analyze:  ## arcjet-analyze WASM binding tests (with coverage)
-	uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
-
-test-all: test test-analyze  ## Both test suites
+bench:  ## Run benchmarks
+	uv run pytest tests/benchmarks/ --benchmark-only --no-cov

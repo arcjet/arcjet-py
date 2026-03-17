@@ -7,7 +7,7 @@ Engine/Component/Linker creation is NOT included.
 
 from __future__ import annotations
 
-from arcjet_analyze import (
+from arcjet._analyze import (
     AllowedBotConfig,
     AnalyzeComponent,
     DeniedBotConfig,

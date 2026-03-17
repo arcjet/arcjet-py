@@ -170,11 +170,10 @@ async def test_feature_with_specific_condition():
 - Add ids for readability: `@pytest.mark.parametrize("x", [1, 2], ids=["small",
   "large"])`
 
-## WASM Component Testing (`arcjet-analyze/tests/`)
+## WASM Component Testing (`tests/analyze/`)
 
-The `arcjet-analyze` package has its own test suite for WASM bindings. These
-tests exercise the wasmtime-py component model and are separate from the main
-SDK tests.
+WASM binding tests live in `tests/analyze/` and run as part of the main test
+suite. They exercise the wasmtime-py component model.
 
 ### Shared Fixtures for Expensive Resources
 
@@ -182,7 +181,7 @@ WASM component creation is expensive (~50ms). Use fixtures to share the
 component across tests:
 
 ```python
-# arcjet-analyze/tests/conftest.py
+# tests/analyze/conftest.py
 @pytest.fixture()
 def wasm_path() -> str:
     """Path to the full composite WASM component."""
@@ -200,7 +199,7 @@ def component(wasm_path: str) -> AnalyzeComponent:
 Define reusable request JSON constants in `conftest.py`:
 
 ```python
-# arcjet-analyze/tests/conftest.py
+# tests/analyze/conftest.py
 BOT_REQUEST = json.dumps({
     "ip": "1.2.3.4",
     "method": "GET",
@@ -210,7 +209,7 @@ BOT_REQUEST = json.dumps({
 })
 
 # In test files, import and optionally alias:
-from conftest import BOT_REQUEST as CURL_REQUEST
+from .conftest import BOT_REQUEST as CURL_REQUEST
 ```
 
 ### Test Class Organization
@@ -294,21 +293,21 @@ def test_custom_detect_called(self, wasm_path: str) -> None:
     assert len(all_tokens) > 0
 ```
 
-### Running arcjet-analyze Tests
+### Running WASM Binding Tests
 
 ```bash
-# Via Makefile (recommended)
-make test-analyze
+# Run all tests (includes analyze tests)
+make test
 
-# Or directly with coverage
-uv run pytest arcjet-analyze/tests/ -o "addopts=-q --cov-report=term-missing" --cov=arcjet_analyze
+# Run only analyze tests
+uv run pytest tests/analyze/ --no-cov -q
 ```
 
 Coverage is measured only for hand-maintained code (`_overrides.py`,
-`_import_defaults.py`). The five witgen-generated files (`__init__.py`,
-`_types.py`, `_convert.py`, `_component.py`, `_imports.py`) are excluded via
-`[tool.coverage.run] omit` in `pyproject.toml`. The same 80% minimum threshold
-applies.
+`_import_defaults.py`, `_singleton.py`). The five witgen-generated files
+(`__init__.py`, `_types.py`, `_convert.py`, `_component.py`, `_imports.py`) are
+excluded via `[tool.coverage.run] omit` in `pyproject.toml`. The same 80%
+minimum threshold applies.
 
 ## References
 
