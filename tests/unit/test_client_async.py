@@ -363,16 +363,16 @@ def test_global_characteristics_applied_to_rules_by_factory(mock_protobuf_module
     assert aj._rules[2].get_characteristics() == ()
 
 
-def test_sensitive_info_content_survives_context_reconstruction(
+def test_sensitive_info_value_survives_context_reconstruction(
     mock_protobuf_modules,
     make_allow_decision,
     dev_environment,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Regression: sensitive_info_content must survive RequestContext reconstruction.
+    """Regression: sensitive_info_value must survive RequestContext reconstruction.
 
     protect() reconstructs the RequestContext to merge extras. Previously,
-    sensitive_info_content was omitted from the reconstruction, silently
+    sensitive_info_value was omitted from the reconstruction, silently
     disabling local WASM evaluation for sensitive info rules.
     """
     import asyncio
@@ -384,7 +384,7 @@ def test_sensitive_info_content_survives_context_reconstruction(
     captured_ctx = {}
 
     def capture_local_rules(ctx, rules):
-        captured_ctx["sensitive_info_content"] = ctx.sensitive_info_content
+        captured_ctx["sensitive_info_value"] = ctx.sensitive_info_value
         return None  # proceed to remote
 
     import arcjet.client as client_module
@@ -406,10 +406,10 @@ def test_sensitive_info_content_survives_context_reconstruction(
     asyncio.run(
         aj.protect(
             {"headers": [], "type": "http"},
-            sensitive_info_content="my email is test@example.com",
+            sensitive_info_value="my email is test@example.com",
         )
     )
-    assert captured_ctx["sensitive_info_content"] == "my email is test@example.com"
+    assert captured_ctx["sensitive_info_value"] == "my email is test@example.com"
 
 
 def test_filter_local_survives_context_reconstruction(

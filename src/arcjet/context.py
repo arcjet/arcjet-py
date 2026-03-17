@@ -308,7 +308,7 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
     # must not receive the raw values.  Matches the JS SDK's redaction pattern.
     if ctx.filter_local:
         d.extra["filterLocal"] = "<redacted>"
-    if ctx.sensitive_info_content:
+    if ctx.sensitive_info_value:
         d.extra["sensitiveInfoValue"] = "<redacted>"
 
     return d

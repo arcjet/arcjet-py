@@ -196,15 +196,15 @@ def test_request_details_from_context_redacts_filter_local():
     assert d.extra["filterLocal"] == "<redacted>"
 
 
-def test_request_details_from_context_redacts_sensitive_info_content():
-    """sensitive_info_content is redacted when sent to the Decide API."""
+def test_request_details_from_context_redacts_sensitive_info_value():
+    """sensitive_info_value is redacted when sent to the Decide API."""
     ctx = RequestContext(
         ip="203.0.113.6",
         method="POST",
         protocol="https",
         host="ex",
         path="/api",
-        sensitive_info_content="my SSN is 123-45-6789",
+        sensitive_info_value="my SSN is 123-45-6789",
     )
     d = request_details_from_context(ctx)
     assert d.extra["sensitiveInfoValue"] == "<redacted>"
