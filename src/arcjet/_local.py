@@ -176,10 +176,10 @@ def evaluate_bot_locally(
     # prevents both being set, but we handle it defensively here.
     if rule.allow:
         entities = [str(e) for e in rule.allow]
-        config = AllowedBotConfig(entities=entities, skip_custom_detect=False)
+        config = AllowedBotConfig(entities=entities, skip_custom_detect=True)
     else:
         entities = [str(e) for e in rule.deny]
-        config = DeniedBotConfig(entities=entities, skip_custom_detect=False)
+        config = DeniedBotConfig(entities=entities, skip_custom_detect=True)
 
     try:
         result = component.detect_bot(request_json, config)
