@@ -225,11 +225,14 @@ def _run_local_rules(
         # Short-circuit: if a local rule denies in RUN mode, return immediately
         if result.conclusion == decide_pb2.CONCLUSION_DENY:
             if result.state == decide_pb2.RULE_STATE_RUN:
+                # Propagate TTL from the denying rule result to the decision.
+                ttl = result.ttl
                 decision = decide_pb2.Decision(
                     id=_new_local_request_id(),
                     conclusion=decide_pb2.CONCLUSION_DENY,
                     reason=result.reason,
                     rule_results=local_results,
+                    ttl=ttl,
                 )
                 return Decision(decision)
             else:
@@ -264,6 +267,23 @@ def _build_local_deny_report(
     )
     rep.rules.extend([r.to_proto() for r in rules])
     return rep
+
+
+def _try_cache_decision(
+    cache: DecisionCache,
+    key: str | None,
+    decision: Decision,
+) -> None:
+    """Cache *decision* if it is a DENY with TTL > 0.
+
+    Only DENY decisions are cached, matching JS SDK semantics.
+    ALLOW/ERROR/CHALLENGE decisions are never cached.
+    """
+    try:
+        if decision.is_denied() and decision.ttl > 0 and key is not None:
+            cache.set(key, decision, decision.ttl)
+    except Exception:
+        pass
 
 
 # Rate-limit rule types that inherit global characteristics when they have none.
@@ -618,6 +638,7 @@ class Arcjet:
                         "error": str(e),
                     },
                 )
+            _try_cache_decision(self._cache, cache_key, local_decision)
             logger.debug(
                 "local decision: id=%s conclusion=%s",
                 local_decision.id,
@@ -755,13 +776,7 @@ class Arcjet:
             )
 
         decision = Decision(resp.decision)
-        # Cache the decision when TTL is present (>0)
-        try:
-            ttl = int(getattr(decision, "ttl", 0) or 0)
-            if ttl > 0 and cache_key is not None:
-                self._cache.set(cache_key, decision, ttl)
-        except Exception:
-            pass
+        _try_cache_decision(self._cache, cache_key, decision)
         if logger.isEnabledFor(logging.DEBUG):
             # Timings
             total_ms = (time.perf_counter() - t0) * 1000.0
@@ -1091,6 +1106,7 @@ class ArcjetSync:
                         "error": str(e),
                     },
                 )
+            _try_cache_decision(self._cache, cache_key, local_decision)
             logger.debug(
                 "local decision: id=%s conclusion=%s",
                 local_decision.id,
@@ -1225,13 +1241,7 @@ class ArcjetSync:
             )
 
         decision = Decision(resp.decision)
-        # Cache the decision when TTL is present (>0)
-        try:
-            ttl = int(getattr(decision, "ttl", 0) or 0)
-            if ttl > 0 and cache_key is not None:
-                self._cache.set(cache_key, decision, ttl)
-        except Exception:
-            pass
+        _try_cache_decision(self._cache, cache_key, decision)
         if logger.isEnabledFor(logging.DEBUG):
             total_ms = (time.perf_counter() - t0) * 1000.0
             api_ms = (

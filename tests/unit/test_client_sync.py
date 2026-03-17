@@ -110,15 +110,15 @@ def test_requested_default_and_characteristics_in_extra(
 
 def test_caching_hits_trigger_background_report(
     mock_protobuf_modules,
-    make_allow_decision,
+    make_deny_decision,
     dev_environment,
     monkeypatch: pytest.MonkeyPatch,
 ):
     """Test that cache hits don't trigger additional decide() calls.
 
-    When a decision is cached, subsequent protect() calls should use the cache
-    instead of calling decide() again. This test verifies that only one decide()
-    call is made for two protect() calls with the same context.
+    When a DENY decision is cached, subsequent protect() calls should use the
+    cache instead of calling decide() again. Only DENY decisions with TTL > 0
+    are cached, matching JS SDK semantics.
 
     Note: Background report() calls for cache hits happen asynchronously in the
     real implementation and are not easily testable with sync stubs.
@@ -129,14 +129,14 @@ def test_caching_hits_trigger_background_report(
 
     calls = {"n": 0}
 
-    def decide_once(req):
+    def deny_once(req):
         calls["n"] += 1
         ttl = 60 if calls["n"] == 1 else 0
-        decision = make_allow_decision(ttl=ttl)
+        decision = make_deny_decision(ttl=ttl)
         return mock_protobuf_modules["DecideResponse"](decision)
 
     monkeypatch.setattr(
-        DecideServiceClientSync, "decide_behavior", decide_once, raising=False
+        DecideServiceClientSync, "decide_behavior", deny_once, raising=False
     )
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules)
