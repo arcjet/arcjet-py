@@ -1055,13 +1055,13 @@ def detect_sensitive_info(
 ) -> SensitiveInfoDetection:
     """Detect sensitive information (PII) in request content.
 
-    Scans the content passed to ``protect(sensitive_info_content=...)`` for
+    Scans the content passed to ``protect(sensitive_info_value=...)`` for
     sensitive data like email addresses, phone numbers, IP addresses, and
     credit card numbers. Use ``deny`` to block requests containing specific
     entity types, or ``allow`` to permit only certain types.
 
     When this rule is configured, you **must** pass
-    ``sensitive_info_content=...`` to every ``protect()`` call, otherwise
+    ``sensitive_info_value=...`` to every ``protect()`` call, otherwise
     the rule is silently skipped.
 
     Args:
@@ -1096,7 +1096,7 @@ def detect_sensitive_info(
             )
         ]
         # Then pass the content to scan on each protect() call:
-        # decision = await aj.protect(request, sensitive_info_content="...")
+        # decision = await aj.protect(request, sensitive_info_value="...")
 
     Example with a custom detect callback::
 

@@ -345,7 +345,7 @@ class Arcjet:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
-        sensitive_info_content: str | None = None,
+        sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -419,8 +419,8 @@ class Arcjet:
 
         if email:
             ctx = replace(ctx, email=email)
-        if sensitive_info_content:
-            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
+        if sensitive_info_value:
+            ctx = replace(ctx, sensitive_info_value=sensitive_info_value)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message
@@ -862,7 +862,7 @@ class ArcjetSync:
         requested: int | None = None,
         characteristics: Mapping[str, Any] | None = None,
         email: str | None = None,
-        sensitive_info_content: str | None = None,
+        sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         ip_src: str | None = None,
@@ -896,8 +896,8 @@ class ArcjetSync:
 
         if email:
             ctx = replace(ctx, email=email)
-        if sensitive_info_content:
-            ctx = replace(ctx, sensitive_info_content=sensitive_info_content)
+        if sensitive_info_value:
+            ctx = replace(ctx, sensitive_info_value=sensitive_info_value)
         if detect_prompt_injection_message:
             ctx = replace(
                 ctx, detect_prompt_injection_message=detect_prompt_injection_message

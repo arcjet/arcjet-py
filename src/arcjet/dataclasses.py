@@ -161,10 +161,10 @@ class ShieldReason:
 
 @dataclass(frozen=True, slots=True)
 class IdentifiedEntity:
-    """A sensitive information entity detected in content.
+    """A sensitive information entity detected in the scanned value.
 
     Returned in ``SensitiveInfoReason.allowed`` and ``SensitiveInfoReason.denied``
-    with the entity type name and its character offsets in the scanned content.
+    with the entity type name and its character offsets in the scanned value.
     """
 
     identified_type: str

@@ -362,15 +362,15 @@ def evaluate_sensitive_info_locally(
 ) -> decide_pb2.RuleResult | None:
     """Evaluate a SensitiveInfoDetection rule locally via WASM.
 
-    Returns a proto RuleResult, or None if WASM is unavailable or no content
+    Returns a proto RuleResult, or None if WASM is unavailable or no value
     was provided.
     """
     component = _get_component()
     if component is None:
         return None
 
-    content = ctx.sensitive_info_content
-    if not content:
+    value = ctx.sensitive_info_value
+    if not value:
         return None
 
     # Build the WASM config from the rule's allow/deny lists.
@@ -414,7 +414,7 @@ def evaluate_sensitive_info_locally(
         wasm_detect = _wrapped_detect
 
     try:
-        result = component.detect_sensitive_info(content, config, detect=wasm_detect)
+        result = component.detect_sensitive_info(value, config, detect=wasm_detect)
     except Exception as exc:
         logger.debug("local sensitive info detection error: %s", exc)
         return None

@@ -169,7 +169,7 @@ class TestEvaluateSensitiveInfoLocally:
     Python SDK's architecture where the WASM component is mocked."""
 
     def test_returns_none_when_component_unavailable(self):
-        ctx = RequestContext(sensitive_info_content="test@example.com")
+        ctx = RequestContext(sensitive_info_value="test@example.com")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
         with patch("arcjet._local._get_component", return_value=None):
             result = evaluate_sensitive_info_locally(ctx, rule)
@@ -191,7 +191,7 @@ class TestEvaluateSensitiveInfoLocally:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="none of this is sensitive")
+        ctx = RequestContext(sensitive_info_value="none of this is sensitive")
         rule = detect_sensitive_info(mode=Mode.LIVE, allow=[])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -227,7 +227,7 @@ class TestEvaluateSensitiveInfoLocally:
         )
 
         ctx = RequestContext(
-            sensitive_info_content="127.0.0.1 test@example.com 4242424242424242 +353 87 123 4567"
+            sensitive_info_value="127.0.0.1 test@example.com 4242424242424242 +353 87 123 4567"
         )
         rule = detect_sensitive_info(mode=Mode.LIVE, allow=[])
 
@@ -283,7 +283,7 @@ class TestEvaluateSensitiveInfoLocally:
         )
 
         ctx = RequestContext(
-            sensitive_info_content="127.0.0.1 test@example.com 4242424242424242 +353 87 123 4567"
+            sensitive_info_value="127.0.0.1 test@example.com 4242424242424242 +353 87 123 4567"
         )
         rule = detect_sensitive_info(
             mode=Mode.LIVE,
@@ -320,7 +320,7 @@ class TestEvaluateSensitiveInfoLocally:
             denied=[],
         )
 
-        ctx = RequestContext(sensitive_info_content="test@example.com +353 87 123 4567")
+        ctx = RequestContext(sensitive_info_value="test@example.com +353 87 123 4567")
         rule = detect_sensitive_info(
             mode=Mode.LIVE,
             allow=[SensitiveInfoEntityType.EMAIL, SensitiveInfoEntityType.PHONE_NUMBER],
@@ -357,7 +357,7 @@ class TestEvaluateSensitiveInfoLocally:
         )
 
         ctx = RequestContext(
-            sensitive_info_content="127.0.0.1 test@example.com +353 87 123 4567"
+            sensitive_info_value="127.0.0.1 test@example.com +353 87 123 4567"
         )
         rule = detect_sensitive_info(
             mode=Mode.LIVE,
@@ -397,7 +397,7 @@ class TestEvaluateSensitiveInfoLocally:
             ],
         )
 
-        ctx = RequestContext(sensitive_info_content="test@example.com +353 87 123 4567")
+        ctx = RequestContext(sensitive_info_value="test@example.com +353 87 123 4567")
         rule = detect_sensitive_info(
             mode=Mode.LIVE, deny=[SensitiveInfoEntityType.EMAIL]
         )
@@ -427,7 +427,7 @@ class TestEvaluateSensitiveInfoLocally:
             ],
         )
 
-        ctx = RequestContext(sensitive_info_content="127.0.0.1 test@example.com")
+        ctx = RequestContext(sensitive_info_value="127.0.0.1 test@example.com")
         rule = detect_sensitive_info(mode=Mode.DRY_RUN, allow=[])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -453,7 +453,7 @@ class TestEvaluateSensitiveInfoLocally:
             ],
         )
 
-        ctx = RequestContext(sensitive_info_content="this is bad")
+        ctx = RequestContext(sensitive_info_value="this is bad")
         rule = detect_sensitive_info(mode=Mode.LIVE, deny=["CUSTOM"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -471,7 +471,7 @@ class TestEvaluateSensitiveInfoLocally:
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.side_effect = RuntimeError("wasm error")
 
-        ctx = RequestContext(sensitive_info_content="test@example.com")
+        ctx = RequestContext(sensitive_info_value="test@example.com")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -486,7 +486,7 @@ class TestEvaluateSensitiveInfoLocally:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test content")
+        ctx = RequestContext(sensitive_info_value="test content")
         rule = detect_sensitive_info(
             allow=[SensitiveInfoEntityType.EMAIL, SensitiveInfoEntityType.PHONE_NUMBER]
         )
@@ -510,7 +510,7 @@ class TestEvaluateSensitiveInfoLocally:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test content")
+        ctx = RequestContext(sensitive_info_value="test content")
         rule = detect_sensitive_info(
             deny=[
                 SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
@@ -538,7 +538,7 @@ class TestEvaluateSensitiveInfoLocally:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="my email is test@example.com")
+        ctx = RequestContext(sensitive_info_value="my email is test@example.com")
         rule = detect_sensitive_info(allow=[], context_window_size=3)
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -554,7 +554,7 @@ class TestEvaluateSensitiveInfoLocally:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test")
+        ctx = RequestContext(sensitive_info_value="test")
         rule = detect_sensitive_info(deny=["MY_CUSTOM_TYPE"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -590,7 +590,7 @@ class TestRunLocalRulesSensitiveInfo:
                 )
             ),
         )
-        ctx = RequestContext(sensitive_info_content="test@example.com")
+        ctx = RequestContext(sensitive_info_value="test@example.com")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with (
@@ -613,7 +613,7 @@ class TestRunLocalRulesSensitiveInfo:
             state=decide_pb2.RULE_STATE_DRY_RUN,
             conclusion=decide_pb2.CONCLUSION_DENY,
         )
-        ctx = RequestContext(sensitive_info_content="test@example.com")
+        ctx = RequestContext(sensitive_info_value="test@example.com")
         rule = detect_sensitive_info(
             mode=Mode.DRY_RUN, deny=[SensitiveInfoEntityType.EMAIL]
         )
@@ -632,7 +632,7 @@ class TestRunLocalRulesSensitiveInfo:
 
     def test_returns_none_when_evaluator_returns_none(self):
         """When WASM component fails, evaluator returns None → proceed to remote."""
-        ctx = RequestContext(sensitive_info_content="test@example.com")
+        ctx = RequestContext(sensitive_info_value="test@example.com")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with (
@@ -673,7 +673,7 @@ class TestDetectCallback:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test")
+        ctx = RequestContext(sensitive_info_value="test")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -689,7 +689,7 @@ class TestDetectCallback:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test")
+        ctx = RequestContext(sensitive_info_value="test")
         rule = detect_sensitive_info(
             deny=["CUSTOM"], detect=lambda tokens: [None] * len(tokens)
         )
@@ -707,7 +707,7 @@ class TestDetectCallback:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test")
+        ctx = RequestContext(sensitive_info_value="test")
         rule = detect_sensitive_info(
             deny=["CUSTOM"], detect=lambda tokens: [None] * len(tokens)
         )
@@ -727,7 +727,7 @@ class TestDetectCallback:
             allowed=[], denied=[]
         )
 
-        ctx = RequestContext(sensitive_info_content="test")
+        ctx = RequestContext(sensitive_info_value="test")
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -746,7 +746,7 @@ class TestDetectCallback:
         def my_detect(tokens: list[str]) -> list[str | None]:
             return ["CUSTOM_PII" if "secret" in t else None for t in tokens]
 
-        ctx = RequestContext(sensitive_info_content="this is secret data")
+        ctx = RequestContext(sensitive_info_value="this is secret data")
         rule = detect_sensitive_info(deny=["CUSTOM_PII"], detect=my_detect)
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -772,7 +772,7 @@ class TestDetectCallback:
         def my_detect(tokens: list[str]) -> list[str | None]:
             return ["EMAIL" if "@" in t else None for t in tokens]
 
-        ctx = RequestContext(sensitive_info_content="test@example.com hello")
+        ctx = RequestContext(sensitive_info_value="test@example.com hello")
         rule = detect_sensitive_info(deny=["EMAIL"], detect=my_detect)
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -800,7 +800,7 @@ class TestDetectCallback:
         def my_detect(tokens: list[str]) -> list[str | None]:
             return ["CUSTOM_PII" if "secret" in t else None for t in tokens]
 
-        ctx = RequestContext(sensitive_info_content="this is secret data")
+        ctx = RequestContext(sensitive_info_value="this is secret data")
         rule = detect_sensitive_info(
             mode=Mode.LIVE, deny=["CUSTOM_PII"], detect=my_detect
         )
