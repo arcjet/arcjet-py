@@ -1,9 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal, Protocol, cast
-
-from typing_extensions import deprecated
+from typing import Literal
 
 
 @dataclass(frozen=True, slots=True)
