@@ -12,10 +12,12 @@ from .dataclasses import (
     EmailType,
     ErrorReason,
     FilterReason,
+    IdentifiedEntity,
     IpDetails,
     PromptInjectionReason,
     RateLimitReason,
     Reason,
+    SensitiveInfoReason,
     ShieldReason,
 )
 
@@ -58,6 +60,21 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
 
         return EmailReason(
             email_types=email_types,
+        )
+    if proto.HasField("sensitive_info"):
+        si = proto.sensitive_info
+
+        def _entities(proto_list: Any) -> list[IdentifiedEntity]:
+            return [
+                IdentifiedEntity(
+                    identified_type=e.identified_type, start=e.start, end=e.end
+                )
+                for e in proto_list
+            ]
+
+        return SensitiveInfoReason(
+            allowed=_entities(si.allowed),
+            denied=_entities(si.denied),
         )
     if proto.HasField("error"):
         error = proto.error

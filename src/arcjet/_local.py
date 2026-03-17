@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.resources as _res
 import json
 import threading
+from typing import Callable
 
 from arcjet_analyze import (
     AllowedBotConfig,
@@ -19,8 +20,18 @@ from arcjet_analyze import (
     AnalyzeComponent,
     DeniedBotConfig,
     DenyEmailValidationConfig,
+    DetectedSensitiveInfoEntity,
     Err,
     Ok,
+    SensitiveInfoConfig,
+    SensitiveInfoEntitiesAllow,
+    SensitiveInfoEntitiesDeny,
+    SensitiveInfoEntity,
+    SensitiveInfoEntityCreditCardNumber,
+    SensitiveInfoEntityCustom,
+    SensitiveInfoEntityEmail,
+    SensitiveInfoEntityIpAddress,
+    SensitiveInfoEntityPhoneNumber,
 )
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -31,6 +42,8 @@ from .context import RequestContext
 from .rules import (
     BotDetection,
     EmailValidation,
+    SensitiveInfoDetection,
+    SensitiveInfoEntityType,
 )
 
 # Shared mapping from WASM blocked-reason strings to proto EmailType values
@@ -266,6 +279,160 @@ def evaluate_email_locally(
     state = _rule_state(rule.mode)
 
     reason = decide_pb2.Reason(email=decide_pb2.EmailReason(email_types=email_types))
+
+    # Intentional: server uses empty rule_id too (arcjet-decide #4740).
+    # The report handler passes rules/results independently without joining
+    # on rule_id, so an empty string is safe here.
+    return decide_pb2.RuleResult(
+        rule_id="",
+        state=state,
+        conclusion=conclusion,
+        reason=reason,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sensitive info entity mapping
+# ---------------------------------------------------------------------------
+
+# Map SDK SensitiveInfoEntityType values to WASM SensitiveInfoEntity types.
+# The reverse map (_WASM_ENTITY_TYPE_TO_STR) is derived automatically so the
+# two stay in sync when new entity types are added.
+_SENSITIVE_INFO_ENTITY_MAP: dict[
+    str,
+    SensitiveInfoEntityEmail
+    | SensitiveInfoEntityPhoneNumber
+    | SensitiveInfoEntityIpAddress
+    | SensitiveInfoEntityCreditCardNumber,
+] = {
+    SensitiveInfoEntityType.EMAIL: SensitiveInfoEntityEmail(),
+    SensitiveInfoEntityType.PHONE_NUMBER: SensitiveInfoEntityPhoneNumber(),
+    SensitiveInfoEntityType.IP_ADDRESS: SensitiveInfoEntityIpAddress(),
+    SensitiveInfoEntityType.CREDIT_CARD_NUMBER: SensitiveInfoEntityCreditCardNumber(),
+}
+
+_WASM_ENTITY_TYPE_TO_STR: dict[type, str] = {
+    type(v): k for k, v in _SENSITIVE_INFO_ENTITY_MAP.items()
+}
+
+
+def _to_wasm_entity(
+    specifier: str,
+) -> (
+    SensitiveInfoEntityEmail
+    | SensitiveInfoEntityPhoneNumber
+    | SensitiveInfoEntityIpAddress
+    | SensitiveInfoEntityCreditCardNumber
+    | SensitiveInfoEntityCustom
+):
+    """Convert an SDK sensitive info specifier string to a WASM entity type."""
+    if specifier in _SENSITIVE_INFO_ENTITY_MAP:
+        return _SENSITIVE_INFO_ENTITY_MAP[specifier]
+    return SensitiveInfoEntityCustom(value=specifier)
+
+
+def _detected_entity_type_str(entity: DetectedSensitiveInfoEntity) -> str:
+    """Extract a string type name from a DetectedSensitiveInfoEntity."""
+    ident = entity.identified_type
+    type_str = _WASM_ENTITY_TYPE_TO_STR.get(type(ident))
+    if type_str is not None:
+        return type_str
+    if isinstance(ident, SensitiveInfoEntityCustom):
+        return ident.value
+    return "UNKNOWN"
+
+
+def _to_proto_entities(
+    entities: list[DetectedSensitiveInfoEntity],
+) -> list[decide_pb2.IdentifiedEntity]:
+    """Convert WASM DetectedSensitiveInfoEntity list to proto IdentifiedEntity list."""
+    return [
+        decide_pb2.IdentifiedEntity(
+            identified_type=_detected_entity_type_str(e),
+            start=e.start,
+            end=e.end,
+        )
+        for e in entities
+    ]
+
+
+def evaluate_sensitive_info_locally(
+    ctx: RequestContext,
+    rule: SensitiveInfoDetection,
+) -> decide_pb2.RuleResult | None:
+    """Evaluate a SensitiveInfoDetection rule locally via WASM.
+
+    Returns a proto RuleResult, or None if WASM is unavailable or no value
+    was provided.
+    """
+    component = _get_component()
+    if component is None:
+        return None
+
+    value = ctx.sensitive_info_value
+    if not value:
+        return None
+
+    # Build the WASM config from the rule's allow/deny lists.
+    # Use .value for enum members; str() on 3.10 str enums returns
+    # "ClassName.MEMBER" rather than the value.
+    # allow takes precedence over deny (matches JS SDK and decide API).
+    if rule.allow:
+        wasm_entities = [
+            _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
+            for e in rule.allow
+        ]
+        entities_config = SensitiveInfoEntitiesAllow(entities=wasm_entities)
+    else:
+        wasm_entities = [
+            _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
+            for e in rule.deny
+        ]
+        entities_config = SensitiveInfoEntitiesDeny(entities=wasm_entities)
+
+    config = SensitiveInfoConfig(
+        entities=entities_config,
+        context_window_size=rule.context_window_size,
+        skip_custom_detect=rule.detect is None,
+    )
+
+    # Wrap the user's detect callback (str → SensitiveInfoEntity conversion)
+    wasm_detect: Callable[[list[str]], list[SensitiveInfoEntity | None]] | None = None
+    if rule.detect is not None:
+        user_detect = rule.detect
+
+        def _wrapped_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+            results = user_detect(tokens)
+            out: list[SensitiveInfoEntity | None] = []
+            for r in results:
+                if r is None:
+                    out.append(None)
+                else:
+                    out.append(_to_wasm_entity(r))
+            return out
+
+        wasm_detect = _wrapped_detect
+
+    try:
+        result = component.detect_sensitive_info(value, config, detect=wasm_detect)
+    except Exception as exc:
+        logger.debug("local sensitive info detection error: %s", exc)
+        return None
+
+    # detect_sensitive_info returns SensitiveInfoResult directly (not Result)
+    allowed_entities = _to_proto_entities(result.allowed)
+    denied_entities = _to_proto_entities(result.denied)
+
+    has_deny = len(denied_entities) > 0
+    conclusion = decide_pb2.CONCLUSION_DENY if has_deny else decide_pb2.CONCLUSION_ALLOW
+    state = _rule_state(rule.mode)
+
+    reason = decide_pb2.Reason(
+        sensitive_info=decide_pb2.SensitiveInfoReason(
+            allowed=allowed_entities,
+            denied=denied_entities,
+        )
+    )
 
     # Intentional: server uses empty rule_id too (arcjet-decide #4740).
     # The report handler passes rules/results independently without joining

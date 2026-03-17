@@ -61,6 +61,8 @@ class RequestContext:
     - query: Raw query string without leading `?`.
     - body: Raw request body bytes if available.
     - email: User email for email validation rule.
+    - sensitive_info_value: Content string to scan for sensitive
+        information detection rule.
     - detect_prompt_injection_message: User message for prompt injection
         detection rule.
     - extra: Additional key/value metadata to be forwarded to the Decide API.
@@ -76,6 +78,7 @@ class RequestContext:
     query: str | None = None
     body: bytes | None = None
     email: str | None = None
+    sensitive_info_value: str | None = None
     detect_prompt_injection_message: str | None = None
     extra: Mapping[str, str] | None = None
 
