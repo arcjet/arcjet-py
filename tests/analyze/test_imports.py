@@ -341,7 +341,7 @@ class TestCustomSensitiveInfoDetect:
 
         def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             all_tokens.append(tokens)
-            return [None] * len(tokens)
+            return [None] * len(tokens)  # type: ignore[invalid-return-type]
 
         ac = AnalyzeComponent(
             wasm_path,
@@ -399,7 +399,7 @@ class TestCustomSensitiveInfoDetect:
         def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             nonlocal calls
             calls += 1
-            return [None] * len(tokens)
+            return [None] * len(tokens)  # type: ignore[invalid-return-type]
 
         ac = AnalyzeComponent(
             wasm_path,

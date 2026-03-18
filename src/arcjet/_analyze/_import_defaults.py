@@ -52,4 +52,4 @@ def _default_has_gravatar(_domain_or_email: str) -> str:
 def _default_sensitive_info_detect(
     tokens: list[str],
 ) -> list[SensitiveInfoEntity | None]:
-    return [None] * len(tokens)
+    return [None] * len(tokens)  # type: ignore[invalid-return-type]

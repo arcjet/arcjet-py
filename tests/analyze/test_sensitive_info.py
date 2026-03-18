@@ -200,7 +200,9 @@ class TestDetectSensitiveInfo:
 
         def my_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             called_tokens.append(tokens)
-            return [SensitiveInfoEntityCustom(value="SECRET")] * len(tokens)
+            return [  # type: ignore[invalid-return-type]
+                SensitiveInfoEntityCustom(value="SECRET")
+            ] * len(tokens)
 
         config = _deny_config(SensitiveInfoEntityCustom(value="SECRET"))
         result = component.detect_sensitive_info(
@@ -218,7 +220,7 @@ class TestDetectSensitiveInfo:
         def counting_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             nonlocal call_count
             call_count += 1
-            return [None] * len(tokens)
+            return [None] * len(tokens)  # type: ignore[invalid-return-type]
 
         config = _deny_config(SensitiveInfoEntityEmail())
         # First call with override
