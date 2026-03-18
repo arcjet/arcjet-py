@@ -21,7 +21,7 @@ from .conftest import BOT_REQUEST, WASM_PATH
 def _reset_singleton() -> None:  # type: ignore[misc]
     """Ensure each test starts with a fresh singleton."""
     reset_component()
-    yield  # type: ignore[misc]
+    yield  # pyright: ignore[reportReturnType]
     reset_component()
 
 

@@ -53,7 +53,7 @@ class AnalyzeComponent(AnalyzeComponentBase):
                 ) -> list[Variant | None]:
                     fn = si_detect_ref[0]
                     if fn is None:
-                        return [None] * len(tokens)
+                        return [None] * len(tokens)  # type: ignore[invalid-return-type]
                     results = fn(tokens)
                     if len(results) != len(tokens):
                         raise ValueError(

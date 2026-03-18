@@ -657,7 +657,7 @@ class TestDetectCallback:
         """detect_sensitive_info() stores the callback on the rule."""
 
         def my_detect(tokens: list[str]) -> list[str | None]:
-            return [None] * len(tokens)
+            return [None] * len(tokens)  # type: ignore[invalid-return-type]
 
         rule = detect_sensitive_info(deny=["CUSTOM"], detect=my_detect)
         assert rule.detect is my_detect
