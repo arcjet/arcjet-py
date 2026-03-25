@@ -51,7 +51,7 @@ dev = [
   "pytest-cov>=7.0.0",
   "ruff==0.15.6",
   "tomli>=2.0.0; python_version < '3.11'",
-  "ty==0.0.21",
+  "ty==0.0.23",
   "types-protobuf==6.32.1.20260221",
 ]
 
