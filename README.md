@@ -94,15 +94,13 @@ async def chat(request: Request, body: ChatRequest):
         request,
         requested=5,  # tokens consumed per request
         characteristics={"userId": userId},
-        sensitive_info_value=body.message,  # scan the user message
+        detect_prompt_injection_message=body.message,  # scan for prompt injection
+        sensitive_info_value=body.message,  # scan for PII
     )
 
     if decision.is_denied():
         status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return JSONResponse(
-            {"error": "Denied", "reason": decision.reason_v2},
-            status_code=status,
-        )
+        return JSONResponse({"error": "Denied"}, status_code=status)
 
     # Safe to pass body.message to your LLM
     return {"reply": "..."}
@@ -167,9 +165,7 @@ aj = arcjet(
 async def chat(request: Request, body: ChatRequest):
     decision = await aj.protect(
         request,
-        # sensitive_info_value is shared by both detect_sensitive_info and
-        # detect_prompt_injection — pass the user message here for both rules
-        sensitive_info_value=body.message,
+        detect_prompt_injection_message=body.message,
     )
 
     if decision.is_denied():
@@ -193,7 +189,7 @@ aj = arcjet_sync(
 @app.route("/chat", methods=["POST"])
 def chat():
     body = request.get_json()
-    decision = aj.protect(request, sensitive_info_value=body["message"])
+    decision = aj.protect(request, detect_prompt_injection_message=body["message"])
 
     if decision.is_denied():
         return jsonify(error="Prompt injection detected"), 403
@@ -347,7 +343,7 @@ from arcjet import arcjet, fixed_window, Mode
 aj = arcjet(
     key=arcjet_key,
     rules=[
-        fixed_window(mode=Mode.LIVE, window="60s", max=100),
+        fixed_window(mode=Mode.LIVE, window=60, max=100),
     ],
 )
 ```
@@ -360,7 +356,7 @@ from arcjet import arcjet, sliding_window, Mode
 aj = arcjet(
     key=arcjet_key,
     rules=[
-        sliding_window(mode=Mode.LIVE, window="60s", max=100),
+        sliding_window(mode=Mode.LIVE, interval=60, max=100),
     ],
 )
 ```
@@ -534,8 +530,8 @@ if decision.ip.is_vpn() or decision.ip.is_tor():
     return JSONResponse({"error": "VPN traffic not allowed"}, status_code=403)
 
 ip = decision.ip_details
-if ip and ip.service == "Apple Private Relay":
-    # Apple Private Relay requires an active iCloud subscription — lower risk
+if ip and ip.is_relay:
+    # Privacy relay (e.g. Apple Private Relay) — lower risk than a VPN
     pass  # allow through with custom handling
 ```
 
@@ -700,7 +696,8 @@ async def chat(request: Request, body: ChatRequest):
         request,
         requested=5,
         characteristics={"userId": "user_123"},
-        sensitive_info_value=body.message,  # scan before sending to LLM
+        detect_prompt_injection_message=body.message,  # scan for prompt injection
+        sensitive_info_value=body.message,  # scan for PII before sending to LLM
     )
 
     if decision.is_denied():
@@ -742,7 +739,8 @@ def chat():
         request,
         requested=5,
         characteristics={"userId": "user_123"},
-        sensitive_info_value=message,  # scan before sending to LLM
+        detect_prompt_injection_message=message,  # scan for prompt injection
+        sensitive_info_value=message,  # scan for PII before sending to LLM
     )
 
     if decision.is_denied():
