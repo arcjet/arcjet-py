@@ -7,8 +7,10 @@ from arcjet import (
     BotCategory,
     EmailType,
     Mode,
+    SensitiveInfoEntityType,
     arcjet_sync,
     detect_bot,
+    detect_sensitive_info,
     shield,
     token_bucket,
 )
@@ -35,6 +37,15 @@ aj = arcjet_sync(
                 # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
             ],
         ),
+        # Detect and block PII in request content (emails, credit cards, etc.)
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.PHONE_NUMBER,
+            ],
+        ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
             # Tracked by IP address by default, but this can be customized
@@ -51,10 +62,13 @@ aj = arcjet_sync(
 
 @app.route("/")
 def hello():
+    message = request.args.get("message", "")
+
     # Call protect() to evaluate the request against the rules
     decision = aj.protect(
         request,
         requested=5,  # Deduct 5 tokens from the bucket
+        sensitive_info_value=message,  # Scan the message query param for PII
     )
 
     # Typed IP details are available directly on decision.ip_details

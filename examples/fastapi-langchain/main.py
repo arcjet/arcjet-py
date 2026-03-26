@@ -10,8 +10,10 @@ from pydantic import BaseModel
 
 from arcjet import (
     Mode,
+    SensitiveInfoEntityType,
     arcjet,
     detect_bot,
+    detect_sensitive_info,
     shield,
     token_bucket,
 )
@@ -23,8 +25,7 @@ logger = logging.getLogger(__name__)
 
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
-    raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
@@ -66,6 +67,15 @@ aj = arcjet(
                 # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
             ],
         ),
+        # Detect and block PII in the user message before it reaches the LLM
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.PHONE_NUMBER,
+            ],
+        ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
             # Track budgets by arbitrary characteristics of the request. Here
@@ -93,6 +103,8 @@ async def chat(request: Request, body: ChatRequest):
         requested=5,
         # Identify the user for rate limiting purposes
         characteristics={"userId": userId},
+        # Scan the user message for PII before it reaches the LLM
+        sensitive_info_value=body.message,
     )
 
     # Handle denied requests

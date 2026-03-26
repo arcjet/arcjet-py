@@ -4,7 +4,7 @@
 <img src="https://arcjet.com/logo/arcjet-light-lockup-voyage-horizontal.svg"
   alt="Arcjet Logo" height="128" width="auto"> </picture> </a>
 
-# Arcjet - Python SDK
+# arcjet
 
 <p>
   <picture>
@@ -13,39 +13,119 @@
   </picture>
 </p>
 
-[Arcjet](https://arcjet.com) helps developers protect their apps in just a few
-lines of code. Bot detection. Rate limiting. Email validation. Attack
-protection. A developer-first approach to security.
+[Arcjet](https://arcjet.com) is the runtime security platform that ships with your AI code. Stop bots and automated attacks from burning your AI budget, leaking data, or misusing tools with Arcjet's AI security building blocks.
 
-This is the monorepo containing various [Arcjet](https://arcjet.com) open source
-packages for Python.
+This is the Python SDK for [Arcjet](https://arcjet.com).
+
+## Quick start
+
+Protect an AI chat endpoint with prompt injection detection, token budget rate
+limiting, and bot protection:
+
+```py
+# main.py
+import os
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from arcjet import (
+    arcjet,        # async client — use arcjet_sync for Flask and other sync frameworks
+    detect_bot,
+    detect_prompt_injection,
+    detect_sensitive_info,
+    shield,
+    token_bucket,
+    Mode,
+    SensitiveInfoEntityType,
+)
+
+app = FastAPI()
+
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError(
+        "ARCJET_KEY is required. Get one at https://app.arcjet.com"
+    )
+
+# Create a single Arcjet instance and reuse it across requests.
+# Use arcjet_sync instead if you are using Flask or another sync framework.
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        # Detect and block prompt injection attacks in user messages
+        detect_prompt_injection(mode=Mode.LIVE),
+        # Block sensitive data (e.g. credit cards, PII) from reaching your LLM
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.EMAIL,
+            ],
+        ),
+        # Rate limit by token budget — refill 100 tokens every 60 seconds
+        token_bucket(
+            characteristics=["userId"],
+            mode=Mode.LIVE,
+            refill_rate=100,
+            interval=60,
+            capacity=1000,
+        ),
+        # Block automated clients and scrapers from your AI endpoints
+        detect_bot(
+            mode=Mode.LIVE,
+            allow=[],  # empty = block all bots
+        ),
+        # Protect against common web attacks (SQLi, XSS, etc.)
+        shield(mode=Mode.LIVE),
+    ],
+)
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@app.post("/chat")
+async def chat(request: Request, body: ChatRequest):
+    userId = "user_123"  # replace with real user ID from session
+
+    decision = await aj.protect(
+        request,
+        requested=5,  # tokens consumed per request
+        characteristics={"userId": userId},
+        sensitive_info_value=body.message,  # scan the user message
+    )
+
+    if decision.is_denied():
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+        return JSONResponse(
+            {"error": "Denied", "reason": decision.reason_v2},
+            status_code=status,
+        )
+
+    # Safe to pass body.message to your LLM
+    return {"reply": "..."}
+```
 
 ## Features
 
-Arcjet security features for protecting Python apps:
-
-- 🤖 [Bot protection](https://docs.arcjet.com/bot-protection) - manage traffic
-  by automated clients and bots, with [verification and
-  categorization](https://docs.arcjet.com/bot-protection/identifying-bots).
-- 🛑 [Rate limiting](https://docs.arcjet.com/rate-limiting) - limit the number
-  of requests a client can make.
-- 🛡️ [Shield WAF](https://docs.arcjet.com/shield) - protect your application
-  against common attacks.
-- 📧 [Email validation](https://docs.arcjet.com/email-validation) - prevent
-  users from signing up with fake email addresses.
-- 📝 [Signup form protection](https://docs.arcjet.com/signup-protection) -
-  combines rate limiting, bot protection, and email validation to protect your
-  signup forms.
-- 🔍 [Sensitive information
-  detection](https://docs.arcjet.com/sensitive-info) - detect and block PII
-  (emails, phone numbers, credit cards) in request content.
-- 🔎 [Request filters](https://docs.arcjet.com/filters) - filter requests using
-  expression-based rules against request properties.
-
-### Get help
-
-[Join our Discord server](https://arcjet.com/discord) or [reach out for
-support](https://docs.arcjet.com/support).
+- 🔒 [Prompt Injection Detection](#prompt-injection-detection) — detect and block
+  prompt injection attacks before they reach your LLM.
+- 🤖 [Bot Protection](#bot-protection) — stop scrapers, credential stuffers, and
+  AI crawlers from abusing your endpoints.
+- 🛑 [Rate Limiting](#rate-limiting) — token bucket, fixed window, and sliding
+  window algorithms; model AI token budgets per user.
+- 🕵️ [Sensitive Information Detection](#sensitive-information-detection) — block
+  PII, credit cards, and custom patterns from entering your AI pipeline.
+- 🛡️ [Shield WAF](#shield-waf) — protect against SQL injection, XSS, and other
+  common web attacks.
+- 📧 [Email Validation](#email-validation) — block disposable, invalid, and
+  undeliverable addresses at signup.
+- 🎯 [Request Filters](#request-filters) — expression-based rules on IP, path,
+  headers, and custom fields.
+- 🌐 [IP Analysis](#ip-analysis) — geolocation, ASN, VPN, proxy, Tor, and hosting
+  detection included with every request.
 
 ## Installation
 
@@ -66,334 +146,232 @@ Or with pip:
 pip install arcjet
 ```
 
-## Usage
+## Prompt injection detection
 
-Read the docs at [docs.arcjet.com](https://docs.arcjet.com/)
-
-## Quick start example
-
-This example implements Arcjet bot protection, rate limiting, email validation,
-and Shield WAF in a FastAPI application. Requests from bots not in the allow
-list will be blocked with a 403 Forbidden response.
-
-The example email is invalid so an error will be returned - change the email to
-see different results.
+Detect and block prompt injection attacks — attempts by users to hijack your
+LLM's behavior through crafted input — before they reach your model.
 
 ### FastAPI
 
-An asynchronous example using FastAPI with the Arcjet async client.
-
 ```py
-# main.py
-import os
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
-from arcjet import (
-    arcjet,
-    shield,
-    detect_bot,
-    token_bucket,
-    Mode,
-    BotCategory,
-)
-
-app = FastAPI()
-
-arcjet_key = os.getenv("ARCJET_KEY")
-if not arcjet_key:
-    raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+from arcjet import arcjet, detect_prompt_injection, Mode
 
 aj = arcjet(
-    key=arcjet_key,  # Get your key from https://app.arcjet.com
+    key=arcjet_key,
     rules=[
-        # Shield protects your app from common attacks e.g. SQL injection
-        shield(mode=Mode.LIVE),
-        # Create a bot detection rule
-        detect_bot(
-            mode=Mode.LIVE, allow=[
-                BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
-                # Uncomment to allow these other common bot categories
-                # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
-                # BotCategory.MONITOR, # Uptime monitoring services
-                # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
-            ]
-        ),
-        # Create a token bucket rate limit. Other algorithms are supported
-        token_bucket(
-            # Tracked by IP address by default, but this can be customized
-            # See https://docs.arcjet.com/fingerprints
-            # characteristics=["ip.src"],
-            mode=Mode.LIVE,
-            refill_rate=5,  # Refill 5 tokens per interval
-            interval=10,  # Refill every 10 seconds
-            capacity=10,  # Bucket capacity of 10 tokens
-        ),
+        detect_prompt_injection(mode=Mode.LIVE),
     ],
 )
 
-
-@app.get("/")
-async def hello(request: Request):
-    # Call protect() to evaluate the request against the rules
+@app.post("/chat")
+async def chat(request: Request, body: ChatRequest):
     decision = await aj.protect(
-        request, requested=5  # Deduct 5 tokens from the bucket
+        request,
+        # sensitive_info_value is shared by both detect_sensitive_info and
+        # detect_prompt_injection — pass the user message here for both rules
+        sensitive_info_value=body.message,
     )
 
-    # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return JSONResponse(
-            {"error": "Denied", "reason": decision.reason_v2},
-            status_code=status,
-        )
+        return JSONResponse({"error": "Prompt injection detected"}, status_code=403)
 
-    # Check IP metadata (VPNs, hosting, geolocation, etc)
-    if decision.ip.is_hosting():
-        # Requests from hosting IPs are likely from bots, so they can usually be
-        # blocked. However, consider your use case - if this is an API endpoint
-        # then hosting IPs might be legitimate.
-        # https://docs.arcjet.com/blueprints/vpn-proxy-detection
-
-        return JSONResponse(
-            {"error": "Denied from hosting IP"},
-            status_code=403,
-        )
-
-    ip = decision.ip_details
-    if ip and ip.city and ip.country_name:
-        print(f"Request from {ip.city}, {ip.country_name}")
-
-    return {"message": "Hello world", "decision": decision.to_dict()}
-
+    # safe to pass body.message to your LLM
 ```
 
 ### Flask
 
-A synchronous example using Flask with the sync client.
-
 ```py
-# main.py
-from flask import Flask, request, jsonify
-import os
-
-from arcjet import (
-  arcjet_sync,
-  shield,
-  detect_bot,
-  token_bucket,
-  validate_email,
-  is_spoofed_bot,
-  Mode,
-  BotCategory,
-  EmailType,
-)
-
-app = Flask(__name__)
-
-arcjet_key = os.getenv("ARCJET_KEY")
-if not arcjet_key:
-    raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+from arcjet import arcjet_sync, detect_prompt_injection, Mode
 
 aj = arcjet_sync(
     key=arcjet_key,
     rules=[
-        shield(mode=Mode.LIVE),
-        detect_bot(
-            mode=Mode.LIVE, allow=[BotCategory.SEARCH_ENGINE, "OPENAI_CRAWLER_SEARCH"]
-        ),
-        token_bucket(mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
-        validate_email(
-            mode=Mode.LIVE,
-            deny=[EmailType.DISPOSABLE, EmailType.INVALID, EmailType.NO_MX_RECORDS],
-        ),
+        detect_prompt_injection(mode=Mode.LIVE),
     ],
 )
 
-@app.route("/")
-def hello():
-    # requested is optional; only relevant for token bucket rules (default: 1)
-    # email is only required if validate_email() is configured
-    decision = aj.protect(request, requested=1, email="example@arcjet.com")
+@app.route("/chat", methods=["POST"])
+def chat():
+    body = request.get_json()
+    decision = aj.protect(request, sensitive_info_value=body["message"])
 
     if decision.is_denied():
-        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return jsonify(error="Denied", reason=decision.reason_v2), status
+        return jsonify(error="Prompt injection detected"), 403
 
-    if decision.ip.is_hosting():
-        return jsonify(error="Hosting IP blocked"), 403
-
-    ip = decision.ip_details
-    if ip and ip.city and ip.country_name:
-        print(f"Request from {ip.city}, {ip.country_name}")
-
-    if any(is_spoofed_bot(r) for r in decision.results):
-        return jsonify(error="Spoofed bot"), 403
-
-    return jsonify(message="Hello world", decision=decision.to_dict())
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    # safe to pass body["message"] to your LLM
 ```
 
-## Identifying bots
-
-Arcjet allows you to configure a list of bots to allow or deny. To construct the
-list, you can [specify individual
-bots](https://github.com/arcjet/arcjet-js/blob/main/protocol/well-known-bots.ts#L4)
-and/or use
-[categories](https://docs.arcjet.com/bot-protection/identifying-bots#bot-categories)
-to allow or deny all
-bots in a category.
-
-If you specify a list of bots to allow, then all other bots will be denied. An
-empty allow list means all bots are denied. The opposite applies for deny lists,
-if you specify bots to deny then all other bots will be allowed.
-
-### Bot categories
-
-Bots can be configured by
-[category](https://docs.arcjet.com/bot-protection/identifying-bots#bot-categories)
-and/or by [specific bot
-name](https://github.com/arcjet/arcjet-js/blob/main/protocol/well-known-bots.ts#L4).
-For example, to
-allow all search engines and OpenAI crawler bots, but deny all other bots:
+You can tune the detection sensitivity with the `threshold` parameter (0.0–1.0,
+default 0.5). Higher values are more conservative:
 
 ```py
-from arcjet import arcjet, Mode, BotCategory, detect_bot
+detect_prompt_injection(mode=Mode.LIVE, threshold=0.8)
+```
+
+See the [Prompt Injection docs](https://docs.arcjet.com/prompt-injection) for
+more details.
+
+## Bot protection
+
+Manage traffic from automated clients. Block scrapers, credential stuffers, and
+AI crawlers, while allowing legitimate bots like search engines and monitors.
+
+### FastAPI
+
+```py
+from arcjet import arcjet, detect_bot, Mode, BotCategory
 
 aj = arcjet(
     key=arcjet_key,
     rules=[
         detect_bot(
-            mode=Mode.LIVE, 
-            allow=[
-                BotCategory.SEARCH_ENGINE, 
-                "OPENAI_CRAWLER_SEARCH",
-            ]
-        ),
-    ],
-)
-```
-
-The identifiers on the bot list are generated from a [collection of known
-bots](https://github.com/arcjet/well-known-bots) which includes details of their
-owner and any variations.
-
-If a bot is detected but cannot be identified as a known bot, it will be labeled
-as `UNKNOWN_BOT`. This is separate from the `CATEGORY:UNKNOWN` category, which
-is for bots that cannot be classified into any category but can still be
-identified as a specific bot. You can see a list of these named, but
-unclassified bots in the bot list.
-
-Detections returned as `UNKNOWN_BOT` happen if the bot is new or hides itself.
-It’s a bot with no name. Arcjet uses various techniques to detect these bots,
-including analyzing request patterns and tracking IP addresses.
-
-## Custom characteristics
-
-Each client is tracked by IP address by default. To customize client
-fingerprinting you can configure custom characteristics:
-
-```py
-# main.py
-from flask import Flask, request, jsonify
-import os
-import logging
-
-from arcjet import (
-    arcjet_sync,
-    shield,
-    detect_bot,
-    token_bucket,
-    Mode,
-    BotCategory,
-    EmailType,
-)
-
-app = Flask(__name__)
-
-arcjet_key = os.getenv("ARCJET_KEY")
-if not arcjet_key:
-    raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com")
-
-aj = arcjet_sync(
-    key=arcjet_key,  # Get your key from https://app.arcjet.com
-    rules=[
-        # Shield protects your app from common attacks e.g. SQL injection
-        shield(mode=Mode.LIVE),
-        # Create a bot detection rule
-        detect_bot(
             mode=Mode.LIVE,
             allow=[
-                BotCategory.SEARCH_ENGINE,  # Google, Bing, etc
-                # Uncomment to allow these other common bot categories
-                # See the full list at https://docs.arcjet.com/bot-protection/identifying-bots
-                # BotCategory.MONITOR, # Uptime monitoring services
-                # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
+                BotCategory.SEARCH_ENGINE,  # Google, Bing, etc.
+                # BotCategory.MONITOR,      # Uptime monitoring
+                # BotCategory.PREVIEW,      # Link previews (Slack, Discord)
+                # "OPENAI_CRAWLER_SEARCH",  # Allow OpenAI crawler
             ],
         ),
-        # Create a token bucket rate limit. Other algorithms are supported
+    ],
+)
+
+@app.get("/")
+async def index(request: Request):
+    decision = await aj.protect(request)
+
+    if decision.is_denied():
+        return JSONResponse({"error": "Bot detected"}, status_code=403)
+
+    return {"message": "Hello world"}
+```
+
+### Flask
+
+```py
+from arcjet import arcjet_sync, detect_bot, is_spoofed_bot, Mode, BotCategory
+
+aj = arcjet_sync(
+    key=arcjet_key,
+    rules=[
+        detect_bot(mode=Mode.LIVE, allow=[BotCategory.SEARCH_ENGINE]),
+    ],
+)
+
+@app.route("/")
+def index():
+    decision = aj.protect(request)
+
+    if decision.is_denied():
+        return jsonify(error="Bot detected"), 403
+
+    if any(is_spoofed_bot(r) for r in decision.results):
+        return jsonify(error="Spoofed bot"), 403
+
+    return jsonify(message="Hello world")
+```
+
+### Bot categories
+
+Configure rules using [categories](https://docs.arcjet.com/bot-protection/identifying-bots#bot-categories)
+or [specific bot identifiers](https://github.com/arcjet/well-known-bots):
+
+```py
+detect_bot(
+    mode=Mode.LIVE,
+    allow=[
+        BotCategory.SEARCH_ENGINE,
+        "OPENAI_CRAWLER_SEARCH",
+    ],
+)
+```
+
+If you specify an allow list, all other bots are denied. An empty allow list
+blocks all bots. The reverse applies for deny lists.
+
+### Verified vs. spoofed bots
+
+Bots claiming to be well-known crawlers (e.g. Googlebot) are verified against
+their known IP ranges. Use `is_spoofed_bot()` to check:
+
+```py
+from arcjet import is_spoofed_bot
+
+if any(is_spoofed_bot(r) for r in decision.results):
+    return jsonify(error="Spoofed bot"), 403
+```
+
+See the [Bot Protection docs](https://docs.arcjet.com/bot-protection) for
+more details.
+
+## Rate limiting
+
+Limit request rates per IP, user, or any custom characteristic. Use the token
+bucket algorithm to model AI token budgets.
+
+### Token bucket (recommended for AI)
+
+```py
+from arcjet import arcjet, token_bucket, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
         token_bucket(
-            # Pass a custom characteristics to track requests
-            characteristics=["userId"],
+            characteristics=["userId"],  # or ["ip.src"] for IP-based
             mode=Mode.LIVE,
-            refill_rate=5,  # Refill 5 tokens per interval
-            interval=10,  # Refill every 10 seconds
-            capacity=10,  # Bucket capacity of 10 tokens
+            refill_rate=100,   # tokens added per interval
+            interval=60,       # interval in seconds
+            capacity=1000,     # maximum tokens per bucket
         ),
     ],
 )
 
-
-@app.route("/")
-def hello():
-     # Replace with actual user ID from the user session
-    userId = "your_user_id"
-
-    # Call protect() to evaluate the request against the rules
-    decision = aj.protect(
+@app.post("/chat")
+async def chat(request: Request):
+    decision = await aj.protect(
         request,
-        # Deduct 5 tokens from the bucket
-        requested=5,
-        # Identify the user to track the limit against
-        characteristics={"userId": userId},
+        requested=5,  # tokens consumed by this request
+        characteristics={"userId": "user_123"},
     )
 
-    # Handle denied requests
     if decision.is_denied():
-        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
-        return jsonify(error="Denied", reason=decision.reason_v2), status
-
-    # Check IP metadata (VPNs, hosting, geolocation, etc)
-    if decision.ip.is_hosting():
-        # Requests from hosting IPs are likely from bots, so they can usually be
-        # blocked. However, consider your use case - if this is an API endpoint
-        # then hosting IPs might be legitimate.
-        # https://docs.arcjet.com/blueprints/vpn-proxy-detection
-
-        return jsonify(error="Hosting IP blocked"), 403
-
-    ip = decision.ip_details
-    if ip and ip.city and ip.country_name:
-        app.logger.info("Request from %s, %s", ip.city, ip.country_name)
-
-    return jsonify(message="Hello world", decision=decision.to_dict())
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-
+        return JSONResponse({"error": "Rate limited"}, status_code=429)
 ```
+
+### Fixed window
+
+```py
+from arcjet import arcjet, fixed_window, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        fixed_window(mode=Mode.LIVE, window="60s", max=100),
+    ],
+)
+```
+
+### Sliding window
+
+```py
+from arcjet import arcjet, sliding_window, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        sliding_window(mode=Mode.LIVE, window="60s", max=100),
+    ],
+)
+```
+
+See the [Rate Limiting docs](https://docs.arcjet.com/rate-limiting) for more
+details.
 
 ## Sensitive information detection
 
-Detect and optionally block sensitive information (PII) in request content such
-as email addresses, phone numbers, IP addresses, and credit card numbers.
+Detect and block PII (email addresses, phone numbers, credit card numbers, IP
+addresses) in request content before it reaches your LLM or data store.
 
 ```py
 from arcjet import arcjet, detect_sensitive_info, SensitiveInfoEntityType, Mode
@@ -411,12 +389,11 @@ aj = arcjet(
     ],
 )
 
-# Pass the content to scan on each protect() call
+# Pass the content to scan with each protect() call
 decision = await aj.protect(request, sensitive_info_value="User input to scan")
 ```
 
-You can also provide a custom detect callback to supplement the built-in
-detectors:
+You can supplement built-in detectors with a custom `detect` callback:
 
 ```py
 def my_detect(tokens: list[str]) -> list[str | None]:
@@ -431,11 +408,102 @@ rules = [
 ]
 ```
 
+See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
+more details.
+
+## Shield WAF
+
+Protect against common web attacks including SQL injection, XSS, path
+traversal, and other OWASP Top 10 threats.
+
+```py
+from arcjet import arcjet, shield, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        shield(mode=Mode.LIVE),
+    ],
+)
+```
+
+See the [Shield docs](https://docs.arcjet.com/shield) for more details.
+
+## Email validation
+
+Prevent users from signing up with disposable, invalid, or undeliverable email
+addresses.
+
+```py
+from arcjet import arcjet, validate_email, EmailType, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        validate_email(
+            mode=Mode.LIVE,
+            deny=[
+                EmailType.DISPOSABLE,
+                EmailType.INVALID,
+                EmailType.NO_MX_RECORDS,
+            ],
+        ),
+    ],
+)
+
+# Pass the email with each protect() call
+decision = await aj.protect(request, email="user@example.com")
+```
+
+See the [Email Validation docs](https://docs.arcjet.com/email-validation) for
+more details.
+
 ## Request filters
 
-Filter requests using
-[expression-based rules](https://docs.arcjet.com/filters/reference#expression-language)
-against request properties (IP, headers, path, method, etc.).
+Filter requests using expression-based rules against request properties (IP
+address, headers, path, HTTP method, and custom local fields).
+
+### Block by country
+
+Restrict access to specific countries — useful for licensing, compliance, or
+regional rollouts. The `allow` list denies all countries not listed:
+
+```py
+from arcjet import arcjet, filter_request, Mode
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        # Allow only US traffic — all other countries are denied
+        filter_request(
+            mode=Mode.LIVE,
+            allow=['ip.src.country eq "US"'],
+        ),
+    ],
+)
+
+@app.get("/")
+async def index(request: Request):
+    decision = await aj.protect(request)
+
+    if decision.is_denied():
+        return JSONResponse({"error": "Access restricted in your region"}, status_code=403)
+```
+
+To restrict to a specific state or province, combine country and region:
+
+```py
+filter_request(
+    mode=Mode.LIVE,
+    # Allow only California — useful for state-level compliance e.g. CCPA testing
+    allow=['ip.src.country eq "US" and ip.src.region eq "California"'],
+)
+```
+
+### Block VPN and proxy traffic
+
+Prevent anonymized traffic from accessing sensitive endpoints — useful for
+fraud prevention, enforcing geo-restrictions, and reducing abuse:
 
 ```py
 from arcjet import arcjet, filter_request, Mode
@@ -445,32 +513,121 @@ aj = arcjet(
     rules=[
         filter_request(
             mode=Mode.LIVE,
-            deny=['ip.src == "1.2.3.4"'],
+            deny=[
+                "ip.src.vpn",    # VPN services
+                "ip.src.proxy",  # Open proxies
+                "ip.src.tor",    # Tor exit nodes
+            ],
         ),
     ],
 )
 ```
 
-You can also pass local fields for use in filter expressions:
+For cases where you want to allow some anonymized traffic (e.g. Apple Private
+Relay) but still log or handle it differently, use `decision.ip` helpers after
+calling `protect()`:
+
+```py
+decision = await aj.protect(request)
+
+if decision.ip.is_vpn() or decision.ip.is_tor():
+    return JSONResponse({"error": "VPN traffic not allowed"}, status_code=403)
+
+ip = decision.ip_details
+if ip and ip.service == "Apple Private Relay":
+    # Apple Private Relay requires an active iCloud subscription — lower risk
+    pass  # allow through with custom handling
+```
+
+### Custom local fields
+
+Pass arbitrary values from your application for use in filter expressions:
 
 ```py
 decision = await aj.protect(
     request,
-    filter_local={"userId": current_user.id},
+    filter_local={"userId": current_user.id, "plan": current_user.plan},
 )
 ```
 
-These are then available as `local.userId` in expressions.
-
-## Trusted proxies
-
-When your app runs behind one or more reverse proxies or a load balancer, pass
-their IPs or CIDR ranges so Arcjet can correctly resolve the real client IP from
-`X-Forwarded-For` and similar headers.
+These are then available as `local.userId` and `local.plan` in expressions:
 
 ```py
-from arcjet import arcjet
+filter_request(
+    mode=Mode.LIVE,
+    deny=['local.plan eq "free" and ip.src.country ne "US"'],
+)
+```
 
+See the [Request Filters docs](https://docs.arcjet.com/filters),
+[IP Geolocation blueprint](https://docs.arcjet.com/blueprints/ip-geolocation),
+and [VPN/Proxy Detection blueprint](https://docs.arcjet.com/blueprints/vpn-proxy-detection)
+for more details.
+
+## IP analysis
+
+Arcjet returns IP metadata with every decision — no extra API calls needed.
+
+```py
+# High-level helpers
+if decision.ip.is_hosting():
+    # likely a cloud/hosting provider — often suspicious for bots
+    return JSONResponse({"error": "Hosting IP blocked"}, status_code=403)
+
+if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
+    # apply your policy for anonymized traffic
+    pass
+
+# Typed field access
+ip = decision.ip_details
+if ip:
+    print(ip.city, ip.country_name)   # geolocation
+    print(ip.asn, ip.asn_name)        # ASN / network
+    print(ip.is_vpn, ip.is_hosting)   # reputation
+```
+
+Available fields include geolocation (`latitude`, `longitude`, `city`,
+`region`, `country`, `continent`), network (`asn`, `asn_name`, `asn_domain`,
+`asn_type`, `asn_country`), and reputation (`is_vpn`, `is_proxy`, `is_tor`,
+`is_hosting`, `is_relay`).
+
+## Best practices
+
+### Single-instance pattern
+
+Create one Arcjet client at startup and reuse it across all requests:
+
+```py
+# Good — one instance, created once at startup
+aj = arcjet(key=arcjet_key, rules=[...])
+
+# Bad — new instance per request wastes resources
+@app.get("/")
+async def index(request: Request):
+    aj = arcjet(key=arcjet_key, rules=[...])  # don't do this
+```
+
+### DRY_RUN mode for testing
+
+Use `Mode.DRY_RUN` to test rules without blocking traffic. Decisions are logged
+but requests are allowed through:
+
+```py
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        detect_bot(mode=Mode.DRY_RUN, allow=[]),
+        token_bucket(mode=Mode.DRY_RUN, refill_rate=5, interval=10, capacity=10),
+    ],
+)
+```
+
+### Proxy configuration
+
+When running behind a load balancer or reverse proxy, configure trusted IPs so
+Arcjet resolves the real client IP from `X-Forwarded-For`:
+
+```py
 aj = arcjet(
     key=arcjet_key,
     rules=[...],
@@ -478,176 +635,131 @@ aj = arcjet(
 )
 ```
 
-Only globally routable IPs are accepted for client identification; private,
-loopback, link-local, and addresses matching `proxies` are ignored during IP
-extraction.
+### Async vs. sync client
 
-## Overriding automatic IP detection
-
-By default, Arcjet automatically detects the client IP from the request using
- `X-Forwarded-For`. We recommend leaving this enabled in most cases and
-configuring trusted proxies as needed (see above).
-
-> [!WARNING]
-> Disabling automatic IP detection is not recommended unless you have
-> written your own IP detection logic that considers the correct parsing of IP
-> headers. Accepting client IPs from untrusted sources can expose your
-> application to IP spoofing attacks. See the [MDN
-> documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For)
-> for further guidance.
-
-To disable automatic IP detection (for example, if you have your own custom
-logic to extract the client IP), set `disable_automatic_ip_detection=True` when
-creating the Arcjet client, and then provide the `ip_src` parameter to
-`.protect(...)`.
+Use `arcjet` (async) with FastAPI and other async frameworks. Use `arcjet_sync`
+with Flask and other sync frameworks:
 
 ```py
-from arcjet import arcjet
+from arcjet import arcjet, arcjet_sync
+
+# Async — for FastAPI, Starlette, etc.
+aj_async = arcjet(key=arcjet_key, rules=[...])
+decision = await aj_async.protect(request)
+
+# Sync — for Flask, Django, etc.
+aj_sync = arcjet_sync(key=arcjet_key, rules=[...])
+decision = aj_sync.protect(request)
+```
+
+### Error handling
+
+Arcjet is designed to fail open — if the service is unavailable, requests are
+allowed through. Check for errors explicitly if your use case requires it:
+
+```py
+decision = await aj.protect(request)
+
+if decision.is_error():
+    # Arcjet service error — fail open or apply fallback policy
+    pass
+elif decision.is_denied():
+    return JSONResponse({"error": "Denied"}, status_code=403)
+```
+
+## LangChain example
+
+Arcjet works with any Python code, including LangChain agents and chains. In this
+example, we protect a LangChain agent's chat endpoint with Arcjet to prevent prompt injection, block bots, prevent sensitive data leakage, and enforce token budgets before invoking the agent.
+
+### FastAPI + LangChain
+
+```py
+from arcjet import arcjet, detect_bot, detect_prompt_injection, detect_sensitive_info, token_bucket, Mode, SensitiveInfoEntityType
+
 aj = arcjet(
     key=arcjet_key,
-    rules=[...],
-    disable_automatic_ip_detection=True,
+    rules=[
+        detect_prompt_injection(mode=Mode.LIVE),
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.PHONE_NUMBER,
+            ],
+        ),
+        detect_bot(mode=Mode.LIVE, allow=["CURL"]),
+        token_bucket(characteristics=["userId"], mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
+    ],
 )
 
-# ...
+@app.post("/chat")
+async def chat(request: Request, body: ChatRequest):
+    decision = await aj.protect(
+        request,
+        requested=5,
+        characteristics={"userId": "user_123"},
+        sensitive_info_value=body.message,  # scan before sending to LLM
+    )
 
-decision = await aj.protect(
-    request,
-    ip_src="8.8.8.8",  # provide the client IP here
+    if decision.is_denied():
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+        return JSONResponse({"error": "Denied"}, status_code=status)
+
+    reply = await chain.ainvoke({"message": body.message})
+    return {"reply": reply}
+```
+
+### Flask + LangChain
+
+```py
+from arcjet import arcjet_sync, detect_bot, detect_prompt_injection, detect_sensitive_info, token_bucket, Mode, SensitiveInfoEntityType
+
+aj = arcjet_sync(
+    key=arcjet_key,
+    rules=[
+        detect_prompt_injection(mode=Mode.LIVE),
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.PHONE_NUMBER,
+            ],
+        ),
+        detect_bot(mode=Mode.LIVE, allow=["CURL"]),
+        token_bucket(characteristics=["userId"], mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
+    ],
 )
+
+@app.post("/chat")
+def chat():
+    body = request.get_json()
+    message = body.get("message", "") if body else ""
+
+    decision = aj.protect(
+        request,
+        requested=5,
+        characteristics={"userId": "user_123"},
+        sensitive_info_value=message,  # scan before sending to LLM
+    )
+
+    if decision.is_denied():
+        status = 429 if decision.reason_v2.type == "RATE_LIMIT" else 403
+        return jsonify(error="Denied"), status
+
+    reply = chain.invoke({"message": message})
+    return jsonify(reply=reply)
 ```
 
-## Logging
+## Getting started
 
-Enable debug logging to troubleshoot issues with Arcjet integration.
-
-```py
-import logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s"
-)
-```
-
-Arcjet logging can be controlled directly by setting the `ARCJET_LOG_LEVEL`
-environment variable e.g. `export ARCJET_LOG_LEVEL=debug`.
-
-## Accessing decision details
-
-Arcjet returns per-rule `rule_results` and a top-level `decision.reason_v2`. To
-make a simple decision about allowing or denying a request you can check 
-`if decision.is_denied():`. For more details, inspect the rule results.
-
-### Getting bot detection details
-
-To find out which bots were detected (if any):
-
-```py
-if decision.reason_v2.type == "BOT":
-   denied = decision.reason_v2.denied
-
-   print("Denied bots:", ", ".join(denied) if denied else "none")
-```
-
-### Verified vs spoofed bots
-
-Bots claiming to be certain well-known bots (e.g. Googlebot) are verified by
-checking their IP address against the known IP ranges for that bot. If a bot
-claims to be a certain bot but fails verification, it is labeled as a spoofed
-bot. You can check for spoofed bots with the `is_spoofed_bot()` helper:
-
-```py
-from arcjet import is_spoofed_bot
-
-# ... after calling aj.protect() and getting a decision
-
-if any(is_spoofed_bot(r) for r in decision.results):
-    return jsonify(error="Spoofed bot"), 403
-```
-
-The decision reason will also indicate whether a bot was verified or spoofed:
-
-```py
-if decision.reason_v2.type == "BOT":
-    print("Spoofed:", decision.reason_v2.spoofed)
-    print("Verified:", decision.reason_v2.verified)
-
-    # Example policy decisions
-    if decision.reason_v2.spoofed:
-        return jsonify(error="Spoofed bot"), 403
-
-    if decision.reason_v2.verified:
-        print("Known bot verified by Arcjet")
-```
-
-If you want to inspect bot results at the per-rule level, iterate through
-`decision.results` and read `reason.spoofed` / `reason.verified` on BOT reasons:
-
-```py
-for result in decision.results:
-    reason = result.reason
-    if reason.type != "BOT":
-        continue
-
-    if reason.spoofed:
-        return jsonify(error="Spoofed bot"), 403
-
-    if reason.verified:
-        print("Verified bot traffic")
-```
-
-## IP analysis
-
-Arcjet returns an `ip_details` object as part of a `Decision` from
-`aj.protect(...)`. There are several ways to inspect that data:
-
-1. high-level helpers for common reputation checks.
-2. typed fields via `Decision.ip_details`.
-3. raw fields via `Decision.to_dict()`.
-
-### IP analysis helpers
-
-For common checks (is this IP a VPN, proxy, Tor exit node, or a hosting
-provider) use the `IpInfo` helpers exposed at `decision.ip`:
-
-```py
-# high level booleans
-if decision.ip.is_hosting():
-    # likely a cloud / hosting provider — often suspicious for bots
-    do_block()
-
-if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
-    # treat according to your policy
-    do_something_else()
-```
-
-### IP analysis fields
-
-Use `decision.ip_details` for typed field access:
-
-```py
-ip = decision.ip_details
-if ip:
-    lat = ip.latitude
-    lon = ip.longitude
-    asn = ip.asn
-    asn_name = ip.asn_name
-    service = ip.service  # str | None
-else:
-    # ip details not present
-```
-
-`Decision.to_dict()` also includes `ip_details` as a raw dictionary shape.
-
-These are the available fields, although not all may be present for every IP:
-
-- Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`,
-  `postal_code`, `city`, `region`, `country`, `country_name`, `continent`,
-  `continent_name`
-- ASN / network: `asn`, `asn_name`, `asn_domain`, `asn_type` (isp, hosting,
-  business, education), `asn_country`
-- Reputation / service: service name (when present) and boolean indicators for
-    `is_vpn`, `is_proxy`, `is_tor`, `is_hosting`, `is_relay`
+- [Arcjet Dashboard](https://app.arcjet.com) — get your API key
+- [Documentation](https://docs.arcjet.com) — full reference and guides
+- [Examples](https://github.com/arcjet/arcjet-py/tree/main/examples) — FastAPI
+  and Flask example apps, including LangChain integration
+- [Discord](https://arcjet.com/discord) — get help from the community
 
 ## Support
 
