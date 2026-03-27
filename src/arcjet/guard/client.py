@@ -108,6 +108,17 @@ class ArcjetGuard:
         """
         rule_list = list(rules)
 
+        if not rule_list:
+            return Decision(
+                conclusion="ALLOW",
+                id="",
+                results=(RuleResultError(
+                    message="at least one rule is required",
+                    code="VALIDATION_ERROR",
+                ),),
+                reason="ERROR",
+            )
+
         t0 = time.perf_counter()
         submissions = [rule_to_proto(r) for r in rule_list]
         local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -165,6 +176,17 @@ class ArcjetGuardSync:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
         rule_list = list(rules)
+
+        if not rule_list:
+            return Decision(
+                conclusion="ALLOW",
+                id="",
+                results=(RuleResultError(
+                    message="at least one rule is required",
+                    code="VALIDATION_ERROR",
+                ),),
+                reason="ERROR",
+            )
 
         t0 = time.perf_counter()
         submissions = [rule_to_proto(r) for r in rule_list]

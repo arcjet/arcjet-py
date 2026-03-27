@@ -201,44 +201,44 @@ class ResultTokenBucket(_message.Message):
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     REMAINING_TOKENS_FIELD_NUMBER: _ClassVar[int]
     MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
-    RESET_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    RESET_AT_UNIX_SECONDS_FIELD_NUMBER: _ClassVar[int]
     REFILL_RATE_FIELD_NUMBER: _ClassVar[int]
     REFILL_INTERVAL_SECONDS_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     remaining_tokens: int
     max_tokens: int
-    reset_seconds: int
+    reset_at_unix_seconds: int
     refill_rate: int
     refill_interval_seconds: int
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_tokens: _Optional[int] = ..., max_tokens: _Optional[int] = ..., reset_seconds: _Optional[int] = ..., refill_rate: _Optional[int] = ..., refill_interval_seconds: _Optional[int] = ...) -> None: ...
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_tokens: _Optional[int] = ..., max_tokens: _Optional[int] = ..., reset_at_unix_seconds: _Optional[int] = ..., refill_rate: _Optional[int] = ..., refill_interval_seconds: _Optional[int] = ...) -> None: ...
 
 class ResultFixedWindow(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     REMAINING_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     MAX_REQUESTS_FIELD_NUMBER: _ClassVar[int]
-    RESET_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    RESET_AT_UNIX_SECONDS_FIELD_NUMBER: _ClassVar[int]
     WINDOW_SECONDS_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     remaining_requests: int
     max_requests: int
-    reset_seconds: int
+    reset_at_unix_seconds: int
     window_seconds: int
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_seconds: _Optional[int] = ..., window_seconds: _Optional[int] = ...) -> None: ...
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_at_unix_seconds: _Optional[int] = ..., window_seconds: _Optional[int] = ...) -> None: ...
 
 class ResultSlidingWindow(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     REMAINING_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     MAX_REQUESTS_FIELD_NUMBER: _ClassVar[int]
-    RESET_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    RESET_AT_UNIX_SECONDS_FIELD_NUMBER: _ClassVar[int]
     INTERVAL_SECONDS_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     remaining_requests: int
     max_requests: int
-    reset_seconds: int
+    reset_at_unix_seconds: int
     interval_seconds: int
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_seconds: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_at_unix_seconds: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
 
 class ResultPromptInjection(_message.Message):
     __slots__ = ()
