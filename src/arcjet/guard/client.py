@@ -112,10 +112,12 @@ class ArcjetGuard:
             return Decision(
                 conclusion="ALLOW",
                 id="",
-                results=(RuleResultError(
-                    message="at least one rule is required",
-                    code="VALIDATION_ERROR",
-                ),),
+                results=(
+                    RuleResultError(
+                        message="at least one rule is required",
+                        code="VALIDATION_ERROR",
+                    ),
+                ),
                 reason="ERROR",
             )
 
@@ -181,10 +183,12 @@ class ArcjetGuardSync:
             return Decision(
                 conclusion="ALLOW",
                 id="",
-                results=(RuleResultError(
-                    message="at least one rule is required",
-                    code="VALIDATION_ERROR",
-                ),),
+                results=(
+                    RuleResultError(
+                        message="at least one rule is required",
+                        code="VALIDATION_ERROR",
+                    ),
+                ),
                 reason="ERROR",
             )
 
