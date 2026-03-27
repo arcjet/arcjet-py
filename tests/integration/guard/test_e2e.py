@@ -398,7 +398,7 @@ class TestE2eSyncResultNoneWhenNoMatch:
         inp = SensitiveInfoWithInput(
             input_id="no-match",
             config_id="no-match",
-            config=si._config,  # type: ignore[attr-defined]
+            config=si._config,
             text="text",
         )
         assert inp.result(decision) is None
