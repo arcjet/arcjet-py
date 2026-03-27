@@ -17,6 +17,7 @@ from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
 from arcjet.guard import (
     ArcjetGuard,
     ArcjetGuardSync,
+    RuleResultError,
     detect_prompt_injection,
     fixed_window,
     launch_arcjet,
@@ -273,8 +274,9 @@ class TestHelpers:
         d = _make_error_decision("oops")
         assert d.conclusion == "ALLOW"
         assert d.reason == "ERROR"
-        assert d.results[0].type == "RULE_ERROR"
-        assert d.results[0].message == "oops"
+        r = d.results[0]
+        assert isinstance(r, RuleResultError)
+        assert r.message == "oops"
 
 
 class TestArcjetGuardSync:
@@ -373,6 +375,7 @@ class TestArcjetGuardSync:
         assert decision.has_error()
         assert len(decision.results) == 1
         r = decision.results[0]
+        assert isinstance(r, RuleResultError)
         assert r.type == "RULE_ERROR"
         assert r.code == "VALIDATION_ERROR"
         assert "at least one rule" in r.message
@@ -453,6 +456,7 @@ class TestArcjetGuardAsync:
         assert decision.has_error()
         assert len(decision.results) == 1
         r = decision.results[0]
+        assert isinstance(r, RuleResultError)
         assert r.type == "RULE_ERROR"
         assert r.code == "VALIDATION_ERROR"
         assert "at least one rule" in r.message
