@@ -87,7 +87,7 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
             conclusion=_conclusion_from_proto(v.conclusion),
             remaining_tokens=v.remaining_tokens,
             max_tokens=v.max_tokens,
-            reset_seconds=v.reset_seconds,
+            reset_at_unix_seconds=v.reset_at_unix_seconds,
             refill_rate=v.refill_rate,
             refill_interval_seconds=v.refill_interval_seconds,
         )
@@ -98,7 +98,7 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
             conclusion=_conclusion_from_proto(v.conclusion),
             remaining_requests=v.remaining_requests,
             max_requests=v.max_requests,
-            reset_seconds=v.reset_seconds,
+            reset_at_unix_seconds=v.reset_at_unix_seconds,
             window_seconds=v.window_seconds,
         )
 
@@ -108,7 +108,7 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
             conclusion=_conclusion_from_proto(v.conclusion),
             remaining_requests=v.remaining_requests,
             max_requests=v.max_requests,
-            reset_seconds=v.reset_seconds,
+            reset_at_unix_seconds=v.reset_at_unix_seconds,
             interval_seconds=v.interval_seconds,
         )
 

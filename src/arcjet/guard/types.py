@@ -44,7 +44,7 @@ class RuleResultTokenBucket:
     type: Literal["TOKEN_BUCKET"] = "TOKEN_BUCKET"
     remaining_tokens: int = 0
     max_tokens: int = 0
-    reset_seconds: int = 0
+    reset_at_unix_seconds: int = 0
     refill_rate: int = 0
     refill_interval_seconds: int = 0
 
@@ -58,7 +58,7 @@ class RuleResultFixedWindow:
     type: Literal["FIXED_WINDOW"] = "FIXED_WINDOW"
     remaining_requests: int = 0
     max_requests: int = 0
-    reset_seconds: int = 0
+    reset_at_unix_seconds: int = 0
     window_seconds: int = 0
 
 
@@ -71,7 +71,7 @@ class RuleResultSlidingWindow:
     type: Literal["SLIDING_WINDOW"] = "SLIDING_WINDOW"
     remaining_requests: int = 0
     max_requests: int = 0
-    reset_seconds: int = 0
+    reset_at_unix_seconds: int = 0
     interval_seconds: int = 0
 
 
