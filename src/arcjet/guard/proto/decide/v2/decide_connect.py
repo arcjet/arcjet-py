@@ -12,7 +12,7 @@ from connectrpc.interceptor import Interceptor, InterceptorSync
 from connectrpc.method import IdempotencyLevel, MethodInfo
 from connectrpc.request import Headers, RequestContext
 from connectrpc.server import ConnectASGIApplication, ConnectWSGIApplication, Endpoint, EndpointSync
-import proto.decide.v2.decide_pb2 as proto_dot_decide_dot_v2_dot_decide__pb2
+import arcjet.guard.proto.decide.v2.decide_pb2 as proto_dot_decide_dot_v2_dot_decide__pb2
 
 
 class DecideService(Protocol):

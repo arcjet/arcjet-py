@@ -363,6 +363,22 @@ class TestArcjetGuardSync:
         decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 
+    def test_empty_rules_returns_validation_error(self) -> None:
+        client = FakeSyncClient()
+        guard = _make_guard_sync(client)
+        decision = guard.guard([], label="test")
+        assert decision.conclusion == "ALLOW"
+        assert decision.id == ""
+        assert decision.reason == "ERROR"
+        assert decision.has_error()
+        assert len(decision.results) == 1
+        r = decision.results[0]
+        assert r.type == "RULE_ERROR"
+        assert r.code == "VALIDATION_ERROR"
+        assert "at least one rule" in r.message
+        # Verify no network call was made
+        assert client.last_request is None
+
 
 class TestArcjetGuardAsync:
     def _run(self, coro: Any) -> Any:
@@ -426,3 +442,19 @@ class TestArcjetGuardAsync:
         rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         with pytest.raises(ArcjetTransportError, match="network down"):
             self._run(guard.guard([rule(key="x")], label="test"))
+
+    def test_empty_rules_returns_validation_error(self) -> None:
+        client = FakeAsyncClient()
+        guard = _make_guard(client)
+        decision = self._run(guard.guard([], label="test"))
+        assert decision.conclusion == "ALLOW"
+        assert decision.id == ""
+        assert decision.reason == "ERROR"
+        assert decision.has_error()
+        assert len(decision.results) == 1
+        r = decision.results[0]
+        assert r.type == "RULE_ERROR"
+        assert r.code == "VALIDATION_ERROR"
+        assert "at least one rule" in r.message
+        # Verify no network call was made
+        assert client.last_request is None
