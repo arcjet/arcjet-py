@@ -1,7 +1,7 @@
 [project]
 name = "arcjet"
 version = "0.6.0"
-description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, and sensitive data detection for Python apps."
+description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, sensitive data detection, and WAF for Python apps."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
