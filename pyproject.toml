@@ -1,7 +1,7 @@
 [project]
 name = "arcjet"
 version = "0.6.0"
-description = "Arcjet Python SDK. Bot detection, rate limiting, email validation, attack protection for Python applications."
+description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, sensitive data detection, and WAF for Python apps."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
@@ -23,11 +23,26 @@ classifiers = [
   "Intended Audience :: Developers",
   "Topic :: Communications :: Email :: Filters",
   "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Security",
   "Topic :: Software Development :: Libraries",
   "Topic :: System :: Networking :: Firewalls",
 ]
-keywords = ["security", "bot-detection", "rate-limiting", "email-validation"]
+keywords = [
+  "ai-security",
+  "api-security",
+  "bot-detection",
+  "bot-protection",
+  "email-validation",
+  "fastapi",
+  "flask",
+  "llm-security",
+  "prompt-injection",
+  "rate-limiting",
+  "security",
+  "sensitive-data",
+  "waf",
+]
 
 [project.urls]
 "homepage" = "https://arcjet.com"
@@ -42,10 +57,10 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
   "pytest-benchmark>=5.1.0",
-  "fastapi==0.135.1",                # For testing integration with FastAPI
-  "flask==3.1.3",                    # For testing integration with Flask
+  "fastapi==0.135.1",                      # For testing integration with FastAPI
+  "flask==3.1.3",                          # For testing integration with Flask
   "griffe==2.0.0",
-  "httpx==0.28.1",                   # Used by FastAPI tests
+  "httpx==0.28.1",                         # Used by FastAPI tests
   "pyright==1.1.408",
   "pytest==9.0.2",
   "pytest-cov>=7.0.0",
@@ -56,7 +71,12 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["-q", "--cov=src/arcjet", "--cov-report=term-missing", "--benchmark-disable"]
+addopts = [
+  "-q",
+  "--cov=src/arcjet",
+  "--cov-report=term-missing",
+  "--benchmark-disable",
+]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
@@ -88,7 +108,7 @@ exclude = [
 [tool.ruff.lint]
 select = [
   "F401", # Unused imports
-  "I", # Import formatting
+  "I",    # Import formatting
 ]
 
 [tool.pyright]

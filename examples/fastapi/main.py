@@ -7,8 +7,10 @@ from fastapi.responses import JSONResponse
 from arcjet import (
     BotCategory,
     Mode,
+    SensitiveInfoEntityType,
     arcjet,
     detect_bot,
+    detect_sensitive_info,
     shield,
     token_bucket,
 )
@@ -38,6 +40,15 @@ aj = arcjet(
                 # BotCategory.PREVIEW, # Link previews e.g. Slack, Discord
             ],
         ),
+        # Detect and block PII in request content (emails, credit cards, etc.)
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=[
+                SensitiveInfoEntityType.EMAIL,
+                SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                SensitiveInfoEntityType.PHONE_NUMBER,
+            ],
+        ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
             # Tracked by IP address by default, but this can be customized
@@ -53,11 +64,12 @@ aj = arcjet(
 
 
 @app.get("/")
-async def hello(request: Request):
+async def hello(request: Request, message: str = ""):
     # Call protect() to evaluate the request against the rules
     decision = await aj.protect(
         request,
         requested=5,  # Deduct 5 tokens from the bucket
+        sensitive_info_value=message,  # Scan the message query param for PII
     )
 
     # Typed IP details are available directly on decision.ip_details

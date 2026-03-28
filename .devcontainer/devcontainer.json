@@ -6,7 +6,8 @@
 	"image": "mcr.microsoft.com/devcontainers/python:2-3.10-trixie",
 	"features": {
 		// "ghcr.io/devcontainers/features/common-utils:2.5.2": {},
-		"ghcr.io/devcontainer-community/devcontainer-features/astral.sh-uv:1": {}
+		"ghcr.io/devcontainer-community/devcontainer-features/astral.sh-uv:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1.1.0": {}
 	},
 	"customizations": {
 		"vscode": {
