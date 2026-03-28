@@ -16,7 +16,6 @@ dependencies = [
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Framework :: Flask",
   "Framework :: FastAPI",
@@ -51,7 +50,7 @@ keywords = [
 "releases" = "https://github.com/arcjet/arcjet-py/releases"
 
 [build-system]
-requires = ["uv_build>=0.10.9,<0.11.0"]
+requires = ["uv_build>=0.10.9,<0.12"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -124,6 +123,9 @@ exclude = [
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
+
+[tool.uv]
+exclude-newer = "7 days"
 
 [tool.ty.src]
 exclude = [
