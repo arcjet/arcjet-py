@@ -6,5 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["arcjet", "fastapi[standard]>=0.124.4"]
 
+[tool.uv]
+exclude-newer = "7 days"
+
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
