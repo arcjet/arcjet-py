@@ -11,7 +11,7 @@ dependencies = [
   "pyqwest>=0.3.3",
   # Explanation of upper bound:
   # https://github.com/arcjet/arcjet-py/issues/2
-  "typeid-python>=0.3.9,<0.3.10",
+  "typeid-python>=0.3.3,<0.3.7",
   "wasmtime>=42.0.0,<42.1.0",
 ]
 classifiers = [
