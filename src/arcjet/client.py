@@ -104,7 +104,7 @@ def _uuidv7_bytes() -> bytes:
     # 12-bit random "rand_a" + 62-bit random "rand_b"
     rand_bytes = os.urandom(10)  # 80 bits of randomness
     rand_a = rand_bytes[0] << 4 | rand_bytes[1] >> 4  # 12 bits
-    rand_b = int.from_bytes(rand_bytes[2:], "big")  # 48 bits → 62 bits used
+    rand_b = int.from_bytes(rand_bytes[2:], "big") & ((1 << 62) - 1)  # 62 bits
 
     hi = (timestamp_ms << 16) | (0x7 << 12) | rand_a  # ver=7, 64 bits
     lo = (0b10 << 62) | rand_b  # var=10, 64 bits
