@@ -59,6 +59,7 @@ dev = [
   "griffe==2.0.0",
   "httpx==0.28.1",                         # Used by FastAPI tests
   "pyright==1.1.408",
+  "hypothesis>=6.100.0",
   "pytest==9.0.2",
   "pytest-cov>=7.0.0",
   "ruff==0.15.6",
