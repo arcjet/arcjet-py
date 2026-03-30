@@ -99,15 +99,13 @@ _CROCKFORD_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 
 def _uuidv7_bytes() -> bytes:
     """Generate a UUIDv7 as 16 raw bytes (RFC 9562)."""
-    # 48-bit millisecond timestamp
     timestamp_ms = int(time.time() * 1000)
-    # 12-bit random "rand_a" + 62-bit random "rand_b"
-    rand_bytes = os.urandom(10)  # 80 bits of randomness
-    rand_a = rand_bytes[0] << 4 | rand_bytes[1] >> 4  # 12 bits
-    rand_b = int.from_bytes(rand_bytes[2:], "big") & ((1 << 62) - 1)  # 62 bits
+    rand_bytes = os.urandom(10)
+    rand_a = rand_bytes[0] << 4 | rand_bytes[1] >> 4
+    rand_b = int.from_bytes(rand_bytes[2:], "big") & ((1 << 62) - 1)
 
-    hi = (timestamp_ms << 16) | (0x7 << 12) | rand_a  # ver=7, 64 bits
-    lo = (0b10 << 62) | rand_b  # var=10, 64 bits
+    hi = (timestamp_ms << 16) | (0x7 << 12) | rand_a  # ver=7
+    lo = (0b10 << 62) | rand_b  # var=10
     return hi.to_bytes(8, "big") + lo.to_bytes(8, "big")
 
 

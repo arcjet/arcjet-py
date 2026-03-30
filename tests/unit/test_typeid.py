@@ -19,8 +19,27 @@ from arcjet.client import (
     _uuidv7_bytes,
 )
 
-# Valid Crockford base32 characters (excludes i, l, o, u)
 _CROCKFORD_RE = re.compile(r"^[0-9a-hj-km-np-tv-z]{26}$")
+
+
+def _assert_valid_typeid(rid: str) -> str:
+    """Assert ``rid`` is a well-formed ``lreq`` TypeID and return the suffix."""
+    prefix, sep, suffix = rid.partition("_")
+    assert prefix == "lreq"
+    assert sep == "_"
+    assert len(suffix) == 26
+    assert _CROCKFORD_RE.match(suffix), f"bad suffix chars: {suffix}"
+    assert suffix[0] in "01234567", f"overflow: first char is '{suffix[0]}'"
+    return suffix
+
+
+def _assert_valid_uuidv7(raw: bytes) -> uuid.UUID:
+    """Assert ``raw`` is valid UUIDv7 bytes and return the UUID."""
+    assert len(raw) == 16
+    u = uuid.UUID(bytes=raw)
+    assert u.version == 7
+    assert u.variant == uuid.RFC_4122
+    return u
 
 
 # ---------------------------------------------------------------------------
@@ -30,26 +49,18 @@ _CROCKFORD_RE = re.compile(r"^[0-9a-hj-km-np-tv-z]{26}$")
 
 def test_format():
     """ID has lreq_ prefix and 26-char Crockford base32 suffix."""
-    rid = _new_local_request_id()
-    prefix, sep, suffix = rid.partition("_")
-    assert prefix == "lreq"
-    assert sep == "_"
-    assert _CROCKFORD_RE.match(suffix), f"bad suffix chars: {suffix}"
+    _assert_valid_typeid(_new_local_request_id())
 
 
 def test_uuidv7_version_and_variant():
     """Raw bytes encode a valid UUIDv7 (version 7, RFC 4122 variant)."""
-    raw = _uuidv7_bytes()
-    u = uuid.UUID(bytes=raw)
-    assert u.version == 7
-    assert u.variant == uuid.RFC_4122
+    _assert_valid_uuidv7(_uuidv7_bytes())
 
 
 def test_suffix_first_char_max_7():
     """First suffix character must be 0-7 (128-bit value fits in 130-bit encoding)."""
     for _ in range(50):
-        suffix = _new_local_request_id().split("_")[1]
-        assert suffix[0] in "01234567", f"overflow: first char is '{suffix[0]}'"
+        _assert_valid_typeid(_new_local_request_id())
 
 
 def test_ids_are_unique():
@@ -60,10 +71,9 @@ def test_ids_are_unique():
 
 def test_ids_are_time_sortable():
     """IDs generated later should sort lexicographically after earlier ones."""
-    earlier = _new_local_request_id()
-    # Advance the clock by at least 1 ms so timestamp differs
     import time
 
+    earlier = _new_local_request_id()
     time.sleep(0.002)
     later = _new_local_request_id()
     assert later > earlier
@@ -76,62 +86,32 @@ def test_ids_are_time_sortable():
 
 def test_zero_timestamp():
     """When the clock reads epoch-zero the ID is still well-formed."""
-    with patch("arcjet.client.time") as mock_time:
-        mock_time.time.return_value = 0.0
-        rid = _new_local_request_id()
-
-    prefix, _, suffix = rid.partition("_")
-    assert prefix == "lreq"
-    assert _CROCKFORD_RE.match(suffix)
-
-    # Timestamp portion (first 10 Crockford chars ≈ 48 bits) should be all zeros
-    # when time=0, so the suffix starts with a run of '0's (at least the first
-    # several chars).  Just verify it doesn't crash and has valid format.
-    assert len(suffix) == 26
+    with patch("arcjet.client.time.time", return_value=0.0):
+        _assert_valid_typeid(_new_local_request_id())
 
 
 def test_max_timestamp():
     """A far-future timestamp still produces a valid 26-char suffix."""
-    # Year ~10889 — 48-bit millisecond timestamp near max
-    with patch("arcjet.client.time") as mock_time:
-        mock_time.time.return_value = (2**48 - 1) / 1000.0
-        rid = _new_local_request_id()
-
-    suffix = rid.split("_")[1]
-    assert len(suffix) == 26
-    assert _CROCKFORD_RE.match(suffix)
-    # First char still must be ≤ '7'
-    assert suffix[0] in "01234567"
+    with patch("arcjet.client.time.time", return_value=(2**48 - 1) / 1000.0):
+        _assert_valid_typeid(_new_local_request_id())
 
 
 def test_low_entropy_random():
     """All-zero random bytes still produce a structurally valid ID."""
     with patch("arcjet.client.os.urandom", return_value=b"\x00" * 10):
-        rid = _new_local_request_id()
-
-    suffix = rid.split("_")[1]
-    assert len(suffix) == 26
-    assert _CROCKFORD_RE.match(suffix)
+        _assert_valid_typeid(_new_local_request_id())
 
 
 def test_max_entropy_random():
     """All-0xFF random bytes still produce a valid ID (no overflow)."""
     with patch("arcjet.client.os.urandom", return_value=b"\xff" * 10):
-        rid = _new_local_request_id()
-
-    suffix = rid.split("_")[1]
-    assert len(suffix) == 26
-    assert _CROCKFORD_RE.match(suffix)
-    assert suffix[0] in "01234567"
+        _assert_valid_typeid(_new_local_request_id())
 
 
 def test_uuidv7_all_ff_random_preserves_variant():
     """Even with max random bytes, variant bits (10xx) are correctly set."""
     with patch("arcjet.client.os.urandom", return_value=b"\xff" * 10):
-        raw = _uuidv7_bytes()
-    u = uuid.UUID(bytes=raw)
-    assert u.version == 7
-    assert u.variant == uuid.RFC_4122
+        _assert_valid_uuidv7(_uuidv7_bytes())
 
 
 def test_crockford_alphabet_excludes_ambiguous():
@@ -145,82 +125,27 @@ def test_crockford_alphabet_excludes_ambiguous():
 # Fuzz tests (hypothesis)
 # ---------------------------------------------------------------------------
 
-# Timestamp range: 0 to max 48-bit ms value (~year 10889)
 _MAX_TIMESTAMP_MS = 2**48 - 1
 
-
-@given(
-    timestamp=st.floats(
-        min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
-    ),
-    rand_bytes=st.binary(min_size=10, max_size=10),
+_fuzz_timestamp = st.floats(
+    min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
 )
+_fuzz_rand = st.binary(min_size=10, max_size=10)
+
+
+@given(timestamp=_fuzz_timestamp, rand_bytes=_fuzz_rand)
 @settings(max_examples=500)
-def test_fuzz_always_valid_format(timestamp: float, rand_bytes: bytes):
-    """Any timestamp + random bytes must produce a well-formed TypeID."""
+def test_fuzz_typeid_invariants(timestamp: float, rand_bytes: bytes):
+    """Any timestamp + random bytes must produce a valid TypeID and UUIDv7."""
     with (
         patch("arcjet.client.time.time", return_value=timestamp),
         patch("arcjet.client.os.urandom", return_value=rand_bytes),
     ):
-        rid = _new_local_request_id()
-
-    prefix, sep, suffix = rid.partition("_")
-    assert prefix == "lreq"
-    assert sep == "_"
-    assert len(suffix) == 26
-    assert _CROCKFORD_RE.match(suffix), f"invalid chars in suffix: {suffix}"
+        _assert_valid_typeid(_new_local_request_id())
+        _assert_valid_uuidv7(_uuidv7_bytes())
 
 
-@given(
-    timestamp=st.floats(
-        min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
-    ),
-    rand_bytes=st.binary(min_size=10, max_size=10),
-)
-@settings(max_examples=500)
-def test_fuzz_always_valid_uuidv7(timestamp: float, rand_bytes: bytes):
-    """Any inputs must produce bytes with correct UUIDv7 version and variant."""
-    with (
-        patch("arcjet.client.time.time", return_value=timestamp),
-        patch("arcjet.client.os.urandom", return_value=rand_bytes),
-    ):
-        raw = _uuidv7_bytes()
-
-    assert len(raw) == 16
-    u = uuid.UUID(bytes=raw)
-    assert u.version == 7, (
-        f"bad version {u.version} for ts={timestamp} rand={rand_bytes.hex()}"
-    )
-    assert u.variant == uuid.RFC_4122, (
-        f"bad variant for ts={timestamp} rand={rand_bytes.hex()}"
-    )
-
-
-@given(
-    timestamp=st.floats(
-        min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
-    ),
-    rand_bytes=st.binary(min_size=10, max_size=10),
-)
-@settings(max_examples=500)
-def test_fuzz_no_overflow(timestamp: float, rand_bytes: bytes):
-    """First suffix char must be 0-7 (no 130-bit overflow)."""
-    with (
-        patch("arcjet.client.time.time", return_value=timestamp),
-        patch("arcjet.client.os.urandom", return_value=rand_bytes),
-    ):
-        rid = _new_local_request_id()
-
-    first_char = rid.split("_")[1][0]
-    assert first_char in "01234567", f"overflow: '{first_char}' for ts={timestamp}"
-
-
-@given(
-    timestamp=st.floats(
-        min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
-    ),
-    rand_bytes=st.binary(min_size=10, max_size=10),
-)
+@given(timestamp=_fuzz_timestamp, rand_bytes=_fuzz_rand)
 @settings(max_examples=500)
 def test_fuzz_roundtrip_timestamp(timestamp: float, rand_bytes: bytes):
     """The embedded timestamp should match the input (truncated to integer ms)."""
