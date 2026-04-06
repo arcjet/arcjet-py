@@ -56,6 +56,7 @@ from .rules import (
     token_bucket,
 )
 from .types import (
+    SENSITIVE_INFO_ENTITY_TYPES,
     Conclusion,
     Decision,
     Mode,
@@ -88,6 +89,7 @@ __all__ = [
     "RuleResultSlidingWindow",
     "RuleResultTokenBucket",
     "RuleResultUnknown",
+    "SENSITIVE_INFO_ENTITY_TYPES",
     # Rule factories
     "detect_prompt_injection",
     "fixed_window",

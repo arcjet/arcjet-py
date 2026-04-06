@@ -17,7 +17,7 @@ from typing import Sequence
 
 import pyqwest
 
-from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
+from arcjet._errors import ArcjetError, ArcjetMisconfiguration, ArcjetTransportError
 from arcjet._logging import logger
 
 from .convert import decision_from_proto, rule_to_proto
@@ -122,7 +122,12 @@ class ArcjetGuard:
             )
 
         t0 = time.perf_counter()
-        submissions = [rule_to_proto(r) for r in rule_list]
+        try:
+            submissions = [rule_to_proto(r) for r in rule_list]
+        except ArcjetError:
+            raise
+        except Exception as e:
+            raise ArcjetError(f"Failed to encode rules: {e}") from e
         local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
 
         req = _build_request(
@@ -139,6 +144,8 @@ class ArcjetGuard:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+        except ArcjetError:
+            raise
         except Exception as e:
             if self._fail_open:
                 logger.warning(
@@ -147,7 +154,7 @@ class ArcjetGuard:
                 return _make_error_decision(str(e))
             raise ArcjetTransportError(str(e)) from e
 
-        return decision_from_proto(resp, rule_list)
+        return decision_from_proto(resp)
 
 
 @dataclass(slots=True)
@@ -193,7 +200,12 @@ class ArcjetGuardSync:
             )
 
         t0 = time.perf_counter()
-        submissions = [rule_to_proto(r) for r in rule_list]
+        try:
+            submissions = [rule_to_proto(r) for r in rule_list]
+        except ArcjetError:
+            raise
+        except Exception as e:
+            raise ArcjetError(f"Failed to encode rules: {e}") from e
         local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
 
         req = _build_request(
@@ -210,6 +222,8 @@ class ArcjetGuardSync:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+        except ArcjetError:
+            raise
         except Exception as e:
             if self._fail_open:
                 logger.warning(
@@ -218,7 +232,7 @@ class ArcjetGuardSync:
                 return _make_error_decision(str(e))
             raise ArcjetTransportError(str(e)) from e
 
-        return decision_from_proto(resp, rule_list)
+        return decision_from_proto(resp)
 
 
 def launch_arcjet(

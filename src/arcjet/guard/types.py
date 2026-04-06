@@ -1,5 +1,9 @@
 """Public SDK types for ``arcjet.guard``.
 
+Concrete per-rule discriminated unions.  No generics.  Each rule kind
+gets its own ``RuleResult*`` type with a ``type`` discriminant for
+narrowing.
+
 These are independent of protobuf — the SDK exposes plain frozen dataclasses,
 not proto messages.  The type system is designed for progressive disclosure:
 
@@ -32,7 +36,21 @@ Reason = Literal[
 """Broad reason category for a decision or rule result."""
 
 Mode = Literal["LIVE", "DRY_RUN"]
-"""Rule evaluation mode."""
+"""Rule evaluation mode.  ``"LIVE"`` enforces the rule; ``"DRY_RUN"``
+evaluates without blocking."""
+
+SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"EMAIL", "PHONE_NUMBER", "IP_ADDRESS", "CREDIT_CARD_NUMBER"}
+)
+"""Built-in sensitive information entity types supported by the WASM
+analyzer.  Custom entity types are not supported in ``arcjet.guard`` —
+use a custom rule instead.
+
+- ``"EMAIL"`` — Email addresses
+- ``"PHONE_NUMBER"`` — Phone numbers
+- ``"IP_ADDRESS"`` — IPv4 and IPv6 addresses
+- ``"CREDIT_CARD_NUMBER"`` — Credit/debit card numbers
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,13 +58,28 @@ class RuleResultTokenBucket:
     """Result from a token bucket rate limit evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["RATE_LIMIT"] = "RATE_LIMIT"
+    """The reason category — always ``"RATE_LIMIT"`` for token bucket rules."""
+
     type: Literal["TOKEN_BUCKET"] = "TOKEN_BUCKET"
+    """Discriminant — always ``"TOKEN_BUCKET"``."""
+
     remaining_tokens: int = 0
+    """Number of tokens remaining in the bucket after this evaluation."""
+
     max_tokens: int = 0
+    """Maximum capacity of the token bucket."""
+
     reset_at_unix_seconds: int = 0
+    """Unix timestamp (seconds) when the bucket will next be refilled."""
+
     refill_rate: int = 0
+    """Number of tokens added to the bucket each refill interval."""
+
     refill_interval_seconds: int = 0
+    """Duration in seconds between each token refill."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,12 +87,25 @@ class RuleResultFixedWindow:
     """Result from a fixed window rate limit evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["RATE_LIMIT"] = "RATE_LIMIT"
+    """The reason category — always ``"RATE_LIMIT"`` for fixed window rules."""
+
     type: Literal["FIXED_WINDOW"] = "FIXED_WINDOW"
+    """Discriminant — always ``"FIXED_WINDOW"``."""
+
     remaining_requests: int = 0
+    """Number of requests remaining in the current window."""
+
     max_requests: int = 0
+    """Maximum requests allowed per window."""
+
     reset_at_unix_seconds: int = 0
+    """Unix timestamp (seconds) when the current window resets."""
+
     window_seconds: int = 0
+    """Duration of each rate limit window in seconds."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,12 +113,25 @@ class RuleResultSlidingWindow:
     """Result from a sliding window rate limit evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["RATE_LIMIT"] = "RATE_LIMIT"
+    """The reason category — always ``"RATE_LIMIT"`` for sliding window rules."""
+
     type: Literal["SLIDING_WINDOW"] = "SLIDING_WINDOW"
+    """Discriminant — always ``"SLIDING_WINDOW"``."""
+
     remaining_requests: int = 0
+    """Number of requests remaining in the current sliding interval."""
+
     max_requests: int = 0
+    """Maximum requests allowed per sliding interval."""
+
     reset_at_unix_seconds: int = 0
+    """Unix timestamp (seconds) when the sliding interval resets."""
+
     interval_seconds: int = 0
+    """Duration of the sliding interval in seconds."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +139,13 @@ class RuleResultPromptInjection:
     """Result from a prompt injection detection evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
+    """The reason category — always ``"PROMPT_INJECTION"`` for this rule."""
+
     type: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
+    """Discriminant — always ``"PROMPT_INJECTION"``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,9 +153,16 @@ class RuleResultSensitiveInfo:
     """Result from a sensitive information detection evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["SENSITIVE_INFO"] = "SENSITIVE_INFO"
+    """The reason category — always ``"SENSITIVE_INFO"`` for this rule."""
+
     type: Literal["SENSITIVE_INFO"] = "SENSITIVE_INFO"
+    """Discriminant — always ``"SENSITIVE_INFO"``."""
+
     detected_entity_types: tuple[str, ...] = ()
+    """Entity types detected in the input (e.g. ``"EMAIL"``, ``"PHONE_NUMBER"``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +170,16 @@ class RuleResultCustom:
     """Result from a custom local rule evaluation."""
 
     conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
     reason: Literal["CUSTOM"] = "CUSTOM"
+    """The reason category — always ``"CUSTOM"`` for custom rules."""
+
     type: Literal["CUSTOM"] = "CUSTOM"
+    """Discriminant — always ``"CUSTOM"``."""
+
     data: Mapping[str, str] = field(default_factory=dict)
+    """Arbitrary key-value data returned by the custom rule's evaluate function."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,8 +187,13 @@ class RuleResultNotRun:
     """Result for a rule that was not evaluated."""
 
     conclusion: Literal["ALLOW"] = "ALLOW"
+    """Always ``"ALLOW"`` — unevaluated rules never deny."""
+
     reason: Reason = "NOT_RUN"
+    """The reason category — always ``"NOT_RUN"`` for skipped rules."""
+
     type: Literal["NOT_RUN"] = "NOT_RUN"
+    """Discriminant — always ``"NOT_RUN"``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,10 +204,19 @@ class RuleResultError:
     """
 
     conclusion: Literal["ALLOW"] = "ALLOW"
+    """Always ``"ALLOW"`` — errors are fail-open."""
+
     reason: Reason = "ERROR"
+    """The reason category — always ``"ERROR"`` for errored rules."""
+
     type: Literal["RULE_ERROR"] = "RULE_ERROR"
+    """Discriminant — always ``"RULE_ERROR"``."""
+
     message: str = ""
+    """Human-readable error description."""
+
     code: str = ""
+    """Machine-readable error code."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,8 +224,13 @@ class RuleResultUnknown:
     """Fallback result for unrecognized rule types."""
 
     conclusion: Conclusion = "ALLOW"
+    """Whether the request was allowed or denied."""
+
     reason: Literal["UNKNOWN"] = "UNKNOWN"
+    """The reason category — always ``"UNKNOWN"`` for unrecognized rules."""
+
     type: Literal["UNKNOWN"] = "UNKNOWN"
+    """Discriminant — always ``"UNKNOWN"``."""
 
 
 RuleResult = Union[
@@ -175,7 +272,13 @@ class Decision:
     """Server-generated unique identifier (TypeID, prefix ``"gdec"``)."""
 
     results: tuple[RuleResult, ...]
-    """Per-rule results, one per submission, in submission order."""
+    """Rule results associated with this decision.
+
+    In a successful evaluation, contains one result per submitted rule in
+    submission order. In error or fail-open scenarios (e.g. transport failure,
+    validation error), this 1:1 correspondence is not guaranteed — a single
+    synthetic error result may be returned for the entire decision.
+    """
 
     reason: Reason = "UNKNOWN"
     """Broad reason category (only meaningful for DENY decisions)."""

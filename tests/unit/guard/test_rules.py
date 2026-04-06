@@ -27,47 +27,47 @@ class TestRuleFactories:
         rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         inp = rule(key="user_1")
 
-        assert inp.config_id
-        assert inp.input_id
+        assert inp._config_id
+        assert inp._input_id
         assert isinstance(inp, TokenBucketWithInput)
         assert inp.mode == "LIVE"
 
     def test_fixed_window_returns_rule_with_input(self) -> None:
         rule = fixed_window(max_requests=100, window_seconds=3600)
         inp = rule(key="user_1")
-        assert inp.config_id
+        assert inp._config_id
         assert isinstance(inp, FixedWindowWithInput)
 
     def test_sliding_window_returns_rule_with_input(self) -> None:
         rule = sliding_window(max_requests=500, interval_seconds=60)
         inp = rule(key="user_1")
-        assert inp.config_id
+        assert inp._config_id
         assert isinstance(inp, SlidingWindowWithInput)
 
     def test_detect_prompt_injection_returns_rule_with_input(self) -> None:
         rule = detect_prompt_injection()
         inp = rule("some text")
-        assert inp.config_id
+        assert inp._config_id
         assert isinstance(inp, PromptInjectionWithInput)
 
     def test_local_detect_sensitive_info_returns_rule_with_input(self) -> None:
         rule = local_detect_sensitive_info()
         inp = rule("some text")
-        assert inp.config_id
+        assert inp._config_id
         assert isinstance(inp, SensitiveInfoWithInput)
 
     def test_local_custom_returns_rule_with_input(self) -> None:
         rule = local_custom(data={"foo": "bar"})
         inp = rule(data={"baz": "qux"})
-        assert inp.config_id
+        assert inp._config_id
         assert isinstance(inp, CustomWithInput)
 
     def test_same_config_produces_shared_config_id(self) -> None:
         rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         a = rule(key="alice")
         b = rule(key="bob")
-        assert a.config_id == b.config_id
-        assert a.input_id != b.input_id
+        assert a._config_id == b._config_id
+        assert a._input_id != b._input_id
 
     def test_different_configs_have_different_config_id(self) -> None:
         rule_a = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
@@ -116,8 +116,8 @@ def _multi_rule_response():
         [
             pb.GuardRuleResult(
                 result_id="gres_1",
-                config_id=rl1.config_id,
-                input_id=rl1.input_id,
+                config_id=rl1._config_id,
+                input_id=rl1._input_id,
                 type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                 token_bucket=pb.ResultTokenBucket(
                     conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -130,8 +130,8 @@ def _multi_rule_response():
             ),
             pb.GuardRuleResult(
                 result_id="gres_2",
-                config_id=rl2.config_id,
-                input_id=rl2.input_id,
+                config_id=rl2._config_id,
+                input_id=rl2._input_id,
                 type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                 token_bucket=pb.ResultTokenBucket(
                     conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -144,8 +144,8 @@ def _multi_rule_response():
             ),
             pb.GuardRuleResult(
                 result_id="gres_3",
-                config_id=pi.config_id,
-                input_id=pi.input_id,
+                config_id=pi._config_id,
+                input_id=pi._input_id,
                 type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                 prompt_injection=pb.ResultPromptInjection(
                     conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -160,13 +160,13 @@ def _multi_rule_response():
 class TestThreeLayerInspection:
     def test_layer1_conclusion_and_reason(self) -> None:
         rate_limit, rl1, rl2, prompt, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         assert len(decision.results) == 3
 
     def test_layer2_has_error_false(self) -> None:
         _, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
         assert not decision.has_error()
 
     def test_layer2_has_error_true(self) -> None:
@@ -178,20 +178,20 @@ class TestThreeLayerInspection:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     error=pb.ResultError(message="boom", code="INTERNAL"),
                 ),
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.has_error()
 
     def test_layer3_results_returns_all_for_config(self) -> None:
         rate_limit, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
 
         rl_results = rate_limit.results(decision)
         assert len(rl_results) == 2
@@ -199,7 +199,7 @@ class TestThreeLayerInspection:
 
     def test_layer3_result_returns_specific_input(self) -> None:
         _, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
 
         r1 = rl1.result(decision)
         assert r1 is not None
@@ -211,7 +211,7 @@ class TestThreeLayerInspection:
 
     def test_layer3_result_returns_none_for_missing(self) -> None:
         _, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
 
         other = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         not_submitted = other(key="charlie")
@@ -219,7 +219,7 @@ class TestThreeLayerInspection:
 
     def test_layer3_denied_result_none_when_no_denials(self) -> None:
         rate_limit, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
         assert rate_limit.denied_result(decision) is None
 
     def test_layer3_denied_result_returns_first_deny(self) -> None:
@@ -231,8 +231,8 @@ class TestThreeLayerInspection:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     token_bucket=pb.ResultTokenBucket(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -246,7 +246,7 @@ class TestThreeLayerInspection:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         denied = rule.denied_result(decision)
         assert denied is not None
         assert denied.conclusion == "DENY"
@@ -254,7 +254,7 @@ class TestThreeLayerInspection:
 
     def test_layer3_input_denied_result_none_for_allow(self) -> None:
         _, rl1, rl2, _, pi, response = _multi_rule_response()
-        decision = decision_from_proto(response, [rl1, rl2, pi])
+        decision = decision_from_proto(response)
         assert rl1.denied_result(decision) is None
 
 
@@ -268,8 +268,8 @@ class TestFixedWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -279,7 +279,7 @@ class TestFixedWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         r = inp.result(decision)
         assert r is not None
@@ -294,8 +294,8 @@ class TestFixedWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -305,7 +305,7 @@ class TestFixedWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         denied = inp.denied_result(decision)
         assert denied is not None
@@ -320,8 +320,8 @@ class TestFixedWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -331,7 +331,7 @@ class TestFixedWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
@@ -344,8 +344,8 @@ class TestFixedWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -355,8 +355,8 @@ class TestFixedWindowLayer3:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -366,7 +366,7 @@ class TestFixedWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
 
         results = rule.results(decision)
         assert len(results) == 2
@@ -384,8 +384,8 @@ class TestFixedWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -395,7 +395,7 @@ class TestFixedWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
 
 
@@ -409,8 +409,8 @@ class TestSlidingWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -420,7 +420,7 @@ class TestSlidingWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         r = inp.result(decision)
         assert r is not None
@@ -435,8 +435,8 @@ class TestSlidingWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -446,7 +446,7 @@ class TestSlidingWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         denied = inp.denied_result(decision)
         assert denied is not None
@@ -461,8 +461,8 @@ class TestSlidingWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -472,7 +472,7 @@ class TestSlidingWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
@@ -485,8 +485,8 @@ class TestSlidingWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -496,8 +496,8 @@ class TestSlidingWindowLayer3:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -507,7 +507,7 @@ class TestSlidingWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
 
         results = rule.results(decision)
         assert len(results) == 2
@@ -524,8 +524,8 @@ class TestSlidingWindowLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -535,7 +535,7 @@ class TestSlidingWindowLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
 
 
@@ -549,8 +549,8 @@ class TestPromptInjectionLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -559,7 +559,7 @@ class TestPromptInjectionLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         r = inp.result(decision)
         assert r is not None
@@ -574,8 +574,8 @@ class TestPromptInjectionLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -584,7 +584,7 @@ class TestPromptInjectionLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         denied = inp.denied_result(decision)
         assert denied is not None
@@ -599,8 +599,8 @@ class TestPromptInjectionLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -609,7 +609,7 @@ class TestPromptInjectionLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
@@ -622,8 +622,8 @@ class TestPromptInjectionLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -632,8 +632,8 @@ class TestPromptInjectionLayer3:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -642,7 +642,7 @@ class TestPromptInjectionLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
 
         results = rule.results(decision)
         assert len(results) == 2
@@ -660,8 +660,8 @@ class TestPromptInjectionLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -670,7 +670,7 @@ class TestPromptInjectionLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
 
 
@@ -684,8 +684,8 @@ class TestSensitiveInfoLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -695,7 +695,7 @@ class TestSensitiveInfoLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         r = inp.result(decision)
         assert r is not None
@@ -710,8 +710,8 @@ class TestSensitiveInfoLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -721,7 +721,7 @@ class TestSensitiveInfoLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         denied = inp.denied_result(decision)
         assert denied is not None
@@ -736,8 +736,8 @@ class TestSensitiveInfoLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -746,7 +746,7 @@ class TestSensitiveInfoLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
@@ -759,8 +759,8 @@ class TestSensitiveInfoLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -769,8 +769,8 @@ class TestSensitiveInfoLayer3:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -780,7 +780,7 @@ class TestSensitiveInfoLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
 
         results = rule.results(decision)
         assert len(results) == 2
@@ -798,8 +798,8 @@ class TestSensitiveInfoLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -808,7 +808,7 @@ class TestSensitiveInfoLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
 
 
@@ -822,8 +822,8 @@ class TestCustomLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -832,7 +832,7 @@ class TestCustomLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         r = inp.result(decision)
         assert r is not None
@@ -847,8 +847,8 @@ class TestCustomLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -856,7 +856,7 @@ class TestCustomLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         denied = inp.denied_result(decision)
         assert denied is not None
@@ -871,8 +871,8 @@ class TestCustomLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -880,7 +880,7 @@ class TestCustomLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
@@ -893,8 +893,8 @@ class TestCustomLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -902,8 +902,8 @@ class TestCustomLayer3:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -911,7 +911,7 @@ class TestCustomLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
 
         results = rule.results(decision)
         assert len(results) == 2
@@ -928,8 +928,8 @@ class TestCustomLayer3:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -937,5 +937,116 @@ class TestCustomLayer3:
                 ),
             ],
         )
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
+
+
+class TestEntityTypeValidation:
+    """Validate that invalid entity type strings are rejected at config time."""
+
+    def test_valid_entity_types_accepted_in_allow(self) -> None:
+        rule = local_detect_sensitive_info(allow=["EMAIL", "PHONE_NUMBER"])
+        assert rule is not None
+
+    def test_valid_entity_types_accepted_in_deny(self) -> None:
+        rule = local_detect_sensitive_info(deny=["IP_ADDRESS", "CREDIT_CARD_NUMBER"])
+        assert rule is not None
+
+    def test_invalid_entity_type_in_allow_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
+            local_detect_sensitive_info(allow=["SSN"])
+
+    def test_invalid_entity_type_in_deny_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
+            local_detect_sensitive_info(deny=["SOCIAL_SECURITY"])
+
+    def test_mixed_valid_invalid_entity_types_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
+            local_detect_sensitive_info(allow=["EMAIL", "SSN"])
+
+    def test_empty_entity_lists_accepted(self) -> None:
+        rule = local_detect_sensitive_info(allow=[], deny=[])
+        assert rule is not None
+
+
+class TestCustomConclusionValidation:
+    """Validate that invalid conclusion values are rejected at call time."""
+
+    def test_valid_conclusion_allow_accepted(self) -> None:
+        rule = local_custom()
+        inp = rule(conclusion="ALLOW")
+        assert inp.conclusion == "ALLOW"
+
+    def test_valid_conclusion_deny_accepted(self) -> None:
+        rule = local_custom()
+        inp = rule(conclusion="DENY")
+        assert inp.conclusion == "DENY"
+
+    def test_none_conclusion_accepted(self) -> None:
+        rule = local_custom()
+        inp = rule()
+        assert inp.conclusion is None
+
+    def test_invalid_conclusion_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        rule = local_custom()
+        with pytest.raises(ArcjetError, match="Invalid conclusion"):
+            rule(conclusion="BANANA")  # type: ignore[arg-type]
+
+    def test_invalid_conclusion_case_sensitive(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        rule = local_custom()
+        with pytest.raises(ArcjetError, match="Invalid conclusion"):
+            rule(conclusion="allow")  # type: ignore[arg-type]
+
+
+class TestKeyHashProperty:
+    """Verify the key_hash property on *WithInput classes."""
+
+    def test_token_bucket_key_hash(self) -> None:
+        import hashlib
+
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        expected = hashlib.sha256("user_1".encode("utf-8")).hexdigest()
+        assert inp.key_hash == expected
+
+    def test_fixed_window_key_hash(self) -> None:
+        import hashlib
+
+        rule = fixed_window(max_requests=100, window_seconds=3600)
+        inp = rule(key="team_1")
+        expected = hashlib.sha256("team_1".encode("utf-8")).hexdigest()
+        assert inp.key_hash == expected
+
+    def test_sliding_window_key_hash(self) -> None:
+        import hashlib
+
+        rule = sliding_window(max_requests=500, interval_seconds=60)
+        inp = rule(key="api_1")
+        expected = hashlib.sha256("api_1".encode("utf-8")).hexdigest()
+        assert inp.key_hash == expected
+
+    def test_key_still_accessible_raw(self) -> None:
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        assert inp.key == "user_1"
+        assert inp.key_hash != inp.key

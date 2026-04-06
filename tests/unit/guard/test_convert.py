@@ -15,6 +15,7 @@ from arcjet.guard import (
 from arcjet.guard._local import hash_text
 from arcjet.guard.convert import decision_from_proto, rule_to_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
+from arcjet.guard.rules import _hash_key
 
 from .conftest import make_response
 
@@ -25,15 +26,15 @@ class TestRuleToProto:
         inp = rule(key="user_1", requested=5)
         proto = rule_to_proto(inp)
 
-        assert proto.config_id == inp.config_id
-        assert proto.input_id == inp.input_id
+        assert proto.config_id == inp._config_id
+        assert proto.input_id == inp._input_id
         assert proto.mode == pb.GUARD_RULE_MODE_LIVE
         assert proto.rule.WhichOneof("rule") == "token_bucket"
         tb = proto.rule.token_bucket
         assert tb.config_refill_rate == 10
         assert tb.config_interval_seconds == 60
         assert tb.config_max_tokens == 100
-        assert tb.input_key == "user_1"
+        assert tb.input_key == _hash_key("user_1")
         assert tb.input_requested == 5
 
     def test_converts_fixed_window(self) -> None:
@@ -45,7 +46,7 @@ class TestRuleToProto:
         fw = proto.rule.fixed_window
         assert fw.config_max_requests == 100
         assert fw.config_window_seconds == 3600
-        assert fw.input_key == "user_1"
+        assert fw.input_key == _hash_key("user_1")
         assert fw.input_requested == 1
 
     def test_converts_sliding_window(self) -> None:
@@ -151,8 +152,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     token_bucket=pb.ResultTokenBucket(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -166,7 +167,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         assert decision.id == "gdec_test123"
         assert len(decision.results) == 1
@@ -187,8 +188,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
                     fixed_window=pb.ResultFixedWindow(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -201,7 +202,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "RATE_LIMIT"
         assert decision.results[0].conclusion == "DENY"
@@ -220,8 +221,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
                     sliding_window=pb.ResultSlidingWindow(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -234,7 +235,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         result = inp.result(decision)
         assert result is not None
@@ -250,8 +251,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -261,7 +262,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "PROMPT_INJECTION"
 
@@ -274,8 +275,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
                     local_sensitive_info=pb.ResultLocalSensitiveInfo(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -286,7 +287,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         result = inp.result(decision)
         assert result is not None
@@ -302,8 +303,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
                     local_custom=pb.ResultLocalCustom(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -313,7 +314,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         result = inp.result(decision)
         assert result is not None
@@ -329,8 +330,8 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     error=pb.ResultError(
                         message="evaluator timeout",
@@ -340,7 +341,7 @@ class TestDecisionFromProto:
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         assert decision.has_error()
         assert decision.results[0].type == "RULE_ERROR"
@@ -359,15 +360,15 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     not_run=pb.ResultNotRun(),
                 ),
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         assert decision.results[0].type == "NOT_RUN"
         assert decision.results[0].conclusion == "ALLOW"
@@ -377,7 +378,7 @@ class TestDecisionFromProto:
         inp = rule(key="user_1")
 
         response = pb.GuardResponse()
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
 
         assert decision.conclusion == "ALLOW"
         assert decision.has_error()
@@ -391,14 +392,14 @@ class TestDecisionFromProto:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=inp.config_id,
-                    input_id=inp.input_id,
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
                     type=pb.GUARD_RULE_TYPE_UNSPECIFIED,
                 ),
             ],
         )
 
-        decision = decision_from_proto(response, [inp])
+        decision = decision_from_proto(response)
         assert decision.results[0].type == "UNKNOWN"
         assert decision.results[0].reason == "UNKNOWN"
 
@@ -406,7 +407,7 @@ class TestDecisionFromProto:
 class TestEdgeCases:
     def test_empty_results(self) -> None:
         response = make_response(pb.GUARD_CONCLUSION_ALLOW, [])
-        decision = decision_from_proto(response, [])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "ALLOW"
         assert len(decision.results) == 0
         assert not decision.has_error()
@@ -422,22 +423,22 @@ class TestEdgeCases:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     error=pb.ResultError(message="err1", code="A"),
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     error=pb.ResultError(message="err2", code="B"),
                 ),
             ],
         )
 
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
         assert decision.has_error()
 
     def test_mixed_allow_deny_overall_deny(self) -> None:
@@ -451,8 +452,8 @@ class TestEdgeCases:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     token_bucket=pb.ResultTokenBucket(
                         conclusion=pb.GUARD_CONCLUSION_ALLOW,
@@ -465,8 +466,8 @@ class TestEdgeCases:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -476,7 +477,7 @@ class TestEdgeCases:
             ],
         )
 
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "PROMPT_INJECTION"
         assert decision.results[0].conclusion == "ALLOW"
@@ -493,8 +494,8 @@ class TestEdgeCases:
             [
                 pb.GuardRuleResult(
                     result_id="gres_1",
-                    config_id=i1.config_id,
-                    input_id=i1.input_id,
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
                     type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
                     token_bucket=pb.ResultTokenBucket(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
@@ -507,15 +508,15 @@ class TestEdgeCases:
                 ),
                 pb.GuardRuleResult(
                     result_id="gres_2",
-                    config_id=i2.config_id,
-                    input_id=i2.input_id,
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
                     type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
                     error=pb.ResultError(message="model failed", code="MODEL_ERROR"),
                 ),
             ],
         )
 
-        decision = decision_from_proto(response, [i1, i2])
+        decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.has_error()
 
@@ -596,3 +597,63 @@ class TestRuleToProtoLocalSensitiveInfo:
             proto = rule_to_proto(inp)
         si = proto.rule.local_sensitive_info
         assert si.HasField("result_not_run")
+
+
+class TestKeyHashing:
+    """Verify that rate-limit keys are SHA-256 hashed before sending to proto."""
+
+    def test_token_bucket_key_is_hashed(self) -> None:
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        proto = rule_to_proto(inp)
+        assert proto.rule.token_bucket.input_key == _hash_key("user_1")
+        assert proto.rule.token_bucket.input_key != "user_1"
+
+    def test_fixed_window_key_is_hashed(self) -> None:
+        rule = fixed_window(max_requests=100, window_seconds=3600)
+        inp = rule(key="team_1")
+        proto = rule_to_proto(inp)
+        assert proto.rule.fixed_window.input_key == _hash_key("team_1")
+        assert proto.rule.fixed_window.input_key != "team_1"
+
+    def test_sliding_window_key_is_hashed(self) -> None:
+        rule = sliding_window(max_requests=500, interval_seconds=60)
+        inp = rule(key="api_key_123")
+        proto = rule_to_proto(inp)
+        assert proto.rule.sliding_window.input_key == _hash_key("api_key_123")
+        assert proto.rule.sliding_window.input_key != "api_key_123"
+
+    def test_ipv6_key_hashes_correctly(self) -> None:
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="2001:0db8:85a3::8a2e:0370:7334")
+        proto = rule_to_proto(inp)
+        assert proto.rule.token_bucket.input_key == _hash_key(
+            "2001:0db8:85a3::8a2e:0370:7334"
+        )
+
+    def test_same_key_produces_same_hash(self) -> None:
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp1 = rule(key="same_key")
+        inp2 = rule(key="same_key")
+        p1 = rule_to_proto(inp1)
+        p2 = rule_to_proto(inp2)
+        assert p1.rule.token_bucket.input_key == p2.rule.token_bucket.input_key
+
+
+class TestProtobufErrorHandling:
+    """Verify that protobuf encoding errors are caught and re-raised as ArcjetError."""
+
+    def test_rule_to_proto_catches_encoding_errors(self) -> None:
+        from arcjet._errors import ArcjetError
+
+        rule = token_bucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+
+        with patch(
+            "arcjet.guard.convert._rule_body_to_proto",
+            side_effect=OverflowError("cannot encode -1 as uint32"),
+        ):
+            import pytest
+
+            with pytest.raises(ArcjetError, match="Failed to encode rule"):
+                rule_to_proto(inp)

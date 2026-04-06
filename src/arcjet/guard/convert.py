@@ -7,8 +7,7 @@ directly.
 
 from __future__ import annotations
 
-from typing import Sequence
-
+from arcjet._errors import ArcjetError
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from ._local import (
@@ -155,23 +154,38 @@ def rule_to_proto(rule: RuleWithInput) -> pb.GuardRuleSubmission:
     """Convert a ``*WithInput`` to a proto ``GuardRuleSubmission``.
 
     Maps the SDK rule's config/input data into the proto message structure,
-    preserving identity fields (``config_id``, ``input_id``) and mode.
+    preserving identity fields (``_config_id``, ``_input_id``) and mode.
 
     For ``SensitiveInfoWithInput`` rules, this also runs the WASM
     evaluation locally and attaches the result.  The raw text is hashed
     (SHA-256) before being placed on the wire.
+
+    Rate-limit keys are SHA-256 hashed client-side so the raw key never
+    leaves the SDK.
+
+    Raises:
+        ArcjetError: If the rule cannot be encoded into protobuf (e.g.
+            negative config values that violate uint32 constraints).
     """
-    guard_rule = _rule_body_to_proto(rule)
+    try:
+        guard_rule = _rule_body_to_proto(rule)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ArcjetError(
+            f"Failed to encode rule {type(rule).__name__}: {exc}"
+        ) from exc
     mode = _MODE_MAP.get(rule.mode, pb.GUARD_RULE_MODE_LIVE)
 
-    return pb.GuardRuleSubmission(
-        config_id=rule.config_id,
-        input_id=rule.input_id,
-        label=rule.label or "",
-        metadata=dict(rule.metadata) if rule.metadata else {},
-        rule=guard_rule,
-        mode=mode,
-    )
+    try:
+        return pb.GuardRuleSubmission(
+            config_id=rule._config_id,
+            input_id=rule._input_id,
+            label=rule.label or "",
+            metadata=dict(rule.metadata) if rule.metadata else {},
+            rule=guard_rule,
+            mode=mode,
+        )
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ArcjetError(f"Failed to encode rule submission: {exc}") from exc
 
 
 def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
@@ -182,7 +196,7 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
                 config_refill_rate=rule.config.refill_rate,
                 config_interval_seconds=rule.config.interval_seconds,
                 config_max_tokens=rule.config.max_tokens,
-                input_key=rule.key,
+                input_key=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -192,7 +206,7 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             fixed_window=pb.RuleFixedWindow(
                 config_max_requests=rule.config.max_requests,
                 config_window_seconds=rule.config.window_seconds,
-                input_key=rule.key,
+                input_key=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -202,7 +216,7 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             sliding_window=pb.RuleSlidingWindow(
                 config_max_requests=rule.config.max_requests,
                 config_interval_seconds=rule.config.interval_seconds,
-                input_key=rule.key,
+                input_key=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -279,12 +293,12 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
 
 def decision_from_proto(
     response: pb.GuardResponse,
-    rules: Sequence[RuleWithInput],
 ) -> Decision:
     """Convert a proto ``GuardResponse`` to the SDK ``Decision``.
 
-    Correlates proto results back to SDK rule instances using
-    ``config_id`` and ``input_id``.
+    Each proto ``GuardRuleResult`` carries its own ``config_id`` and
+    ``input_id`` so Layer 3 lookups (``rule.result(decision)``) can
+    correlate results back to submitted rules.
     """
     proto = response.decision
     if not proto or not proto.id:
