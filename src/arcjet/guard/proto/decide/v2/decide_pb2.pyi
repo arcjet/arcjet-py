@@ -64,38 +64,44 @@ class RuleTokenBucket(_message.Message):
     CONFIG_REFILL_RATE_FIELD_NUMBER: _ClassVar[int]
     CONFIG_INTERVAL_SECONDS_FIELD_NUMBER: _ClassVar[int]
     CONFIG_MAX_TOKENS_FIELD_NUMBER: _ClassVar[int]
-    INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_BUCKET_FIELD_NUMBER: _ClassVar[int]
+    INPUT_KEY_HASH_FIELD_NUMBER: _ClassVar[int]
     INPUT_REQUESTED_FIELD_NUMBER: _ClassVar[int]
     config_refill_rate: int
     config_interval_seconds: int
     config_max_tokens: int
-    input_key: str
+    config_bucket: str
+    input_key_hash: str
     input_requested: int
-    def __init__(self, config_refill_rate: _Optional[int] = ..., config_interval_seconds: _Optional[int] = ..., config_max_tokens: _Optional[int] = ..., input_key: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
+    def __init__(self, config_refill_rate: _Optional[int] = ..., config_interval_seconds: _Optional[int] = ..., config_max_tokens: _Optional[int] = ..., config_bucket: _Optional[str] = ..., input_key_hash: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
 
 class RuleFixedWindow(_message.Message):
     __slots__ = ()
     CONFIG_MAX_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     CONFIG_WINDOW_SECONDS_FIELD_NUMBER: _ClassVar[int]
-    INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_BUCKET_FIELD_NUMBER: _ClassVar[int]
+    INPUT_KEY_HASH_FIELD_NUMBER: _ClassVar[int]
     INPUT_REQUESTED_FIELD_NUMBER: _ClassVar[int]
     config_max_requests: int
     config_window_seconds: int
-    input_key: str
+    config_bucket: str
+    input_key_hash: str
     input_requested: int
-    def __init__(self, config_max_requests: _Optional[int] = ..., config_window_seconds: _Optional[int] = ..., input_key: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
+    def __init__(self, config_max_requests: _Optional[int] = ..., config_window_seconds: _Optional[int] = ..., config_bucket: _Optional[str] = ..., input_key_hash: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
 
 class RuleSlidingWindow(_message.Message):
     __slots__ = ()
     CONFIG_MAX_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     CONFIG_INTERVAL_SECONDS_FIELD_NUMBER: _ClassVar[int]
-    INPUT_KEY_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_BUCKET_FIELD_NUMBER: _ClassVar[int]
+    INPUT_KEY_HASH_FIELD_NUMBER: _ClassVar[int]
     INPUT_REQUESTED_FIELD_NUMBER: _ClassVar[int]
     config_max_requests: int
     config_interval_seconds: int
-    input_key: str
+    config_bucket: str
+    input_key_hash: str
     input_requested: int
-    def __init__(self, config_max_requests: _Optional[int] = ..., config_interval_seconds: _Optional[int] = ..., input_key: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
+    def __init__(self, config_max_requests: _Optional[int] = ..., config_interval_seconds: _Optional[int] = ..., config_bucket: _Optional[str] = ..., input_key_hash: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
 
 class RuleDetectPromptInjection(_message.Message):
     __slots__ = ()
@@ -351,5 +357,7 @@ class GuardRequest(_message.Message):
 class GuardResponse(_message.Message):
     __slots__ = ()
     DECISION_FIELD_NUMBER: _ClassVar[int]
+    ERRORS_FIELD_NUMBER: _ClassVar[int]
     decision: GuardDecision
-    def __init__(self, decision: _Optional[_Union[GuardDecision, _Mapping]] = ...) -> None: ...
+    errors: _containers.RepeatedCompositeFieldContainer[ResultError]
+    def __init__(self, decision: _Optional[_Union[GuardDecision, _Mapping]] = ..., errors: _Optional[_Iterable[_Union[ResultError, _Mapping]]] = ...) -> None: ...
