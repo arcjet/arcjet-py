@@ -1,6 +1,6 @@
 """Local WASM-based rule evaluation for ``arcjet.guard``.
 
-Evaluates ``local_detect_sensitive_info`` rules via the arcjet-analyze WASM
+Evaluates sensitive info detection rules via the arcjet-analyze WASM
 component.  The raw text never leaves the SDK — only a SHA-256 hash is sent
 to the server alongside the locally-computed result.
 """

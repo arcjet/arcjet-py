@@ -8,6 +8,7 @@ directly.
 from __future__ import annotations
 
 from arcjet._errors import ArcjetError
+from arcjet._logging import logger
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from ._local import (
@@ -17,7 +18,6 @@ from ._local import (
     hash_text,
 )
 from .rules import (
-    CustomWithInput,
     FixedWindowWithInput,
     PromptInjectionWithInput,
     RuleWithInput,
@@ -31,7 +31,6 @@ from .types import (
     InternalResult,
     Reason,
     RuleResult,
-    RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultNotRun,
@@ -57,7 +56,10 @@ def _conclusion_from_proto(c: int) -> Conclusion:
 
 
 def _reason_from_oneof(field_name: str) -> Reason:
-    """Map a proto result's oneof field name to a broad SDK ``Reason``."""
+    """Map a proto result's oneof field name to a broad SDK ``Reason``.
+
+    Used as a fallback when the server does not send a ``GuardReason``.
+    """
     mapping: dict[str, Reason] = {
         "token_bucket": "RATE_LIMIT",
         "fixed_window": "RATE_LIMIT",
@@ -69,6 +71,24 @@ def _reason_from_oneof(field_name: str) -> Reason:
         "not_run": "NOT_RUN",
     }
     return mapping.get(field_name, "UNKNOWN")
+
+
+_REASON_MAP: dict[int, Reason] = {
+    pb.GUARD_REASON_ERROR: "ERROR",
+    pb.GUARD_REASON_NOT_RUN: "NOT_RUN",
+    pb.GUARD_REASON_CUSTOM: "CUSTOM",
+    pb.GUARD_REASON_RATE_LIMIT: "RATE_LIMIT",
+    pb.GUARD_REASON_PROMPT_INJECTION: "PROMPT_INJECTION",
+    pb.GUARD_REASON_SENSITIVE_INFO: "SENSITIVE_INFO",
+}
+
+
+def _reason_from_proto(r: int) -> Reason:
+    """Map a proto ``GuardReason`` enum to the SDK ``Reason`` string.
+
+    ``GUARD_REASON_UNSPECIFIED`` and unknown values map to ``"UNKNOWN"``.
+    """
+    return _REASON_MAP.get(r, "UNKNOWN")
 
 
 def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
@@ -122,13 +142,6 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         return RuleResultSensitiveInfo(
             conclusion=_conclusion_from_proto(v.conclusion),
             detected_entity_types=tuple(v.detected_entity_types),
-        )
-
-    if which == "local_custom":
-        v = pr.local_custom
-        return RuleResultCustom(
-            conclusion=_conclusion_from_proto(v.conclusion),
-            data=dict(v.data),
         )
 
     if which == "error":
@@ -196,7 +209,8 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
                 config_refill_rate=rule.config.refill_rate,
                 config_interval_seconds=rule.config.interval_seconds,
                 config_max_tokens=rule.config.max_tokens,
-                input_key=rule.key_hash,
+                config_bucket=rule.config_bucket,
+                input_key_hash=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -206,7 +220,8 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             fixed_window=pb.RuleFixedWindow(
                 config_max_requests=rule.config.max_requests,
                 config_window_seconds=rule.config.window_seconds,
-                input_key=rule.key_hash,
+                config_bucket=rule.config_bucket,
+                input_key_hash=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -216,7 +231,8 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             sliding_window=pb.RuleSlidingWindow(
                 config_max_requests=rule.config.max_requests,
                 config_interval_seconds=rule.config.interval_seconds,
-                input_key=rule.key_hash,
+                config_bucket=rule.config_bucket,
+                input_key_hash=rule.key_hash,
                 input_requested=rule.requested,
             ),
         )
@@ -266,28 +282,6 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             local_si.result_not_run.CopyFrom(pb.ResultNotRun())
         return pb.GuardRule(local_sensitive_info=local_si)
 
-    if isinstance(rule, CustomWithInput):
-        local_custom = pb.RuleLocalCustom(
-            config_data=dict(rule.config.data),
-            input_data=dict(rule.data),
-        )
-        if rule.conclusion is not None:
-            local_custom.result_computed.CopyFrom(
-                pb.ResultLocalCustom(
-                    conclusion=(
-                        pb.GUARD_CONCLUSION_DENY
-                        if rule.conclusion == "DENY"
-                        else pb.GUARD_CONCLUSION_ALLOW
-                    ),
-                    data=dict(rule.result_data) if rule.result_data else {},
-                )
-            )
-            if rule.elapsed_ms is not None:
-                local_custom.result_duration_ms = rule.elapsed_ms
-        else:
-            local_custom.result_not_run.CopyFrom(pb.ResultNotRun())
-        return pb.GuardRule(local_custom=local_custom)
-
     raise ValueError(f"Unknown rule type: {type(rule).__name__}")
 
 
@@ -299,7 +293,24 @@ def decision_from_proto(
     Each proto ``GuardRuleResult`` carries its own ``config_id`` and
     ``input_id`` so Layer 3 lookups (``rule.result(decision)``) can
     correlate results back to submitted rules.
+
+    The server now sends a ``GuardReason`` enum on the ``GuardDecision``
+    using fixed priority (SensitiveInfo > RateLimit > PromptInjection >
+    Custom).  If the server sends ``GUARD_REASON_UNSPECIFIED``, the SDK
+    falls back to deriving the reason from the first DENY result.
+
+    Response-level ``errors`` (recoverable validation diagnostics) are
+    logged but do not affect the decision.
     """
+    # Log recoverable server-side validation errors if present.
+    for err in response.errors:
+        logger.warning(
+            "arcjet guard server diagnostic: [%s] %s",
+            err.code,
+            err.message,
+            extra={"event": "guard_server_diagnostic"},
+        )
+
     proto = response.decision
     if not proto or not proto.id:
         # No decision in response — synthesize an ALLOW with error.
@@ -331,17 +342,19 @@ def decision_from_proto(
     results = tuple(ir.result for ir in internal_results)
     conclusion = _conclusion_from_proto(proto.conclusion)
 
-    # Derive reason from the first DENY result's oneof case.
-    reason: Reason = "UNKNOWN"
-    for pr in proto.rule_results:
-        which = pr.WhichOneof("result")
-        if which and which not in ("error", "not_run"):
-            # Check if this result was a DENY
-            sub = getattr(pr, which, None)
-            if sub and hasattr(sub, "conclusion"):
-                if _conclusion_from_proto(sub.conclusion) == "DENY":
-                    reason = _reason_from_oneof(which)
-                    break
+    # Use the server-computed reason (priority-based).  Fall back to
+    # client-side derivation only when the server sends UNSPECIFIED.
+    reason = _reason_from_proto(proto.reason)
+    if reason == "UNKNOWN":
+        # Fallback: derive from the first DENY result's oneof case.
+        for pr in proto.rule_results:
+            which = pr.WhichOneof("result")
+            if which and which not in ("error", "not_run"):
+                sub = getattr(pr, which, None)
+                if sub and hasattr(sub, "conclusion"):
+                    if _conclusion_from_proto(sub.conclusion) == "DENY":
+                        reason = _reason_from_oneof(which)
+                        break
 
     return Decision(
         conclusion=conclusion,

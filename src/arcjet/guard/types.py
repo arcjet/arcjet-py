@@ -54,6 +54,22 @@ use a custom rule instead.
 
 
 @dataclass(frozen=True, slots=True)
+class CustomEvaluateResult:
+    """Result returned by a custom rule's ``evaluate`` function.
+
+    Example::
+
+        CustomEvaluateResult(conclusion="DENY", data={"reason": "score too high"})
+    """
+
+    conclusion: Conclusion
+    """Whether the rule allows or denies — ``"ALLOW"`` or ``"DENY"``."""
+
+    data: Mapping[str, str] = field(default_factory=dict)
+    """Optional arbitrary key-value data to include in the result."""
+
+
+@dataclass(frozen=True, slots=True)
 class RuleResultTokenBucket:
     """Result from a token bucket rate limit evaluation."""
 

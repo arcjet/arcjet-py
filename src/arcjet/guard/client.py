@@ -99,7 +99,7 @@ class ArcjetGuard:
         """Evaluate *rules* via the Arcjet Guard v2 API (async).
 
         Args:
-            rules: Bound rule inputs (e.g. ``token_bucket(...)(key="u")``)
+            rules: Bound rule inputs (e.g. ``TokenBucket(...)(key="u")``)
             label: Label identifying this guard call (required by the server).
             metadata: Optional key/value metadata.
 
@@ -177,7 +177,7 @@ class ArcjetGuardSync:
         """Evaluate *rules* via the Arcjet Guard v2 API (sync).
 
         Args:
-            rules: Bound rule inputs (e.g. ``token_bucket(...)(key="u")``)
+            rules: Bound rule inputs (e.g. ``TokenBucket(...)(key="u")``)
             label: Label identifying this guard call (required by the server).
             metadata: Optional key/value metadata.
 

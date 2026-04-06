@@ -9,18 +9,18 @@ Public API
     Conclusion, Reason, Mode, Decision,
     RuleResult, RuleResultTokenBucket, RuleResultFixedWindow,
     RuleResultSlidingWindow, RuleResultPromptInjection,
-    RuleResultSensitiveInfo, RuleResultCustom, RuleResultNotRun,
+    RuleResultSensitiveInfo, RuleResultNotRun,
     RuleResultError, RuleResultUnknown
 
-**Rule factories** (from ``rules``)::
+**Rule classes** (from ``rules``)::
 
-    token_bucket, fixed_window, sliding_window,
-    detect_prompt_injection, local_detect_sensitive_info, local_custom
+    TokenBucket, FixedWindow, SlidingWindow,
+    DetectPromptInjection, DetectSensitiveInfo
 
 **Concrete rule input types** (from ``rules``)::
 
     TokenBucketWithInput, FixedWindowWithInput, SlidingWindowWithInput,
-    PromptInjectionWithInput, SensitiveInfoWithInput, CustomWithInput,
+    PromptInjectionWithInput, SensitiveInfoWithInput,
     RuleWithInput (union of all)
 
 **Configured rule union** (from ``rules``)::
@@ -40,20 +40,18 @@ from .client import (
     launch_arcjet_sync,
 )
 from .rules import (
-    CustomWithInput,
+    DetectPromptInjection,
+    DetectSensitiveInfo,
+    FixedWindow,
     FixedWindowWithInput,
     PromptInjectionWithInput,
     RuleWithConfig,
     RuleWithInput,
     SensitiveInfoWithInput,
+    SlidingWindow,
     SlidingWindowWithInput,
+    TokenBucket,
     TokenBucketWithInput,
-    detect_prompt_injection,
-    fixed_window,
-    local_custom,
-    local_detect_sensitive_info,
-    sliding_window,
-    token_bucket,
 )
 from .types import (
     SENSITIVE_INFO_ENTITY_TYPES,
@@ -62,7 +60,6 @@ from .types import (
     Mode,
     Reason,
     RuleResult,
-    RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultNotRun,
@@ -80,7 +77,6 @@ __all__ = [
     "Mode",
     "Reason",
     "RuleResult",
-    "RuleResultCustom",
     "RuleResultError",
     "RuleResultFixedWindow",
     "RuleResultNotRun",
@@ -90,15 +86,13 @@ __all__ = [
     "RuleResultTokenBucket",
     "RuleResultUnknown",
     "SENSITIVE_INFO_ENTITY_TYPES",
-    # Rule factories
-    "detect_prompt_injection",
-    "fixed_window",
-    "local_custom",
-    "local_detect_sensitive_info",
-    "sliding_window",
-    "token_bucket",
+    # Rule classes
+    "DetectPromptInjection",
+    "DetectSensitiveInfo",
+    "FixedWindow",
+    "SlidingWindow",
+    "TokenBucket",
     # Concrete input types
-    "CustomWithInput",
     "FixedWindowWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
