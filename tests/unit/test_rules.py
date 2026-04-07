@@ -192,9 +192,14 @@ def test_apply_global_characteristics_noop_when_empty():
 
 def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
     """Test detect_prompt_injection rule converts to protobuf with mode and threshold."""
+    import warnings
+
     from arcjet.rules import Mode, detect_prompt_injection
 
-    r = detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        r = detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+    assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
     pb = r.to_proto()
     assert pb.prompt_injection_detection is not None
     assert pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_LIVE
@@ -212,20 +217,54 @@ def test_detect_prompt_injection_default_threshold(mock_protobuf_modules):
 
 def test_detect_prompt_injection_validation(mock_protobuf_modules):
     """Test detect_prompt_injection validates threshold range."""
+    import warnings
+
     from arcjet.rules import detect_prompt_injection
 
-    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
-        detect_prompt_injection(threshold=1.5)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
 
-    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
-        detect_prompt_injection(threshold=-0.1)
+        with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+            detect_prompt_injection(threshold=1.5)
 
-    # Edge cases should work
-    r1 = detect_prompt_injection(threshold=0.0)
-    assert r1.threshold == 0.0
+        with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+            detect_prompt_injection(threshold=-0.1)
 
-    r2 = detect_prompt_injection(threshold=1.0)
-    assert r2.threshold == 1.0
+        # Edge cases should work
+        r1 = detect_prompt_injection(threshold=0.0)
+        assert r1.threshold == 0.0
+
+        r2 = detect_prompt_injection(threshold=1.0)
+        assert r2.threshold == 1.0
+
+
+def test_detect_prompt_injection_threshold_deprecation_warning():
+    """Test detect_prompt_injection emits DeprecationWarning when threshold is passed."""
+    import warnings
+
+    from arcjet.rules import Mode, detect_prompt_injection
+
+    # Passing threshold explicitly should warn
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+
+    assert any(
+        issubclass(warning.category, DeprecationWarning)
+        and "threshold" in str(warning.message)
+        for warning in w
+    )
+
+    # Not passing threshold should not warn
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        detect_prompt_injection(mode=Mode.LIVE)
+
+    assert not any(
+        issubclass(warning.category, DeprecationWarning)
+        and "threshold" in str(warning.message)
+        for warning in w
+    )
 
 
 def test_experimental_detect_prompt_injection_is_deprecated(mock_protobuf_modules):

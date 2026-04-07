@@ -47,14 +47,17 @@ def experimental_detect_prompt_injection(
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
             ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
             ``Mode.LIVE``.
-        threshold: Detection confidence threshold (0.0 to 1.0). Higher values
-            are more conservative. Defaults to ``0.5``.
+        threshold: **Deprecated.** Detection confidence threshold (0.0 to 1.0).
 
     Returns:
         A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
         ``arcjet()``.
     """
-    return detect_prompt_injection(mode=mode, threshold=threshold)
+    # Construct directly to avoid double deprecation warning from
+    # detect_prompt_injection(threshold=...).
+    from .rules import _coerce_mode
+
+    return PromptInjectionDetection(mode=_coerce_mode(mode), threshold=float(threshold))
 
 
 __all__ = [

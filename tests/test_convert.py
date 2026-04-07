@@ -237,6 +237,8 @@ def test_converting_shield_reason_not_triggered() -> None:
 
 
 def test_converting_prompt_injection_reason() -> None:
+    import warnings
+
     from arcjet._convert import _reason_from_proto
     from arcjet.dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -253,10 +255,15 @@ def test_converting_prompt_injection_reason() -> None:
     assert isinstance(reason, PromptInjectionReason)
     assert reason.type == "PROMPT_INJECTION"
     assert reason.injection_detected == True
-    assert reason.score == 0.95
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert reason.score == 0.95
+    assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
 
 
 def test_converting_prompt_injection_reason_not_detected() -> None:
+    import warnings
+
     from arcjet._convert import _reason_from_proto
     from arcjet.dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -273,7 +280,10 @@ def test_converting_prompt_injection_reason_not_detected() -> None:
     assert isinstance(reason, PromptInjectionReason)
     assert reason.type == "PROMPT_INJECTION"
     assert reason.injection_detected == False
-    assert reason.score == 0.2
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert reason.score == 0.2
+    assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
 
 
 def test_converting_email_type_free() -> None:

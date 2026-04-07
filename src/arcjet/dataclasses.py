@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -213,10 +214,24 @@ class PromptInjectionReason:
     """``True`` when prompt injection was detected in the message."""
 
     score: float
-    """Confidence score of the prompt injection detection (0.0 to 1.0)."""
+    """**Deprecated.** Confidence score of the prompt injection detection (0.0 to 1.0).
+
+    .. deprecated:: The ``score`` field is deprecated and will be removed in a
+        future release.
+    """
 
     type: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
     """Discriminator field. Always ``"PROMPT_INJECTION"``."""
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "score":
+            warnings.warn(
+                "The 'score' field of PromptInjectionReason is deprecated "
+                "and will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return object.__getattribute__(self, name)
 
 
 Reason = (
