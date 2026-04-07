@@ -53,11 +53,7 @@ def experimental_detect_prompt_injection(
         A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
         ``arcjet()``.
     """
-    # Construct directly to avoid double deprecation warning from
-    # detect_prompt_injection(threshold=...).
-    from .rules import _coerce_mode
-
-    return PromptInjectionDetection(mode=_coerce_mode(mode), threshold=float(threshold))
+    return detect_prompt_injection(mode=mode, threshold=threshold)
 
 
 __all__ = [

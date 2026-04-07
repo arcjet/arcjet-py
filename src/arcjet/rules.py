@@ -45,10 +45,9 @@ Email validation:
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import Callable, Iterable, Sequence, Tuple, Union
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -120,8 +119,11 @@ class PromptInjectionDetection(RuleSpec):
 
     mode: Mode
     threshold: float = 0.5
-    """.. deprecated:: The ``threshold`` parameter is deprecated and will be
-    removed in a future release."""
+    """.. deprecated::
+
+        The ``threshold`` parameter is deprecated and will be removed in a
+        future release.
+    """
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
@@ -742,7 +744,7 @@ def shield(
 
 
 def detect_prompt_injection(
-    *, mode: Union[str, Mode] = Mode.LIVE, threshold: Optional[float] = None
+    *, mode: Union[str, Mode] = Mode.LIVE, threshold: float = 0.5
 ) -> PromptInjectionDetection:
     """Detect prompt injection attacks in user messages.
 
@@ -757,7 +759,7 @@ def detect_prompt_injection(
             ``Mode.LIVE``.
         threshold: **Deprecated.** Detection confidence threshold (0.0 to 1.0).
             This parameter is deprecated and will be removed in a future
-            release.
+            release. Defaults to ``0.5``.
 
     Returns:
         A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
@@ -778,17 +780,7 @@ def detect_prompt_injection(
             # Handle detected prompt injection
             return {"error": "Invalid message"}, 400
     """
-    if threshold is not None:
-        warnings.warn(
-            "The 'threshold' parameter of detect_prompt_injection() is deprecated "
-            "and will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return PromptInjectionDetection(
-            mode=_coerce_mode(mode), threshold=float(threshold)
-        )
-    return PromptInjectionDetection(mode=_coerce_mode(mode))
+    return PromptInjectionDetection(mode=_coerce_mode(mode), threshold=float(threshold))
 
 
 def _coerce_bot_categories(
