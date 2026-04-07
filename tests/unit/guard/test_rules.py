@@ -941,3 +941,372 @@ class TestKeyHashProperty:
         inp = rule(key="user_1")
         assert inp.key == "user_1"
         assert inp.key_hash != inp.key
+
+
+class TestWithInputResultsList:
+    """WithInput.results() returns a list (empty or single-element)."""
+
+    def test_token_bucket_input_results(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=95,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].remaining_tokens == 95
+
+    def test_fixed_window_input_results(self) -> None:
+        rule = FixedWindow(max_requests=100, window_seconds=3600)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
+                    fixed_window=pb.ResultFixedWindow(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_requests=50,
+                        max_requests=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].remaining_requests == 50
+
+    def test_sliding_window_input_results(self) -> None:
+        rule = SlidingWindow(max_requests=500, interval_seconds=60)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
+                    sliding_window=pb.ResultSlidingWindow(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_requests=400,
+                        max_requests=500,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].remaining_requests == 400
+
+    def test_prompt_injection_input_results(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello world")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].conclusion == "ALLOW"
+
+    def test_sensitive_info_input_results(self) -> None:
+        rule = DetectSensitiveInfo(deny=["EMAIL"])
+        inp = rule("no pii here")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
+                    local_sensitive_info=pb.ResultLocalSensitiveInfo(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].type == "SENSITIVE_INFO"
+
+    def test_input_results_empty_when_not_in_decision(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        other = rule(key="other")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=other._config_id,
+                    input_id=other._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=95,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert inp.results(decision) == []
+
+
+class TestWithConfigResult:
+    """WithConfig.result() returns first result or None."""
+
+    def test_token_bucket_config_result(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=95,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.remaining_tokens == 95
+
+    def test_fixed_window_config_result(self) -> None:
+        rule = FixedWindow(max_requests=100, window_seconds=3600)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_FIXED_WINDOW,
+                    fixed_window=pb.ResultFixedWindow(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_requests=50,
+                        max_requests=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.remaining_requests == 50
+
+    def test_sliding_window_config_result(self) -> None:
+        rule = SlidingWindow(max_requests=500, interval_seconds=60)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_SLIDING_WINDOW,
+                    sliding_window=pb.ResultSlidingWindow(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_requests=400,
+                        max_requests=500,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.remaining_requests == 400
+
+    def test_prompt_injection_config_result(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_PROMPT_INJECTION,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.conclusion == "ALLOW"
+
+    def test_sensitive_info_config_result(self) -> None:
+        rule = DetectSensitiveInfo(deny=["EMAIL"])
+        inp = rule("clean text")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO,
+                    local_sensitive_info=pb.ResultLocalSensitiveInfo(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.type == "SENSITIVE_INFO"
+
+    def test_config_result_none_when_no_results(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        other = TokenBucket(refill_rate=5, interval_seconds=30, max_tokens=50)
+        inp = other(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=45,
+                        max_tokens=50,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert rule.result(decision) is None
+
+    def test_config_result_returns_first_of_multiple(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        i1 = rule(key="alice")
+        i2 = rule(key="bob")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=95,
+                        max_tokens=100,
+                    ),
+                ),
+                pb.GuardRuleResult(
+                    result_id="gres_2",
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        remaining_tokens=0,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.remaining_tokens == 95  # first, not the DENY
+
+
+class TestHasErrorWithResponseErrors:
+    """Decision.has_error() includes response-level server errors."""
+
+    def test_has_error_with_response_errors(self) -> None:
+        response = pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_test",
+                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                rule_results=[],
+            ),
+            errors=[pb.ResultError(message="invalid metadata key", code="AJ1001")],
+        )
+        decision = decision_from_proto(response)
+        assert decision.has_error()
+
+    def test_has_error_false_without_response_errors(self) -> None:
+        response = make_response(pb.GUARD_CONCLUSION_ALLOW, [])
+        decision = decision_from_proto(response)
+        assert not decision.has_error()
+
+    def test_has_error_true_with_both_rule_and_response_errors(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_test",
+                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                rule_results=[
+                    pb.GuardRuleResult(
+                        result_id="gres_1",
+                        config_id=inp._config_id,
+                        input_id=inp._input_id,
+                        type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                        error=pb.ResultError(message="boom", code="INTERNAL"),
+                    ),
+                ],
+            ),
+            errors=[pb.ResultError(message="stripped key", code="AJ1002")],
+        )
+        decision = decision_from_proto(response)
+        assert decision.has_error()

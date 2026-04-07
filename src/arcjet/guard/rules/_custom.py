@@ -84,13 +84,20 @@ class CustomWithInput(Generic[TData]):
     label: Optional[str] = None
     metadata: Optional[Mapping[str, str]] = None
 
+    def results(self, decision: Decision) -> list[TypedCustomResult[TData]]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            TypedCustomResult(ir.result)
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultCustom)
+        ]
+
     def result(self, decision: Decision) -> TypedCustomResult[TData] | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultCustom):
-                    return TypedCustomResult(ir.result)
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> TypedCustomResult[TData] | None:
         """Get this input's result only if it was DENY."""
@@ -275,6 +282,11 @@ class CustomRule(Generic[TConfig, TInput, TData]):
             if ir.config_id == self._config_id
             and isinstance(ir.result, RuleResultCustom)
         ]
+
+    def result(self, decision: Decision) -> TypedCustomResult[TData] | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> TypedCustomResult[TData] | None:
         """Get the first denied result for this rule, or ``None``."""

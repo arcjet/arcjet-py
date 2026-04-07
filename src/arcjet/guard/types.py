@@ -303,6 +303,11 @@ class Decision:
         default=(), repr=False, compare=False
     )
 
+    _has_response_errors: bool = field(default=False, repr=False, compare=False)
+    """True when the server response included non-fatal validation errors."""
+
     def has_error(self) -> bool:
-        """True if any rule errored during evaluation (Layer 2 helper)."""
-        return any(r.type == "RULE_ERROR" for r in self.results)
+        """True if any rule errored or the server reported diagnostics."""
+        return self._has_response_errors or any(
+            r.type == "RULE_ERROR" for r in self.results
+        )

@@ -21,13 +21,20 @@ class PromptInjectionWithInput:
     label: Optional[str] = None
     metadata: Optional[Mapping[str, str]] = None
 
+    def results(self, decision: Decision) -> list[RuleResultPromptInjection]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            ir.result
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultPromptInjection)
+        ]
+
     def result(self, decision: Decision) -> RuleResultPromptInjection | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultPromptInjection):
-                    return ir.result
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultPromptInjection | None:
         """Get this input's result only if it was DENY."""
@@ -100,6 +107,11 @@ class DetectPromptInjection:
             if ir.config_id == self._config_id
             and isinstance(ir.result, RuleResultPromptInjection)
         ]
+
+    def result(self, decision: Decision) -> RuleResultPromptInjection | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultPromptInjection | None:
         """Get the first denied result for this rule, or ``None``."""

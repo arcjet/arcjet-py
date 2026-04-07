@@ -115,13 +115,20 @@ class TokenBucketWithInput:
         """Bucket name sent to the server for counter grouping."""
         return self.config.bucket
 
+    def results(self, decision: Decision) -> list[RuleResultTokenBucket]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            ir.result
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultTokenBucket)
+        ]
+
     def result(self, decision: Decision) -> RuleResultTokenBucket | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultTokenBucket):
-                    return ir.result
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultTokenBucket | None:
         """Get this input's result only if it was DENY."""
@@ -158,13 +165,20 @@ class FixedWindowWithInput:
         """Bucket name sent to the server for counter grouping."""
         return self.config.bucket
 
+    def results(self, decision: Decision) -> list[RuleResultFixedWindow]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            ir.result
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultFixedWindow)
+        ]
+
     def result(self, decision: Decision) -> RuleResultFixedWindow | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultFixedWindow):
-                    return ir.result
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultFixedWindow | None:
         """Get this input's result only if it was DENY."""
@@ -201,13 +215,20 @@ class SlidingWindowWithInput:
         """Bucket name sent to the server for counter grouping."""
         return self.config.bucket
 
+    def results(self, decision: Decision) -> list[RuleResultSlidingWindow]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            ir.result
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultSlidingWindow)
+        ]
+
     def result(self, decision: Decision) -> RuleResultSlidingWindow | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultSlidingWindow):
-                    return ir.result
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultSlidingWindow | None:
         """Get this input's result only if it was DENY."""
@@ -301,6 +322,11 @@ class TokenBucket:
             and isinstance(ir.result, RuleResultTokenBucket)
         ]
 
+    def result(self, decision: Decision) -> RuleResultTokenBucket | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
+
     def denied_result(self, decision: Decision) -> RuleResultTokenBucket | None:
         """Get the first denied result for this rule, or ``None``."""
         for r in self.results(decision):
@@ -385,6 +411,11 @@ class FixedWindow:
             and isinstance(ir.result, RuleResultFixedWindow)
         ]
 
+    def result(self, decision: Decision) -> RuleResultFixedWindow | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
+
     def denied_result(self, decision: Decision) -> RuleResultFixedWindow | None:
         """Get the first denied result for this rule, or ``None``."""
         for r in self.results(decision):
@@ -468,6 +499,11 @@ class SlidingWindow:
             if ir.config_id == self._config_id
             and isinstance(ir.result, RuleResultSlidingWindow)
         ]
+
+    def result(self, decision: Decision) -> RuleResultSlidingWindow | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultSlidingWindow | None:
         """Get the first denied result for this rule, or ``None``."""

@@ -568,3 +568,114 @@ class TestCustomRuleWithMultipleRules:
         assert topic_r is not None
         assert topic_r.type == "CUSTOM"
         assert topic_r.data == {"matched": "weapons"}
+
+
+class TestCustomWithInputResultsList:
+    """CustomWithInput.results() returns a list (empty or single-element)."""
+
+    def test_input_results_returns_list(self) -> None:
+        rule = TopicBlockRule(config={"blocked_topic": "weapons"})
+        inp = rule(data={"topic": "weapons"})
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
+                    local_custom=pb.ResultLocalCustom(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        data={"matched": "weapons"},
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        results = inp.results(decision)
+        assert len(results) == 1
+        assert results[0].data == {"matched": "weapons"}
+
+    def test_input_results_empty_when_not_in_decision(self) -> None:
+        rule = TopicBlockRule(config={"blocked_topic": "weapons"})
+        inp = rule(data={"topic": "weapons"})
+        other = rule(data={"topic": "cooking"})
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=other._config_id,
+                    input_id=other._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
+                    local_custom=pb.ResultLocalCustom(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert inp.results(decision) == []
+
+
+class TestCustomRuleConfigResult:
+    """CustomRule.result() returns first result or None."""
+
+    def test_config_result_returns_first(self) -> None:
+        rule = TopicBlockRule(config={"blocked_topic": "weapons"})
+        i1 = rule(data={"topic": "weapons"})
+        i2 = rule(data={"topic": "cooking"})
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
+                    local_custom=pb.ResultLocalCustom(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        data={"matched": "weapons"},
+                    ),
+                ),
+                pb.GuardRuleResult(
+                    result_id="gres_2",
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
+                    local_custom=pb.ResultLocalCustom(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = rule.result(decision)
+        assert r is not None
+        assert r.conclusion == "DENY"
+        assert r.data == {"matched": "weapons"}
+
+    def test_config_result_none_when_no_results(self) -> None:
+        rule = TopicBlockRule(config={"blocked_topic": "weapons"})
+        other = TopicBlockRule(config={"blocked_topic": "other"})
+        inp = other(data={"topic": "other"})
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_LOCAL_CUSTOM,
+                    local_custom=pb.ResultLocalCustom(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert rule.result(decision) is None

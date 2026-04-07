@@ -49,13 +49,20 @@ class SensitiveInfoWithInput:
     label: Optional[str] = None
     metadata: Optional[Mapping[str, str]] = None
 
+    def results(self, decision: Decision) -> list[RuleResultSensitiveInfo]:
+        """Get this input's results as a list (empty or single-element)."""
+        return [
+            ir.result
+            for ir in _get_internal_results(decision)
+            if ir.config_id == self._config_id
+            and ir.input_id == self._input_id
+            and isinstance(ir.result, RuleResultSensitiveInfo)
+        ]
+
     def result(self, decision: Decision) -> RuleResultSensitiveInfo | None:
         """Get this input's result from a decision."""
-        for ir in _get_internal_results(decision):
-            if ir.config_id == self._config_id and ir.input_id == self._input_id:
-                if isinstance(ir.result, RuleResultSensitiveInfo):
-                    return ir.result
-        return None
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultSensitiveInfo | None:
         """Get this input's result only if it was DENY."""
@@ -152,6 +159,11 @@ class DetectSensitiveInfo:
             if ir.config_id == self._config_id
             and isinstance(ir.result, RuleResultSensitiveInfo)
         ]
+
+    def result(self, decision: Decision) -> RuleResultSensitiveInfo | None:
+        """Get the first result for this rule, or ``None``."""
+        r = self.results(decision)
+        return r[0] if r else None
 
     def denied_result(self, decision: Decision) -> RuleResultSensitiveInfo | None:
         """Get the first denied result for this rule, or ``None``."""

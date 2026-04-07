@@ -340,6 +340,7 @@ def decision_from_proto(
     logged but do not affect the decision.
     """
     # Log recoverable server-side validation errors if present.
+    has_response_errors = len(response.errors) > 0
     for err in response.errors:
         logger.warning(
             "arcjet guard server diagnostic: [%s] %s",
@@ -399,4 +400,5 @@ def decision_from_proto(
         results=results,
         reason=reason,
         _internal_results=tuple(internal_results),
+        _has_response_errors=has_response_errors,
     )
