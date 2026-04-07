@@ -14,7 +14,6 @@ from ..types import (
     RuleResultTokenBucket,
 )
 from ._base import (
-    _config_hash,
     _get_internal_results,
     _hash_key,
     _merge_metadata,
@@ -45,7 +44,7 @@ class TokenBucketConfig:
     """Maximum capacity of the token bucket.  Tokens beyond this limit
     are discarded."""
 
-    bucket: str = "default"
+    bucket: str = "default-token-bucket"
     """Bucket name for counter grouping."""
 
 
@@ -65,7 +64,7 @@ class FixedWindowConfig:
     window_seconds: int
     """Duration of each rate limit window in seconds."""
 
-    bucket: str = "default"
+    bucket: str = "default-fixed-window"
     """Bucket name for counter grouping."""
 
 
@@ -85,7 +84,7 @@ class SlidingWindowConfig:
     interval_seconds: int
     """Duration of the sliding interval in seconds."""
 
-    bucket: str = "default"
+    bucket: str = "default-sliding-window"
     """Bucket name for counter grouping."""
 
 
@@ -113,8 +112,8 @@ class TokenBucketWithInput:
 
     @property
     def config_bucket(self) -> str:
-        """Wire-format bucket: ``tb_{bucket}-{configHash}``."""
-        return f"tb_{self.config.bucket}-{_config_hash(self._config_id)}"
+        """Bucket name sent to the server for counter grouping."""
+        return self.config.bucket
 
     def result(self, decision: Decision) -> RuleResultTokenBucket | None:
         """Get this input's result from a decision."""
@@ -156,8 +155,8 @@ class FixedWindowWithInput:
 
     @property
     def config_bucket(self) -> str:
-        """Wire-format bucket: ``fw_{bucket}-{configHash}``."""
-        return f"fw_{self.config.bucket}-{_config_hash(self._config_id)}"
+        """Bucket name sent to the server for counter grouping."""
+        return self.config.bucket
 
     def result(self, decision: Decision) -> RuleResultFixedWindow | None:
         """Get this input's result from a decision."""
@@ -199,8 +198,8 @@ class SlidingWindowWithInput:
 
     @property
     def config_bucket(self) -> str:
-        """Wire-format bucket: ``sw_{bucket}-{configHash}``."""
-        return f"sw_{self.config.bucket}-{_config_hash(self._config_id)}"
+        """Bucket name sent to the server for counter grouping."""
+        return self.config.bucket
 
     def result(self, decision: Decision) -> RuleResultSlidingWindow | None:
         """Get this input's result from a decision."""
@@ -254,7 +253,7 @@ class TokenBucket:
         refill_rate: int,
         interval_seconds: int,
         max_tokens: int,
-        bucket: str = "default",
+        bucket: str = "default-token-bucket",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
         metadata: Optional[Mapping[str, str]] = None,
@@ -339,7 +338,7 @@ class FixedWindow:
         *,
         max_requests: int,
         window_seconds: int,
-        bucket: str = "default",
+        bucket: str = "default-fixed-window",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
         metadata: Optional[Mapping[str, str]] = None,
@@ -423,7 +422,7 @@ class SlidingWindow:
         *,
         max_requests: int,
         interval_seconds: int,
-        bucket: str = "default",
+        bucket: str = "default-sliding-window",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
         metadata: Optional[Mapping[str, str]] = None,

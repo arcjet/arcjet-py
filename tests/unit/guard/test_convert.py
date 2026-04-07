@@ -570,7 +570,7 @@ class TestKeyHashing:
             p1.rule.token_bucket.input_key_hash == p2.rule.token_bucket.input_key_hash
         )
 
-    def test_config_bucket_includes_algorithm_prefix(self) -> None:
+    def test_config_bucket_defaults(self) -> None:
         tb = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         fw = FixedWindow(max_requests=100, window_seconds=60)
         sw = SlidingWindow(max_requests=100, interval_seconds=60)
@@ -580,18 +580,9 @@ class TestKeyHashing:
         p_tb = rule_to_proto(tb_inp)
         p_fw = rule_to_proto(fw_inp)
         p_sw = rule_to_proto(sw_inp)
-        assert p_tb.rule.token_bucket.config_bucket.startswith("tb_")
-        assert p_fw.rule.fixed_window.config_bucket.startswith("fw_")
-        assert p_sw.rule.sliding_window.config_bucket.startswith("sw_")
-
-    def test_config_bucket_includes_config_hash(self) -> None:
-        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
-        inp = rule(key="k")
-        proto = rule_to_proto(inp)
-        bucket = proto.rule.token_bucket.config_bucket
-        # Format: tb_{bucket}-{12-char-hash}
-        assert bucket.startswith("tb_default-")
-        assert len(bucket.split("-")[-1]) == 12
+        assert p_tb.rule.token_bucket.config_bucket == "default-token-bucket"
+        assert p_fw.rule.fixed_window.config_bucket == "default-fixed-window"
+        assert p_sw.rule.sliding_window.config_bucket == "default-sliding-window"
 
     def test_custom_bucket_name(self) -> None:
         rule = TokenBucket(
@@ -599,7 +590,7 @@ class TestKeyHashing:
         )
         inp = rule(key="k")
         proto = rule_to_proto(inp)
-        assert proto.rule.token_bucket.config_bucket.startswith("tb_my-bucket-")
+        assert proto.rule.token_bucket.config_bucket == "my-bucket"
 
 
 class TestProtobufErrorHandling:
