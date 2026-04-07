@@ -18,6 +18,7 @@ from ._local import (
     hash_text,
 )
 from .rules import (
+    CustomWithInput,
     FixedWindowWithInput,
     PromptInjectionWithInput,
     RuleWithInput,
@@ -31,6 +32,7 @@ from .types import (
     InternalResult,
     Reason,
     RuleResult,
+    RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultNotRun,
@@ -142,6 +144,13 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         return RuleResultSensitiveInfo(
             conclusion=_conclusion_from_proto(v.conclusion),
             detected_entity_types=tuple(v.detected_entity_types),
+        )
+
+    if which == "local_custom":
+        v = pr.local_custom
+        return RuleResultCustom(
+            conclusion=_conclusion_from_proto(v.conclusion),
+            data=dict(v.data),
         )
 
     if which == "error":
@@ -281,6 +290,34 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
         else:
             local_si.result_not_run.CopyFrom(pb.ResultNotRun())
         return pb.GuardRule(local_sensitive_info=local_si)
+
+    if isinstance(rule, CustomWithInput):
+        local_cu = pb.RuleLocalCustom(
+            config_data=dict(rule.config_data),
+            input_data=dict(rule.input_data),
+        )
+        if rule.evaluate_result is not None:
+            local_cu.result_computed.CopyFrom(
+                pb.ResultLocalCustom(
+                    conclusion=(
+                        pb.GUARD_CONCLUSION_DENY
+                        if rule.evaluate_result.conclusion == "DENY"
+                        else pb.GUARD_CONCLUSION_ALLOW
+                    ),
+                    data=dict(rule.evaluate_result.data),
+                )
+            )
+            local_cu.result_duration_ms = rule.evaluate_duration_ms
+        elif rule.evaluate_error is not None:
+            local_cu.result_error.CopyFrom(
+                pb.ResultError(
+                    message=rule.evaluate_error,
+                    code="EVALUATE_ERROR",
+                )
+            )
+        else:
+            local_cu.result_not_run.CopyFrom(pb.ResultNotRun())
+        return pb.GuardRule(local_custom=local_cu)
 
     raise ValueError(f"Unknown rule type: {type(rule).__name__}")
 

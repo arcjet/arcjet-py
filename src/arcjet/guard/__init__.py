@@ -40,6 +40,8 @@ from .client import (
     launch_arcjet_sync,
 )
 from .rules import (
+    CustomRule,
+    CustomWithInput,
     DetectPromptInjection,
     DetectSensitiveInfo,
     FixedWindow,
@@ -52,14 +54,17 @@ from .rules import (
     SlidingWindowWithInput,
     TokenBucket,
     TokenBucketWithInput,
+    TypedCustomResult,
 )
 from .types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     Conclusion,
+    CustomEvaluateResult,
     Decision,
     Mode,
     Reason,
     RuleResult,
+    RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultNotRun,
@@ -73,10 +78,12 @@ from .types import (
 __all__ = [
     # Types
     "Conclusion",
+    "CustomEvaluateResult",
     "Decision",
     "Mode",
     "Reason",
     "RuleResult",
+    "RuleResultCustom",
     "RuleResultError",
     "RuleResultFixedWindow",
     "RuleResultNotRun",
@@ -87,17 +94,20 @@ __all__ = [
     "RuleResultUnknown",
     "SENSITIVE_INFO_ENTITY_TYPES",
     # Rule classes
+    "CustomRule",
     "DetectPromptInjection",
     "DetectSensitiveInfo",
     "FixedWindow",
     "SlidingWindow",
     "TokenBucket",
     # Concrete input types
+    "CustomWithInput",
     "FixedWindowWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",
     "TokenBucketWithInput",
+    "TypedCustomResult",
     # Union aliases
     "RuleWithConfig",
     "RuleWithInput",

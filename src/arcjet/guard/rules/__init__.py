@@ -6,9 +6,10 @@ per-request input produces a concrete ``*WithInput`` ready for ``.guard()``.
 
 from __future__ import annotations
 
-from typing import Union
+from typing import Any, Union
 
 from ._base import _config_hash, _get_internal_results, _hash_key, _merge_metadata
+from ._custom import CustomRule, CustomWithInput, TypedCustomResult
 from ._prompt_injection import DetectPromptInjection, PromptInjectionWithInput
 from ._rate_limit import (
     FixedWindow,
@@ -33,6 +34,7 @@ RuleWithInput = Union[
     SlidingWindowWithInput,
     PromptInjectionWithInput,
     SensitiveInfoWithInput,
+    CustomWithInput[Any],
 ]
 """Union of all ``*WithInput`` types."""
 
@@ -57,12 +59,15 @@ __all__ = [
     "SlidingWindowConfig",
     "TokenBucketConfig",
     # WithInput dataclasses
+    "CustomWithInput",
     "FixedWindowWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",
     "TokenBucketWithInput",
+    "TypedCustomResult",
     # Rule classes
+    "CustomRule",
     "DetectPromptInjection",
     "DetectSensitiveInfo",
     "FixedWindow",
