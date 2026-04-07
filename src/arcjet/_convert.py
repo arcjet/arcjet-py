@@ -114,7 +114,7 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
 
         return PromptInjectionReason(
             injection_detected=pid.injection_detected,
-            score=pid.score,
+            _score=pid.score,
         )
 
     # Handle unexpected reason types by returning an ErrorReason
