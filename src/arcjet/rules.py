@@ -119,6 +119,11 @@ class PromptInjectionDetection(RuleSpec):
 
     mode: Mode
     threshold: float = 0.5
+    """.. deprecated::
+
+        The ``threshold`` parameter is deprecated and will be removed in a
+        future release.
+    """
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
@@ -752,8 +757,9 @@ def detect_prompt_injection(
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
             ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
             ``Mode.LIVE``.
-        threshold: Detection confidence threshold (0.0 to 1.0). Higher values
-            are more conservative. Defaults to ``0.5``.
+        threshold: **Deprecated.** Detection confidence threshold (0.0 to 1.0).
+            This parameter is deprecated and will be removed in a future
+            release. Defaults to ``0.5``.
 
     Returns:
         A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
@@ -765,7 +771,7 @@ def detect_prompt_injection(
 
         aj = arcjet(
             key="ajkey_...",
-            rules=[detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)],
+            rules=[detect_prompt_injection(mode=Mode.LIVE)],
         )
 
         # In your route handler, pass the user message:

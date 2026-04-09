@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
+from typing_extensions import deprecated
+
 
 @dataclass(frozen=True, slots=True)
 class BotReason:
@@ -212,11 +214,24 @@ class PromptInjectionReason:
     injection_detected: bool
     """``True`` when prompt injection was detected in the message."""
 
-    score: float
-    """Confidence score of the prompt injection detection (0.0 to 1.0)."""
+    _score: float
 
     type: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
     """Discriminator field. Always ``"PROMPT_INJECTION"``."""
+
+    @property
+    @deprecated(
+        "The `score` field of PromptInjectionReason is deprecated "
+        "and will be removed in a future release."
+    )
+    def score(self) -> float:
+        """Confidence score of the prompt injection detection (0.0 to 1.0).
+
+        .. deprecated::
+            The ``score`` field is deprecated and will be removed in a future
+            release.
+        """
+        return self._score
 
 
 Reason = (
