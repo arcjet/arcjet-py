@@ -9,6 +9,7 @@ v2 Guard RPC, and returns a typed :class:`~arcjet.guard.types.Decision`.
 from __future__ import annotations
 
 import os
+import platform
 import time
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
@@ -17,7 +18,7 @@ from typing import Sequence
 
 import pyqwest
 
-from arcjet._errors import ArcjetError, ArcjetMisconfiguration, ArcjetTransportError
+from arcjet._errors import ArcjetError, ArcjetMisconfiguration
 from arcjet._logging import logger
 
 from .convert import decision_from_proto, rule_to_proto
@@ -31,6 +32,10 @@ def _sdk_version(default: str = "0.0.0") -> str:
         return pkg_version("arcjet")
     except PackageNotFoundError:
         return default
+
+
+def _build_user_agent() -> str:
+    return f"arcjet-py/{_sdk_version()} (python/{platform.python_version()})"
 
 
 _DEFAULT_BASE_URL = (
@@ -86,7 +91,6 @@ class ArcjetGuard:
     _key: str
     _client: object  # pyqwest-based connect client
     _timeout_ms: int
-    _fail_open: bool
     _user_agent: str
 
     async def guard(
@@ -147,12 +151,10 @@ class ArcjetGuard:
         except ArcjetError:
             raise
         except Exception as e:
-            if self._fail_open:
-                logger.warning(
-                    "arcjet guard fail_open: %s", e, extra={"event": "guard_error"}
-                )
-                return _make_error_decision(str(e))
-            raise ArcjetTransportError(str(e)) from e
+            logger.warning(
+                "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
+            )
+            return _make_error_decision(str(e))
 
         return decision_from_proto(resp)
 
@@ -164,7 +166,6 @@ class ArcjetGuardSync:
     _key: str
     _client: object  # pyqwest-based connect client (sync)
     _timeout_ms: int
-    _fail_open: bool
     _user_agent: str
 
     def guard(
@@ -225,12 +226,10 @@ class ArcjetGuardSync:
         except ArcjetError:
             raise
         except Exception as e:
-            if self._fail_open:
-                logger.warning(
-                    "arcjet guard fail_open: %s", e, extra={"event": "guard_error"}
-                )
-                return _make_error_decision(str(e))
-            raise ArcjetTransportError(str(e)) from e
+            logger.warning(
+                "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
+            )
+            return _make_error_decision(str(e))
 
         return decision_from_proto(resp)
 
@@ -240,7 +239,6 @@ def launch_arcjet(
     key: str,
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
-    fail_open: bool = True,
 ) -> ArcjetGuard:
     """Create an async Arcjet Guard client.
 
@@ -248,8 +246,6 @@ def launch_arcjet(
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 1000).
-        fail_open: Return an error decision on transport failure instead of
-            raising (default ``True``).
 
     Returns:
         An :class:`ArcjetGuard` async client.
@@ -270,8 +266,7 @@ def launch_arcjet(
         _key=key,
         _client=client,
         _timeout_ms=timeout_ms,
-        _fail_open=fail_open,
-        _user_agent=f"arcjet-py/{_sdk_version()}",
+        _user_agent=_build_user_agent(),
     )
 
 
@@ -280,7 +275,6 @@ def launch_arcjet_sync(
     key: str,
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
-    fail_open: bool = True,
 ) -> ArcjetGuardSync:
     """Create a sync Arcjet Guard client.
 
@@ -288,8 +282,6 @@ def launch_arcjet_sync(
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 1000).
-        fail_open: Return an error decision on transport failure instead of
-            raising (default ``True``).
 
     Returns:
         An :class:`ArcjetGuardSync` sync client.
@@ -310,6 +302,5 @@ def launch_arcjet_sync(
         _key=key,
         _client=client,
         _timeout_ms=timeout_ms,
-        _fail_open=fail_open,
-        _user_agent=f"arcjet-py/{_sdk_version()}",
+        _user_agent=_build_user_agent(),
     )

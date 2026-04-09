@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from arcjet._errors import ArcjetMisconfiguration, ArcjetTransportError
+from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import (
     ArcjetGuard,
     ArcjetGuardSync,
@@ -144,7 +144,6 @@ def _make_guard(client: Any) -> ArcjetGuard:
         _key="test_key_123",
         _client=client,
         _timeout_ms=1000,
-        _fail_open=True,
         _user_agent="arcjet-py/test",
     )
 
@@ -154,7 +153,6 @@ def _make_guard_sync(client: Any) -> ArcjetGuardSync:
         _key="test_key_123",
         _client=client,
         _timeout_ms=1000,
-        _fail_open=True,
         _user_agent="arcjet-py/test",
     )
 
@@ -196,7 +194,6 @@ class TestLaunchFactories:
                 guard = launch_arcjet(key="sk_test_123")
             assert isinstance(guard, ArcjetGuard)
             assert guard._key == "sk_test_123"
-            assert guard._fail_open is True
             assert guard._timeout_ms == 1000
         finally:
             if cached is not None:
@@ -226,13 +223,10 @@ class TestLaunchFactories:
         cached = sys.modules.pop("arcjet.guard.proto.decide.v2.decide_connect", None)
         try:
             with patch.dict(sys.modules, fake_modules):
-                guard = launch_arcjet_sync(
-                    key="sk_test_456", timeout_ms=2000, fail_open=False
-                )
+                guard = launch_arcjet_sync(key="sk_test_456", timeout_ms=2000)
             assert isinstance(guard, ArcjetGuardSync)
             assert guard._key == "sk_test_456"
             assert guard._timeout_ms == 2000
-            assert guard._fail_open is False
         finally:
             if cached is not None:
                 sys.modules["arcjet.guard.proto.decide.v2.decide_connect"] = cached
@@ -327,18 +321,6 @@ class TestArcjetGuardSync:
         assert decision.reason == "ERROR"
         assert decision.has_error()
 
-    def test_fail_closed_raises(self) -> None:
-        guard = ArcjetGuardSync(
-            _key="k",
-            _client=FakeErrorSyncClient(),
-            _timeout_ms=1000,
-            _fail_open=False,
-            _user_agent="test",
-        )
-        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
-        with pytest.raises(ArcjetTransportError, match="network down"):
-            guard.guard([rule(key="x")], label="test")
-
     def test_sensitive_info_with_mock_wasm(self) -> None:
         from unittest.mock import patch
 
@@ -424,18 +406,6 @@ class TestArcjetGuardAsync:
         assert decision.conclusion == "ALLOW"
         assert decision.reason == "ERROR"
         assert decision.has_error()
-
-    def test_fail_closed_raises(self) -> None:
-        guard = ArcjetGuard(
-            _key="k",
-            _client=FakeErrorAsyncClient(),
-            _timeout_ms=1000,
-            _fail_open=False,
-            _user_agent="test",
-        )
-        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
-        with pytest.raises(ArcjetTransportError, match="network down"):
-            self._run(guard.guard([rule(key="x")], label="test"))
 
     def test_empty_rules_returns_validation_error(self) -> None:
         client = FakeAsyncClient()

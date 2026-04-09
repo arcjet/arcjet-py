@@ -610,3 +610,24 @@ class TestProtobufErrorHandling:
 
             with pytest.raises(ArcjetError, match="Failed to encode rule"):
                 rule_to_proto(inp)
+
+
+class TestBuildUserAgent:
+    """User agent string includes SDK name, version, and Python version."""
+
+    def test_format(self) -> None:
+        import platform
+        import re
+
+        from arcjet.guard.client import _build_user_agent
+
+        ua = _build_user_agent()
+        # Should match: arcjet-py/X.Y.Z (python/X.Y.Z)
+        assert re.match(r"arcjet-py/\S+ \(python/\d+\.\d+\.\d+\)", ua)
+        assert platform.python_version() in ua
+
+    def test_includes_sdk_version(self) -> None:
+        from arcjet.guard.client import _build_user_agent, _sdk_version
+
+        ua = _build_user_agent()
+        assert _sdk_version() in ua
