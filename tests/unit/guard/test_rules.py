@@ -907,13 +907,13 @@ class TestEntityTypeValidation:
             LocalDetectSensitiveInfo(allow=["EMAIL", "SSN"])
 
     def test_empty_lists_accepted(self) -> None:
-        rule = LocalDetectSensitiveInfo(allow=[], deny=[])
+        rule = LocalDetectSensitiveInfo(allow=[], deny=[])  # type: ignore[call-overload]
         assert rule._config.allow == ()
         assert rule._config.deny == ()
 
     def test_allow_and_deny_mutually_exclusive(self) -> None:
         with pytest.raises(ArcjetError, match="allow.*deny.*not both"):
-            LocalDetectSensitiveInfo(allow=["EMAIL"], deny=["PHONE_NUMBER"])
+            LocalDetectSensitiveInfo(allow=["EMAIL"], deny=["PHONE_NUMBER"])  # type: ignore[call-overload]
 
 
 class TestKeyHashProperty:

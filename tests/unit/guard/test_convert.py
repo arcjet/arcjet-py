@@ -85,6 +85,7 @@ class TestRuleToProto:
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
+        assert local_result is not None
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
 
@@ -479,6 +480,7 @@ class TestRuleToProtoLocalSensitiveInfo:
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
+        assert local_result is not None
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
@@ -499,6 +501,7 @@ class TestRuleToProtoLocalSensitiveInfo:
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
+        assert local_result is not None
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
@@ -528,6 +531,7 @@ class TestRuleToProtoLocalSensitiveInfo:
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
+        assert local_result is not None
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
@@ -546,6 +550,7 @@ class TestRuleToProtoLocalSensitiveInfo:
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
+        assert local_result is not None
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
