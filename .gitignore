@@ -220,3 +220,6 @@ __marimo__/
 
 # Internal planning documents
 docs/plans/
+
+# local Claude settings (permissions, etc. per user)
+.claude/
