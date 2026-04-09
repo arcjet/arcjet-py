@@ -15,12 +15,13 @@ Public API
 **Rule classes** (from ``rules``)::
 
     TokenBucket, FixedWindow, SlidingWindow,
-    DetectPromptInjection, DetectSensitiveInfo
+    DetectPromptInjection, LocalDetectSensitiveInfo, LocalCustomRule
 
 **Concrete rule input types** (from ``rules``)::
 
     TokenBucketWithInput, FixedWindowWithInput, SlidingWindowWithInput,
     PromptInjectionWithInput, SensitiveInfoWithInput,
+    LocalCustomWithInput,
     RuleWithInput (union of all)
 
 **Configured rule union** (from ``rules``)::
@@ -40,12 +41,12 @@ from .client import (
     launch_arcjet_sync,
 )
 from .rules import (
-    CustomRule,
-    CustomWithInput,
     DetectPromptInjection,
-    DetectSensitiveInfo,
     FixedWindow,
     FixedWindowWithInput,
+    LocalCustomRule,
+    LocalCustomWithInput,
+    LocalDetectSensitiveInfo,
     PromptInjectionWithInput,
     RuleWithConfig,
     RuleWithInput,
@@ -94,15 +95,15 @@ __all__ = [
     "RuleResultUnknown",
     "SENSITIVE_INFO_ENTITY_TYPES",
     # Rule classes
-    "CustomRule",
     "DetectPromptInjection",
-    "DetectSensitiveInfo",
     "FixedWindow",
+    "LocalCustomRule",
+    "LocalDetectSensitiveInfo",
     "SlidingWindow",
     "TokenBucket",
     # Concrete input types
-    "CustomWithInput",
     "FixedWindowWithInput",
+    "LocalCustomWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",

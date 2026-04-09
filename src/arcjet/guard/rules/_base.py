@@ -23,15 +23,6 @@ def _hash_key(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
-def _config_hash(config_id: str) -> str:
-    """Produce a short (12 hex char) config hash from the config UUID.
-
-    The server uses this to isolate counters: different configs sharing
-    the same bucket name get independent counters.
-    """
-    return hashlib.sha256(config_id.encode("utf-8")).hexdigest()[:12]
-
-
 def _merge_metadata(
     config_metadata: Optional[Mapping[str, str]],
     input_metadata: Optional[Mapping[str, str]],

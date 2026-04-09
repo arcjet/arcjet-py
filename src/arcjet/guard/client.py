@@ -8,22 +8,26 @@ v2 Guard RPC, and returns a typed :class:`~arcjet.guard.types.Decision`.
 
 from __future__ import annotations
 
-import os
 import platform
 import time
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Sequence
+from typing import Protocol, Sequence, Union
 
 import pyqwest
 
 from arcjet._errors import ArcjetError, ArcjetMisconfiguration
 from arcjet._logging import logger
 
+from ._local import (
+    LocalSensitiveInfoError,
+    LocalSensitiveInfoResult,
+    evaluate_sensitive_info_locally,
+)
 from .convert import decision_from_proto, rule_to_proto
 from .proto.decide.v2 import decide_pb2 as pb
-from .rules import RuleWithInput
+from .rules import RuleWithInput, SensitiveInfoWithInput
 from .types import Decision, RuleResultError
 
 
@@ -38,15 +42,7 @@ def _build_user_agent() -> str:
     return f"arcjet-py/{_sdk_version()} (python/{platform.python_version()})"
 
 
-_DEFAULT_BASE_URL = (
-    os.getenv("ARCJET_BASE_URL")
-    or (
-        "https://fly.decide.arcjet.com"
-        if os.getenv("FLY_APP_NAME")
-        else "https://decide.arcjet.com"
-    )
-).rstrip("/")
-
+_DEFAULT_BASE_URL = "https://decide.arcjet.com"
 _DEFAULT_TIMEOUT_MS = 1000
 
 
@@ -84,12 +80,103 @@ def _make_error_decision(message: str) -> Decision:
     )
 
 
+_LocalEvalResult = Union[LocalSensitiveInfoResult, LocalSensitiveInfoError]
+
+
+def _run_local_evaluations(
+    rules: list[RuleWithInput],
+) -> dict[str, _LocalEvalResult]:
+    """Evaluate local rules before proto serialization.
+
+    Returns a mapping of ``input_id`` → local evaluation result.
+    Rules without local evaluation (e.g. rate limits, prompt injection)
+    are skipped.  Custom rules are already evaluated at bind time.
+    """
+    results: dict[str, _LocalEvalResult] = {}
+    for rule in rules:
+        if isinstance(rule, SensitiveInfoWithInput):
+            result = evaluate_sensitive_info_locally(
+                rule.text,
+                allow=rule.config.allow,
+                deny=rule.config.deny,
+            )
+            if result is not None:
+                results[rule._input_id] = result
+    return results
+
+
+def _prepare_guard(
+    rules: Sequence[RuleWithInput],
+    *,
+    user_agent: str,
+    label: str,
+    metadata: dict[str, str] | None,
+) -> Decision | pb.GuardRequest:
+    """Validate rules, run local evaluations, and build the proto request.
+
+    Returns a :class:`Decision` for early returns (e.g. empty rules) or a
+    :class:`~pb.GuardRequest` ready for transport.
+    """
+    rule_list = list(rules)
+
+    if not rule_list:
+        return Decision(
+            conclusion="ALLOW",
+            id="",
+            results=(
+                RuleResultError(
+                    message="at least one rule is required",
+                    code="VALIDATION_ERROR",
+                ),
+            ),
+            reason="ERROR",
+        )
+
+    t0 = time.perf_counter()
+    local_results = _run_local_evaluations(rule_list)
+    try:
+        submissions = [rule_to_proto(r, local_results) for r in rule_list]
+    except ArcjetError:
+        raise
+    except Exception as e:
+        raise ArcjetError(f"Failed to encode rules: {e}") from e
+    local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
+
+    return _build_request(
+        submissions,
+        user_agent=user_agent,
+        label=label,
+        metadata=metadata,
+        local_eval_duration_ms=local_eval_duration_ms,
+    )
+
+
+class _AsyncGuardTransport(Protocol):
+    async def guard(
+        self,
+        request: pb.GuardRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GuardResponse: ...
+
+
+class _SyncGuardTransport(Protocol):
+    def guard(
+        self,
+        request: pb.GuardRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GuardResponse: ...
+
+
 @dataclass(slots=True)
 class ArcjetGuard:
     """Async guard client — call ``.guard()`` with bound rule inputs."""
 
     _key: str
-    _client: object  # pyqwest-based connect client
+    _client: _AsyncGuardTransport
     _timeout_ms: int
     _user_agent: str
 
@@ -110,41 +197,15 @@ class ArcjetGuard:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
-        rule_list = list(rules)
-
-        if not rule_list:
-            return Decision(
-                conclusion="ALLOW",
-                id="",
-                results=(
-                    RuleResultError(
-                        message="at least one rule is required",
-                        code="VALIDATION_ERROR",
-                    ),
-                ),
-                reason="ERROR",
-            )
-
-        t0 = time.perf_counter()
-        try:
-            submissions = [rule_to_proto(r) for r in rule_list]
-        except ArcjetError:
-            raise
-        except Exception as e:
-            raise ArcjetError(f"Failed to encode rules: {e}") from e
-        local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        req = _build_request(
-            submissions,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            local_eval_duration_ms=local_eval_duration_ms,
+        result = _prepare_guard(
+            rules, user_agent=self._user_agent, label=label, metadata=metadata
         )
+        if isinstance(result, Decision):
+            return result
 
         try:
-            resp = await self._client.guard(  # type: ignore[union-attr]
-                req,
+            resp = await self._client.guard(
+                result,
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
@@ -164,7 +225,7 @@ class ArcjetGuardSync:
     """Sync guard client — call ``.guard()`` with bound rule inputs."""
 
     _key: str
-    _client: object  # pyqwest-based connect client (sync)
+    _client: _SyncGuardTransport
     _timeout_ms: int
     _user_agent: str
 
@@ -185,41 +246,15 @@ class ArcjetGuardSync:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
-        rule_list = list(rules)
-
-        if not rule_list:
-            return Decision(
-                conclusion="ALLOW",
-                id="",
-                results=(
-                    RuleResultError(
-                        message="at least one rule is required",
-                        code="VALIDATION_ERROR",
-                    ),
-                ),
-                reason="ERROR",
-            )
-
-        t0 = time.perf_counter()
-        try:
-            submissions = [rule_to_proto(r) for r in rule_list]
-        except ArcjetError:
-            raise
-        except Exception as e:
-            raise ArcjetError(f"Failed to encode rules: {e}") from e
-        local_eval_duration_ms = int((time.perf_counter() - t0) * 1000)
-
-        req = _build_request(
-            submissions,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            local_eval_duration_ms=local_eval_duration_ms,
+        result = _prepare_guard(
+            rules, user_agent=self._user_agent, label=label, metadata=metadata
         )
+        if isinstance(result, Decision):
+            return result
 
         try:
-            resp = self._client.guard(  # type: ignore[union-attr]
-                req,
+            resp = self._client.guard(
+                result,
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )

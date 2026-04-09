@@ -14,12 +14,11 @@ from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
-    evaluate_sensitive_info_locally,
     hash_text,
 )
 from .rules import (
-    CustomWithInput,
     FixedWindowWithInput,
+    LocalCustomWithInput,
     PromptInjectionWithInput,
     RuleWithInput,
     SensitiveInfoWithInput,
@@ -172,15 +171,19 @@ _MODE_MAP = {
 }
 
 
-def rule_to_proto(rule: RuleWithInput) -> pb.GuardRuleSubmission:
+def rule_to_proto(
+    rule: RuleWithInput,
+    local_results: dict[str, LocalSensitiveInfoResult | LocalSensitiveInfoError]
+    | None = None,
+) -> pb.GuardRuleSubmission:
     """Convert a ``*WithInput`` to a proto ``GuardRuleSubmission``.
 
     Maps the SDK rule's config/input data into the proto message structure,
     preserving identity fields (``_config_id``, ``_input_id``) and mode.
 
-    For ``SensitiveInfoWithInput`` rules, this also runs the WASM
-    evaluation locally and attaches the result.  The raw text is hashed
-    (SHA-256) before being placed on the wire.
+    For ``SensitiveInfoWithInput`` rules, the raw text is hashed
+    (SHA-256) before being placed on the wire.  Pre-computed local
+    evaluation results are attached from *local_results*.
 
     Rate-limit keys are SHA-256 hashed client-side so the raw key never
     leaves the SDK.
@@ -190,7 +193,7 @@ def rule_to_proto(rule: RuleWithInput) -> pb.GuardRuleSubmission:
             negative config values that violate uint32 constraints).
     """
     try:
-        guard_rule = _rule_body_to_proto(rule)
+        guard_rule = _rule_body_to_proto(rule, local_results)
     except (ValueError, TypeError, OverflowError) as exc:
         raise ArcjetError(
             f"Failed to encode rule {type(rule).__name__}: {exc}"
@@ -210,7 +213,11 @@ def rule_to_proto(rule: RuleWithInput) -> pb.GuardRuleSubmission:
         raise ArcjetError(f"Failed to encode rule submission: {exc}") from exc
 
 
-def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
+def _rule_body_to_proto(
+    rule: RuleWithInput,
+    local_results: dict[str, LocalSensitiveInfoResult | LocalSensitiveInfoError]
+    | None = None,
+) -> pb.GuardRule:
     """Map a rule to a proto ``GuardRule``."""
     if isinstance(rule, TokenBucketWithInput):
         return pb.GuardRule(
@@ -266,7 +273,7 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             local_si.config_entities_deny.CopyFrom(
                 pb.EntityList(entities=list(rule.config.deny))
             )
-        local_result = evaluate_sensitive_info_locally(rule)
+        local_result = local_results.get(rule._input_id) if local_results else None
         if isinstance(local_result, LocalSensitiveInfoResult):
             local_si.result_computed.CopyFrom(
                 pb.ResultLocalSensitiveInfo(
@@ -291,7 +298,7 @@ def _rule_body_to_proto(rule: RuleWithInput) -> pb.GuardRule:
             local_si.result_not_run.CopyFrom(pb.ResultNotRun())
         return pb.GuardRule(local_sensitive_info=local_si)
 
-    if isinstance(rule, CustomWithInput):
+    if isinstance(rule, LocalCustomWithInput):
         local_cu = pb.RuleLocalCustom(
             config_data=dict(rule.config_data),
             input_data=dict(rule.input_data),

@@ -1,8 +1,7 @@
 """Public SDK types for ``arcjet.guard``.
 
-Concrete per-rule discriminated unions.  No generics.  Each rule kind
-gets its own ``RuleResult*`` type with a ``type`` discriminant for
-narrowing.
+Concrete per-rule discriminated unions.  Each rule kind gets its own
+``RuleResult*`` type with a ``type`` discriminant for narrowing.
 
 These are independent of protobuf — the SDK exposes plain frozen dataclasses,
 not proto messages.  The type system is designed for progressive disclosure:
@@ -226,7 +225,8 @@ class RuleResultError:
     """The reason category — always ``"ERROR"`` for errored rules."""
 
     type: Literal["RULE_ERROR"] = "RULE_ERROR"
-    """Discriminant — always ``"RULE_ERROR"``."""
+    """Discriminant — ``"RULE_ERROR"`` (distinct from the ``"ERROR"`` reason
+    to avoid ambiguity with the :class:`Reason` value)."""
 
     message: str = ""
     """Human-readable error description."""

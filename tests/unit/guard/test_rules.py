@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
+from arcjet._errors import ArcjetError
 from arcjet.guard import (
     DetectPromptInjection,
-    DetectSensitiveInfo,
     FixedWindow,
     FixedWindowWithInput,
+    LocalDetectSensitiveInfo,
     PromptInjectionWithInput,
     SensitiveInfoWithInput,
     SlidingWindow,
@@ -49,7 +52,7 @@ class TestRuleFactories:
         assert isinstance(inp, PromptInjectionWithInput)
 
     def test_detect_sensitive_info_returns_rule_with_input(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("some text")
         assert inp._config_id
         assert isinstance(inp, SensitiveInfoWithInput)
@@ -156,7 +159,7 @@ class TestRuleLabelMetadata:
         assert inp.metadata == {"assistant": "abc", "channel": "slack"}
 
     def test_input_metadata_merge_sensitive_info(self) -> None:
-        rule = DetectSensitiveInfo(metadata={"form": "contact"})
+        rule = LocalDetectSensitiveInfo(metadata={"form": "contact"})
         inp = rule("hello", metadata={"step": "submit"})
         assert inp.metadata == {"form": "contact", "step": "submit"}
 
@@ -734,7 +737,7 @@ class TestPromptInjectionLayer3:
 
 class TestSensitiveInfoLayer3:
     def test_input_result_returns_typed(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my SSN is 123-45-6789")
 
         response = make_response(
@@ -760,7 +763,7 @@ class TestSensitiveInfoLayer3:
         assert r.detected_entity_types == ("SSN",)
 
     def test_input_denied_result_returns_on_deny(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my SSN is 123-45-6789")
 
         response = make_response(
@@ -786,7 +789,7 @@ class TestSensitiveInfoLayer3:
         assert denied.conclusion == "DENY"
 
     def test_input_denied_result_none_for_allow(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("safe text")
 
         response = make_response(
@@ -808,7 +811,7 @@ class TestSensitiveInfoLayer3:
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         i1 = rule("safe text")
         i2 = rule("my SSN is 123-45-6789")
 
@@ -848,7 +851,7 @@ class TestSensitiveInfoLayer3:
         assert denied.conclusion == "DENY"
 
     def test_config_denied_result_none_when_all_allow(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("safe text")
 
         response = make_response(
@@ -872,11 +875,11 @@ class TestSensitiveInfoLayer3:
 
 class TestEntityTypeValidation:
     def test_valid_allow_types(self) -> None:
-        rule = DetectSensitiveInfo(allow=["EMAIL", "PHONE_NUMBER"])
+        rule = LocalDetectSensitiveInfo(allow=["EMAIL", "PHONE_NUMBER"])
         assert rule._config.allow == ("EMAIL", "PHONE_NUMBER")
 
     def test_valid_deny_types(self) -> None:
-        rule = DetectSensitiveInfo(deny=["IP_ADDRESS", "CREDIT_CARD_NUMBER"])
+        rule = LocalDetectSensitiveInfo(deny=["IP_ADDRESS", "CREDIT_CARD_NUMBER"])
         assert rule._config.deny == ("IP_ADDRESS", "CREDIT_CARD_NUMBER")
 
     def test_invalid_allow_type_raises(self) -> None:
@@ -885,7 +888,7 @@ class TestEntityTypeValidation:
         from arcjet._errors import ArcjetError
 
         with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
-            DetectSensitiveInfo(allow=["SSN"])
+            LocalDetectSensitiveInfo(allow=["SSN"])
 
     def test_invalid_deny_type_raises(self) -> None:
         import pytest
@@ -893,7 +896,7 @@ class TestEntityTypeValidation:
         from arcjet._errors import ArcjetError
 
         with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
-            DetectSensitiveInfo(deny=["SOCIAL_SECURITY"])
+            LocalDetectSensitiveInfo(deny=["SOCIAL_SECURITY"])
 
     def test_mixed_valid_invalid_raises(self) -> None:
         import pytest
@@ -901,12 +904,16 @@ class TestEntityTypeValidation:
         from arcjet._errors import ArcjetError
 
         with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
-            DetectSensitiveInfo(allow=["EMAIL", "SSN"])
+            LocalDetectSensitiveInfo(allow=["EMAIL", "SSN"])
 
     def test_empty_lists_accepted(self) -> None:
-        rule = DetectSensitiveInfo(allow=[], deny=[])
+        rule = LocalDetectSensitiveInfo(allow=[], deny=[])
         assert rule._config.allow == ()
         assert rule._config.deny == ()
+
+    def test_allow_and_deny_mutually_exclusive(self) -> None:
+        with pytest.raises(ArcjetError, match="allow.*deny.*not both"):
+            LocalDetectSensitiveInfo(allow=["EMAIL"], deny=["PHONE_NUMBER"])
 
 
 class TestKeyHashProperty:
@@ -1042,7 +1049,7 @@ class TestWithInputResultsList:
         assert results[0].conclusion == "ALLOW"
 
     def test_sensitive_info_input_results(self) -> None:
-        rule = DetectSensitiveInfo(deny=["EMAIL"])
+        rule = LocalDetectSensitiveInfo(deny=["EMAIL"])
         inp = rule("no pii here")
         response = make_response(
             pb.GUARD_CONCLUSION_ALLOW,
@@ -1187,7 +1194,7 @@ class TestWithConfigResult:
         assert r.conclusion == "ALLOW"
 
     def test_sensitive_info_config_result(self) -> None:
-        rule = DetectSensitiveInfo(deny=["EMAIL"])
+        rule = LocalDetectSensitiveInfo(deny=["EMAIL"])
         inp = rule("clean text")
         response = make_response(
             pb.GUARD_CONCLUSION_ALLOW,
@@ -1310,3 +1317,35 @@ class TestHasErrorWithResponseErrors:
         )
         decision = decision_from_proto(response)
         assert decision.has_error()
+
+
+class TestThreadSafety:
+    """Verify concurrent rule invocation from multiple threads."""
+
+    def test_concurrent_token_bucket_invocation(self) -> None:
+        import threading
+
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        results: list[TokenBucketWithInput] = []
+        errors: list[Exception] = []
+
+        def invoke(i: int) -> None:
+            try:
+                inp = rule(key=f"user_{i}")
+                results.append(inp)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=invoke, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+        assert len(results) == 10
+        # All should share the same config_id but have unique input_ids
+        config_ids = {r._config_id for r in results}
+        input_ids = {r._input_id for r in results}
+        assert len(config_ids) == 1
+        assert len(input_ids) == 10

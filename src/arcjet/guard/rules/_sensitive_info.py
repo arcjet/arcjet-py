@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence, overload
 
 from arcjet._errors import ArcjetError
 
@@ -72,8 +72,8 @@ class SensitiveInfoWithInput:
         return None
 
 
-class DetectSensitiveInfo:
-    """Sensitive information detection rule.
+class LocalDetectSensitiveInfo:
+    """Sensitive information detection rule (local WASM evaluation).
 
     Detects PII (email addresses, phone numbers, etc.) in text locally
     via WASM.  The raw text never leaves the SDK — only a SHA-256 hash
@@ -92,16 +92,46 @@ class DetectSensitiveInfo:
 
     Raises:
         ArcjetError: If any entity type in *allow* or *deny* is not a
-            valid built-in type.
+            valid built-in type, or if both *allow* and *deny* are
+            specified.
 
     Example::
 
-        sensitive = DetectSensitiveInfo(deny=["EMAIL"])
+        sensitive = LocalDetectSensitiveInfo(deny=["EMAIL"])
         decision = await arcjet.guard(
             label="tools.weather",
             rules=[sensitive(user_message)],
         )
     """
+
+    @overload
+    def __init__(
+        self,
+        *,
+        allow: Sequence[str],
+        mode: Mode = ...,
+        label: Optional[str] = ...,
+        metadata: Optional[Mapping[str, str]] = ...,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        deny: Sequence[str],
+        mode: Mode = ...,
+        label: Optional[str] = ...,
+        metadata: Optional[Mapping[str, str]] = ...,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        mode: Mode = ...,
+        label: Optional[str] = ...,
+        metadata: Optional[Mapping[str, str]] = ...,
+    ) -> None: ...
 
     def __init__(
         self,
@@ -112,6 +142,8 @@ class DetectSensitiveInfo:
         label: Optional[str] = None,
         metadata: Optional[Mapping[str, str]] = None,
     ) -> None:
+        if allow and deny:
+            raise ArcjetError("Specify either 'allow' or 'deny', not both.")
         for entity in allow:
             if entity not in SENSITIVE_INFO_ENTITY_TYPES:
                 raise ArcjetError(

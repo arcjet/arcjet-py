@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from arcjet.guard import DetectSensitiveInfo
+from arcjet.guard import LocalDetectSensitiveInfo
 from arcjet.guard._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
@@ -32,26 +32,32 @@ class TestLocalSensitiveInfoEvaluation:
     """Test WASM-based local sensitive info evaluation."""
 
     def test_returns_none_when_wasm_unavailable(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my email is test@example.com")
         with patch("arcjet.guard._local._get_component", return_value=None):
-            result = evaluate_sensitive_info_locally(inp)
+            result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         assert result is None
 
     def test_returns_none_for_empty_text(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("")
         with patch("arcjet.guard._local._get_component", return_value=MagicMock()):
-            result = evaluate_sensitive_info_locally(inp)
+            result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         assert result is None
 
     def test_returns_error_on_wasm_exception(self) -> None:
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.side_effect = RuntimeError("boom")
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            result = evaluate_sensitive_info_locally(inp)
+            result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         assert isinstance(result, LocalSensitiveInfoError)
         assert result.code == "WASM_ERROR"
         assert "boom" in result.message
@@ -63,10 +69,12 @@ class TestLocalSensitiveInfoEvaluation:
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("no sensitive info here")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            result = evaluate_sensitive_info_locally(inp)
+            result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         assert isinstance(result, LocalSensitiveInfoResult)
         assert result.conclusion == "ALLOW"
         assert result.detected_entity_types == []
@@ -89,10 +97,12 @@ class TestLocalSensitiveInfoEvaluation:
                 )
             ],
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my email is test@example.com")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            result = evaluate_sensitive_info_locally(inp)
+            result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         assert isinstance(result, LocalSensitiveInfoResult)
         assert result.conclusion == "DENY"
         assert "EMAIL" in result.detected_entity_types
@@ -104,10 +114,12 @@ class TestLocalSensitiveInfoEvaluation:
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo(allow=["EMAIL"])
+        rule = LocalDetectSensitiveInfo(allow=["EMAIL"])
         inp = rule("test")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            evaluate_sensitive_info_locally(inp)
+            evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         call_args = mock_component.detect_sensitive_info.call_args
         config = call_args[0][1]
         assert isinstance(config.entities, SensitiveInfoEntitiesAllow)
@@ -119,10 +131,12 @@ class TestLocalSensitiveInfoEvaluation:
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo(deny=["CREDIT_CARD_NUMBER"])
+        rule = LocalDetectSensitiveInfo(deny=["CREDIT_CARD_NUMBER"])
         inp = rule("test")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            evaluate_sensitive_info_locally(inp)
+            evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
         call_args = mock_component.detect_sensitive_info.call_args
         config = call_args[0][1]
         assert isinstance(config.entities, SensitiveInfoEntitiesDeny)

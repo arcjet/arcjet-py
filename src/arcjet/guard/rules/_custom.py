@@ -25,8 +25,22 @@ TData = TypeVar("TData")
 
 
 def _to_str_dict(obj: Any) -> dict[str, str]:
-    """Convert a TypedDict / Mapping to ``dict[str, str]`` for the wire."""
-    return {str(k): str(v) for k, v in obj.items()}
+    """Convert a TypedDict / Mapping to ``dict[str, str]`` for the wire.
+
+    Non-string keys are dropped with a warning.  Non-string values are
+    replaced with a descriptive placeholder.
+    """
+    result: dict[str, str] = {}
+    for k, v in obj.items():
+        if not isinstance(k, str):
+            logger.warning("guard: dropping non-string key %r from custom rule data", k)
+            continue
+        if not isinstance(v, str):
+            logger.warning("guard: non-string value for key %r in custom rule data", k)
+            result[k] = f"[non-string: {type(v).__name__}]"
+        else:
+            result[k] = v
+    return result
 
 
 class TypedCustomResult(Generic[TData]):
@@ -70,7 +84,7 @@ class TypedCustomResult(Generic[TData]):
 
 
 @dataclass(frozen=True, slots=True)
-class CustomWithInput(Generic[TData]):
+class LocalCustomWithInput(Generic[TData]):
     """A custom rule with bound input, ready for ``.guard()``."""
 
     _input_id: str
@@ -107,8 +121,8 @@ class CustomWithInput(Generic[TData]):
         return None
 
 
-class CustomRule(Generic[TConfig, TInput, TData]):
-    """Base class for user-defined custom rules.
+class LocalCustomRule(Generic[TConfig, TInput, TData]):
+    """Base class for user-defined custom rules (local evaluation).
 
     Subclass and override :meth:`evaluate` (sync) and/or
     :meth:`evaluate_async` (async) to implement local evaluation logic.
@@ -140,7 +154,7 @@ class CustomRule(Generic[TConfig, TInput, TData]):
         class TopicData(TypedDict):
             matched: str
 
-        class TopicBlockRule(CustomRule[TopicConfig, TopicInput, TopicData]):
+        class TopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
             def evaluate(
                 self,
                 config: TopicConfig,
@@ -207,8 +221,8 @@ class CustomRule(Generic[TConfig, TInput, TData]):
         *,
         data: TInput,
         metadata: Optional[Mapping[str, str]] = None,
-    ) -> CustomWithInput[TData]:
-        """Run sync evaluation and produce a ``CustomWithInput``.
+    ) -> LocalCustomWithInput[TData]:
+        """Run sync evaluation and produce a ``LocalCustomWithInput``.
 
         The ``evaluate`` method is called immediately.  Its result (or
         error) is captured and attached so ``convert.py`` can serialize
@@ -226,7 +240,7 @@ class CustomRule(Generic[TConfig, TInput, TData]):
             evaluate_error = str(exc)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        return CustomWithInput(
+        return LocalCustomWithInput(
             _input_id=str(uuid.uuid4()),
             _config_id=self._config_id,
             config_data=_to_str_dict(self._config),
@@ -244,8 +258,8 @@ class CustomRule(Generic[TConfig, TInput, TData]):
         *,
         data: TInput,
         metadata: Optional[Mapping[str, str]] = None,
-    ) -> CustomWithInput[TData]:
-        """Run async evaluation and produce a ``CustomWithInput``.
+    ) -> LocalCustomWithInput[TData]:
+        """Run async evaluation and produce a ``LocalCustomWithInput``.
 
         Like :meth:`__call__` but awaits :meth:`evaluate_async`.
         """
@@ -261,7 +275,7 @@ class CustomRule(Generic[TConfig, TInput, TData]):
             evaluate_error = str(exc)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        return CustomWithInput(
+        return LocalCustomWithInput(
             _input_id=str(uuid.uuid4()),
             _config_id=self._config_id,
             config_data=_to_str_dict(self._config),

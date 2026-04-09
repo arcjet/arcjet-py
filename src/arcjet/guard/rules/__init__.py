@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Union
 
-from ._base import _config_hash, _get_internal_results, _hash_key, _merge_metadata
-from ._custom import CustomRule, CustomWithInput, TypedCustomResult
+from ._custom import LocalCustomRule, LocalCustomWithInput, TypedCustomResult
 from ._prompt_injection import DetectPromptInjection, PromptInjectionWithInput
 from ._rate_limit import (
     FixedWindow,
@@ -23,7 +22,7 @@ from ._rate_limit import (
     TokenBucketWithInput,
 )
 from ._sensitive_info import (
-    DetectSensitiveInfo,
+    LocalDetectSensitiveInfo,
     SensitiveInfoConfig,
     SensitiveInfoWithInput,
 )
@@ -34,7 +33,7 @@ RuleWithInput = Union[
     SlidingWindowWithInput,
     PromptInjectionWithInput,
     SensitiveInfoWithInput,
-    CustomWithInput[Any],
+    LocalCustomWithInput[Any],
 ]
 """Union of all ``*WithInput`` types."""
 
@@ -43,34 +42,30 @@ RuleWithConfig = Union[
     FixedWindow,
     SlidingWindow,
     DetectPromptInjection,
-    DetectSensitiveInfo,
+    LocalDetectSensitiveInfo,
+    LocalCustomRule[Any, Any, Any],
 ]
 """Union of all configured rule types."""
 
 __all__ = [
-    # Base helpers (for internal/test use)
-    "_config_hash",
-    "_get_internal_results",
-    "_hash_key",
-    "_merge_metadata",
     # Config dataclasses
     "FixedWindowConfig",
     "SensitiveInfoConfig",
     "SlidingWindowConfig",
     "TokenBucketConfig",
     # WithInput dataclasses
-    "CustomWithInput",
     "FixedWindowWithInput",
+    "LocalCustomWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",
     "TokenBucketWithInput",
     "TypedCustomResult",
     # Rule classes
-    "CustomRule",
     "DetectPromptInjection",
-    "DetectSensitiveInfo",
     "FixedWindow",
+    "LocalCustomRule",
+    "LocalDetectSensitiveInfo",
     "SlidingWindow",
     "TokenBucket",
     # Unions

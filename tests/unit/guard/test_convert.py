@@ -6,15 +6,15 @@ from unittest.mock import MagicMock, patch
 
 from arcjet.guard import (
     DetectPromptInjection,
-    DetectSensitiveInfo,
     FixedWindow,
+    LocalDetectSensitiveInfo,
     SlidingWindow,
     TokenBucket,
 )
 from arcjet.guard._local import hash_text
 from arcjet.guard.convert import decision_from_proto, rule_to_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
-from arcjet.guard.rules import _hash_key
+from arcjet.guard.rules._base import _hash_key
 
 from .conftest import make_response
 
@@ -72,9 +72,21 @@ class TestRuleToProto:
         )
 
     def test_converts_sensitive_info(self) -> None:
-        rule = DetectSensitiveInfo(allow=["EMAIL"])
+        from arcjet._analyze import SensitiveInfoResult
+        from arcjet.guard._local import evaluate_sensitive_info_locally
+
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=[]
+        )
+        rule = LocalDetectSensitiveInfo(allow=["EMAIL"])
         inp = rule("my email is foo@bar.com")
-        proto = rule_to_proto(inp)
+        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        local_results = {inp._input_id: local_result}
+        proto = rule_to_proto(inp, local_results)
 
         assert proto.rule.WhichOneof("rule") == "local_sensitive_info"
         lsi = proto.rule.local_sensitive_info
@@ -223,7 +235,7 @@ class TestDecisionFromProto:
         assert decision.reason == "PROMPT_INJECTION"
 
     def test_deny_with_sensitive_info(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my SSN is 123-45-6789")
 
         response = make_response(
@@ -455,30 +467,40 @@ class TestRuleToProtoLocalSensitiveInfo:
 
     def test_hashes_text_not_raw(self) -> None:
         from arcjet._analyze import SensitiveInfoResult
+        from arcjet.guard._local import evaluate_sensitive_info_locally
 
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("my email is test@example.com")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            proto = rule_to_proto(inp)
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        local_results = {inp._input_id: local_result}
+        proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
         assert si.input_text_hash == hash_text("my email is test@example.com")
         assert si.input_text_hash != "my email is test@example.com"
 
     def test_attaches_computed_result_on_allow(self) -> None:
         from arcjet._analyze import SensitiveInfoResult
+        from arcjet.guard._local import evaluate_sensitive_info_locally
 
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("no sensitive data")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            proto = rule_to_proto(inp)
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        local_results = {inp._input_id: local_result}
+        proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
         assert si.result_computed.conclusion == pb.GUARD_CONCLUSION_ALLOW
         assert not si.result_computed.detected
@@ -489,6 +511,7 @@ class TestRuleToProtoLocalSensitiveInfo:
             SensitiveInfoEntityEmail,
             SensitiveInfoResult,
         )
+        from arcjet.guard._local import evaluate_sensitive_info_locally
 
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
@@ -499,31 +522,47 @@ class TestRuleToProtoLocalSensitiveInfo:
                 )
             ],
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("test@example.com and more")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            proto = rule_to_proto(inp)
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        local_results = {inp._input_id: local_result}
+        proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
         assert si.result_computed.conclusion == pb.GUARD_CONCLUSION_DENY
         assert si.result_computed.detected
         assert "EMAIL" in list(si.result_computed.detected_entity_types)
 
     def test_attaches_error_on_wasm_failure(self) -> None:
+        from arcjet.guard._local import evaluate_sensitive_info_locally
+
         mock_component = MagicMock()
         mock_component.detect_sensitive_info.side_effect = RuntimeError("wasm crash")
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            proto = rule_to_proto(inp)
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        local_results = {inp._input_id: local_result}
+        proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
         assert si.result_error.code == "WASM_ERROR"
         assert "wasm crash" in si.result_error.message
 
     def test_attaches_not_run_when_wasm_unavailable(self) -> None:
-        rule = DetectSensitiveInfo()
+        from arcjet.guard._local import evaluate_sensitive_info_locally
+
+        rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
         with patch("arcjet.guard._local._get_component", return_value=None):
-            proto = rule_to_proto(inp)
+            local_result = evaluate_sensitive_info_locally(
+                inp.text, allow=inp.config.allow, deny=inp.config.deny
+            )
+        # local_result is None when WASM unavailable, so don't add to dict
+        proto = rule_to_proto(inp, None)
         si = proto.rule.local_sensitive_info
         assert si.HasField("result_not_run")
 

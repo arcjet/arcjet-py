@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 from arcjet.guard import (
     DetectPromptInjection,
-    DetectSensitiveInfo,
     FixedWindow,
+    LocalDetectSensitiveInfo,
     SlidingWindow,
     TokenBucket,
 )
@@ -177,7 +177,19 @@ def _guard_sync(
     rules: list[RuleWithInput],
 ) -> tuple[pb.GuardResponse, list[RuleWithInput]]:
     """Simulate a synchronous guard() call: convert → server → convert back."""
-    submissions = [rule_to_proto(r) for r in rules]
+    from arcjet.guard._local import evaluate_sensitive_info_locally
+    from arcjet.guard.rules import SensitiveInfoWithInput
+
+    local_results: dict = {}
+    for r in rules:
+        if isinstance(r, SensitiveInfoWithInput):
+            result = evaluate_sensitive_info_locally(
+                r.text, allow=r.config.allow, deny=r.config.deny
+            )
+            if result is not None:
+                local_results[r._input_id] = result
+
+    submissions = [rule_to_proto(r, local_results or None) for r in rules]
     response = _simulate_server(submissions)
     return response, rules
 
@@ -273,7 +285,7 @@ class TestE2eSyncSensitiveInfo:
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("hello world")
 
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
@@ -302,7 +314,7 @@ class TestE2eSyncSensitiveInfo:
                 )
             ],
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("test@example.com is my email")
 
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
@@ -316,7 +328,7 @@ class TestE2eSyncSensitiveInfo:
         assert "EMAIL" in r.detected_entity_types
 
     def test_wasm_unavailable_returns_not_run(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         inp = rule("some text")
 
         with patch("arcjet.guard._local._get_component", return_value=None):
@@ -359,7 +371,7 @@ class TestE2eSyncResultNoneWhenNoMatch:
     def test_sensitive_info_no_match(self) -> None:
         response, rules = self._make_tb_only_decision()
         decision = decision_from_proto(response)
-        si = DetectSensitiveInfo()
+        si = LocalDetectSensitiveInfo()
         from arcjet.guard.rules import SensitiveInfoWithInput
 
         inp = SensitiveInfoWithInput(
@@ -447,10 +459,10 @@ class TestE2eSyncDeniedResultNoneOnAllow:
         mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
             allowed=[], denied=[]
         )
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
+        inp = rule("clean text")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            inp = rule("clean text")
-        response, rules = _guard_sync([inp])
+            response, rules = _guard_sync([inp])
         decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
 
@@ -474,7 +486,7 @@ class TestE2eSyncConfigIdProperty:
         assert len(rule.config_id) > 0
 
     def test_sensitive_info_config_id(self) -> None:
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
         assert isinstance(rule.config_id, str)
         assert len(rule.config_id) > 0
 
@@ -491,16 +503,15 @@ class TestE2eSyncMultiRule:
         tb = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
         fw = FixedWindow(max_requests=1000, window_seconds=3600)
         pi = DetectPromptInjection()
-        si = DetectSensitiveInfo()
+        si = LocalDetectSensitiveInfo()
 
         rules: list[RuleWithInput] = [
             tb(key="user_1"),
             fw(key="team_1"),
             pi("safe message"),
+            si("no pii here"),
         ]
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            si_inp = si("no pii here")
-            rules.append(si_inp)
             response, out_rules = _guard_sync(rules)
 
         decision = decision_from_proto(response)

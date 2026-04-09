@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 from arcjet._logging import logger
-
-if TYPE_CHECKING:
-    from .rules import SensitiveInfoWithInput
 
 
 def _get_component():  # noqa: ANN202
@@ -44,35 +41,28 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
 class LocalSensitiveInfoResult:
     """Result of running sensitive info detection locally via WASM."""
 
-    __slots__ = ("conclusion", "detected_entity_types", "elapsed_ms")
-
-    def __init__(
-        self,
-        *,
-        conclusion: str,
-        detected_entity_types: list[str],
-        elapsed_ms: int,
-    ) -> None:
-        self.conclusion = conclusion
-        self.detected_entity_types = detected_entity_types
-        self.elapsed_ms = elapsed_ms
+    conclusion: str
+    detected_entity_types: list[str]
+    elapsed_ms: int
 
 
+@dataclass(frozen=True, slots=True)
 class LocalSensitiveInfoError:
     """Indicates a local evaluation error."""
 
-    __slots__ = ("message", "code")
-
-    def __init__(self, *, message: str, code: str) -> None:
-        self.message = message
-        self.code = code
+    message: str
+    code: str
 
 
 def evaluate_sensitive_info_locally(
-    rule: SensitiveInfoWithInput,
+    text: str,
+    *,
+    allow: tuple[str, ...] = (),
+    deny: tuple[str, ...] = (),
 ) -> LocalSensitiveInfoResult | LocalSensitiveInfoError | None:
     """Run sensitive info detection via WASM.
 
@@ -90,17 +80,14 @@ def evaluate_sensitive_info_locally(
     if component is None:
         return None
 
-    text = rule.text
     if not text:
         return None
 
-    config = rule.config
-
-    if config.allow:
-        wasm_entities = [_to_wasm_entity(e) for e in config.allow]
+    if allow:
+        wasm_entities = [_to_wasm_entity(e) for e in allow]
         entities_cfg = SensitiveInfoEntitiesAllow(entities=wasm_entities)
-    elif config.deny:
-        wasm_entities = [_to_wasm_entity(e) for e in config.deny]
+    elif deny:
+        wasm_entities = [_to_wasm_entity(e) for e in deny]
         entities_cfg = SensitiveInfoEntitiesDeny(entities=wasm_entities)
     else:
         entities_cfg = SensitiveInfoEntitiesDeny(entities=[])

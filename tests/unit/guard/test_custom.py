@@ -1,4 +1,4 @@
-"""Unit tests for CustomRule — subclassing, evaluate, type safety."""
+"""Unit tests for LocalCustomRule — subclassing, evaluate, type safety."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import TypedDict
 
 from arcjet.guard import (
     CustomEvaluateResult,
-    CustomRule,
-    CustomWithInput,
+    LocalCustomRule,
+    LocalCustomWithInput,
     RuleResultCustom,
     TypedCustomResult,
 )
@@ -30,7 +30,7 @@ class TopicData(TypedDict):
     matched: str
 
 
-class TopicBlockRule(CustomRule[TopicConfig, TopicInput, TopicData]):
+class TopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
     def evaluate(
         self,
         config: TopicConfig,
@@ -43,7 +43,7 @@ class TopicBlockRule(CustomRule[TopicConfig, TopicInput, TopicData]):
         return CustomEvaluateResult(conclusion="ALLOW")
 
 
-class AsyncTopicBlockRule(CustomRule[TopicConfig, TopicInput, TopicData]):
+class AsyncTopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
     async def evaluate_async(
         self,
         config: TopicConfig,
@@ -56,7 +56,7 @@ class AsyncTopicBlockRule(CustomRule[TopicConfig, TopicInput, TopicData]):
         return CustomEvaluateResult(conclusion="ALLOW")
 
 
-class ErrorRule(CustomRule[TopicConfig, TopicInput, TopicData]):
+class ErrorRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
     def evaluate(
         self,
         config: TopicConfig,
@@ -69,7 +69,7 @@ class TestCustomRuleFactory:
     def test_call_returns_custom_with_input(self) -> None:
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})
         inp = rule(data={"topic": "weapons"})
-        assert isinstance(inp, CustomWithInput)
+        assert isinstance(inp, LocalCustomWithInput)
 
     def test_config_id_is_stable(self) -> None:
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})
@@ -118,7 +118,7 @@ class TestCustomRuleSyncEvaluate:
     def test_default_evaluate_allows(self) -> None:
         """Base class evaluate returns ALLOW."""
 
-        class Bare(CustomRule[TopicConfig, TopicInput, TopicData]):
+        class Bare(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
             pass
 
         rule = Bare(config={"blocked_topic": "weapons"})
@@ -130,27 +130,21 @@ class TestCustomRuleSyncEvaluate:
 class TestCustomRuleAsyncEvaluate:
     def test_async_deny(self) -> None:
         rule = AsyncTopicBlockRule(config={"blocked_topic": "weapons"})
-        inp = asyncio.get_event_loop().run_until_complete(
-            rule.call_async(data={"topic": "weapons"})
-        )
+        inp = asyncio.run(rule.call_async(data={"topic": "weapons"}))
         assert inp.evaluate_result is not None
         assert inp.evaluate_result.conclusion == "DENY"
         assert inp.evaluate_result.data == {"matched": "weapons"}
 
     def test_async_allow(self) -> None:
         rule = AsyncTopicBlockRule(config={"blocked_topic": "weapons"})
-        inp = asyncio.get_event_loop().run_until_complete(
-            rule.call_async(data={"topic": "cooking"})
-        )
+        inp = asyncio.run(rule.call_async(data={"topic": "cooking"}))
         assert inp.evaluate_result is not None
         assert inp.evaluate_result.conclusion == "ALLOW"
 
     def test_async_fallback_to_sync(self) -> None:
         """If only sync evaluate is defined, async falls back to it."""
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})
-        inp = asyncio.get_event_loop().run_until_complete(
-            rule.call_async(data={"topic": "weapons"})
-        )
+        inp = asyncio.run(rule.call_async(data={"topic": "weapons"}))
         assert inp.evaluate_result is not None
         assert inp.evaluate_result.conclusion == "DENY"
 
@@ -430,10 +424,10 @@ class TestCustomRuleTypeAssertions:
         assert matched == "weapons"
 
     def test_custom_with_input_is_generic(self) -> None:
-        """CustomWithInput preserves TData through Generic."""
+        """LocalCustomWithInput preserves TData through Generic."""
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})
         inp = rule(data={"topic": "weapons"})
-        assert isinstance(inp, CustomWithInput)
+        assert isinstance(inp, LocalCustomWithInput)
         assert inp.evaluate_result is not None
 
     def test_config_type_checked(self) -> None:
@@ -504,7 +498,7 @@ class TestCustomEvaluateResultDefaults:
 
 class TestCustomRuleErrorInAsyncEvaluate:
     def test_async_error_captured(self) -> None:
-        class AsyncErrorRule(CustomRule[TopicConfig, TopicInput, TopicData]):
+        class AsyncErrorRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
             async def evaluate_async(
                 self,
                 config: TopicConfig,
@@ -513,9 +507,7 @@ class TestCustomRuleErrorInAsyncEvaluate:
                 raise ValueError("async boom")
 
         rule = AsyncErrorRule(config={"blocked_topic": "weapons"})
-        inp = asyncio.get_event_loop().run_until_complete(
-            rule.call_async(data={"topic": "weapons"})
-        )
+        inp = asyncio.run(rule.call_async(data={"topic": "weapons"}))
         assert inp.evaluate_result is None
         assert inp.evaluate_error is not None
         assert "async boom" in inp.evaluate_error
@@ -571,7 +563,7 @@ class TestCustomRuleWithMultipleRules:
 
 
 class TestCustomWithInputResultsList:
-    """CustomWithInput.results() returns a list (empty or single-element)."""
+    """LocalCustomWithInput.results() returns a list (empty or single-element)."""
 
     def test_input_results_returns_list(self) -> None:
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})
@@ -621,7 +613,7 @@ class TestCustomWithInputResultsList:
 
 
 class TestCustomRuleConfigResult:
-    """CustomRule.result() returns first result or None."""
+    """LocalCustomRule.result() returns first result or None."""
 
     def test_config_result_returns_first(self) -> None:
         rule = TopicBlockRule(config={"blocked_topic": "weapons"})

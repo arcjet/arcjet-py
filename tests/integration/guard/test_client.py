@@ -18,8 +18,8 @@ from arcjet.guard import (
     ArcjetGuard,
     ArcjetGuardSync,
     DetectPromptInjection,
-    DetectSensitiveInfo,
     FixedWindow,
+    LocalDetectSensitiveInfo,
     RuleResultError,
     SlidingWindow,
     TokenBucket,
@@ -332,10 +332,10 @@ class TestArcjetGuardSync:
         )
         client = FakeSyncClient()
         guard = _make_guard_sync(client)
-        rule = DetectSensitiveInfo()
+        rule = LocalDetectSensitiveInfo()
+        inp = rule("no pii here")
         with patch("arcjet.guard._local._get_component", return_value=mock_component):
-            inp = rule("no pii here")
-        decision = guard.guard([inp], label="test")
+            decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 
     def test_empty_rules_returns_validation_error(self) -> None:
@@ -358,7 +358,7 @@ class TestArcjetGuardSync:
 
 class TestArcjetGuardAsync:
     def _run(self, coro: Any) -> Any:
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_token_bucket_allow(self) -> None:
         client = FakeAsyncClient()
