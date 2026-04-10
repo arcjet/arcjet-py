@@ -164,12 +164,15 @@ async def chat(request: Request, body: ChatRequest):
   headers, and custom fields.
 - 🌐 [IP Analysis](#ip-analysis) — geolocation, ASN, VPN, proxy, Tor, and hosting
   detection included with every request.
+- 🧩 [Arcjet Guard](#arcjet-guard) — lower-level API for AI agent tool calls and
+  background tasks where there is no HTTP request.
 
 ### Which features do I need?
 
 | If your app has...            | Recommended features                                                          |
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | LLM / AI chat endpoints       | Prompt injection + sensitive info + token bucket rate limit + bot protection + shield |
+| AI agent tool calls           | [Arcjet Guard](#arcjet-guard) — rate limiting + prompt injection + sensitive info + custom rules |
 | Public API                    | Rate limiting + bot protection + shield                                       |
 | Signup / login forms          | Email validation + bot protection + rate limiting (or [signup protection](https://docs.arcjet.com/signup-protection)) |
 | Internal / admin routes       | Shield + request filters (country, VPN/proxy blocking)                        |
@@ -750,6 +753,285 @@ def chat():
 
     reply = chain.invoke({"message": message})
     return jsonify(reply=reply)
+```
+
+## Arcjet Guard
+
+> **Preview** — `arcjet.guard` is a new lower-level API designed for AI agent
+> tool calls and background tasks where there is no HTTP request object. It gives
+> you fine-grained, per-call control over rate limiting, prompt injection
+> detection, sensitive information detection, and custom rules.
+
+### How it differs from `arcjet` / `arcjet_sync`
+
+| | `arcjet` / `arcjet_sync` | `arcjet.guard` |
+| --- | --- | --- |
+| **Designed for** | HTTP request protection | AI agent tool calls, background jobs |
+| **Request object** | Required (`protect(request, ...)`) | Not needed |
+| **Rule binding** | Rules configured once, input via `protect()` kwargs | Rules configured as classes, called with input per invocation |
+| **Rate limit key** | IP or `characteristics` dict | Explicit `key` string (SHA-256 hashed before sending) |
+| **Custom rules** | Not supported | `LocalCustomRule` with typed config/input/data |
+
+### Installation
+
+`arcjet.guard` is included in the `arcjet` package — no extra install required.
+
+### Quick start
+
+```py
+import os
+from arcjet.guard import (
+    launch_arcjet,       # async — use launch_arcjet_sync for sync frameworks
+    TokenBucket,
+    DetectPromptInjection,
+    LocalDetectSensitiveInfo,
+)
+
+arcjet_key = os.getenv("ARCJET_KEY")
+if not arcjet_key:
+    raise RuntimeError("ARCJET_KEY is required")
+
+# Create a single guard client and reuse it.
+aj = launch_arcjet(key=arcjet_key)
+
+# Configure rules once at startup
+user_limit = TokenBucket(
+    refill_rate=100,
+    interval_seconds=60,
+    max_tokens=1000,
+)
+prompt_scan = DetectPromptInjection()
+sensitive = LocalDetectSensitiveInfo(deny=["EMAIL", "CREDIT_CARD_NUMBER"])
+
+# At call time, bind input and guard
+async def handle_tool_call(user_id: str, message: str):
+    decision = await aj.guard(
+        label="tools.weather",
+        rules=[
+            user_limit(key=user_id, requested=5),
+            prompt_scan(message),
+            sensitive(message),
+        ],
+    )
+
+    if decision.conclusion == "DENY":
+        raise RuntimeError(f"Blocked: {decision.reason}")
+
+    # safe to proceed
+```
+
+### Sync usage
+
+For Flask, Django, or other sync frameworks, use `launch_arcjet_sync`:
+
+```py
+from arcjet.guard import launch_arcjet_sync, TokenBucket
+
+aj = launch_arcjet_sync(key=arcjet_key)
+user_limit = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+
+def handle_tool_call(user_id: str):
+    decision = aj.guard(
+        label="tools.weather",
+        rules=[user_limit(key=user_id)],
+    )
+
+    if decision.conclusion == "DENY":
+        raise RuntimeError("Rate limited")
+```
+
+### Rate limiting
+
+Token bucket, fixed window, and sliding window algorithms are available.
+Configure the rule once, then call it with a `key` (and optional `requested`
+token count) for each invocation:
+
+#### Token bucket
+
+```py
+from arcjet.guard import TokenBucket
+
+user_limit = TokenBucket(
+    refill_rate=100,      # tokens added per interval
+    interval_seconds=60,  # seconds between refills
+    max_tokens=1000,      # maximum bucket capacity
+)
+
+# At call time:
+decision = await aj.guard(
+    label="tools.weather",
+    rules=[user_limit(key=user_id, requested=5)],
+)
+```
+
+#### Fixed window
+
+```py
+from arcjet.guard import FixedWindow
+
+team_limit = FixedWindow(
+    max_requests=1000,
+    window_seconds=3600,
+)
+
+decision = await aj.guard(
+    label="api.search",
+    rules=[team_limit(key=team_id)],
+)
+```
+
+#### Sliding window
+
+```py
+from arcjet.guard import SlidingWindow
+
+api_limit = SlidingWindow(
+    max_requests=500,
+    interval_seconds=60,
+)
+
+decision = await aj.guard(
+    label="api.query",
+    rules=[api_limit(key=user_id)],
+)
+```
+
+### Prompt injection detection
+
+```py
+from arcjet.guard import DetectPromptInjection
+
+prompt_scan = DetectPromptInjection()
+
+decision = await aj.guard(
+    label="tools.weather",
+    rules=[prompt_scan(user_message)],
+)
+
+if decision.conclusion == "DENY":
+    print("Prompt injection detected")
+```
+
+### Sensitive information detection
+
+Detects PII locally via WASM — the raw text never leaves the SDK. Built-in
+entity types: `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`, `CREDIT_CARD_NUMBER`.
+
+```py
+from arcjet.guard import LocalDetectSensitiveInfo
+
+sensitive = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "CREDIT_CARD_NUMBER"],
+)
+
+decision = await aj.guard(
+    label="tools.send_email",
+    rules=[sensitive(user_input)],
+)
+```
+
+### Custom rules
+
+Define typed custom rules that run locally. Subclass `LocalCustomRule` and
+override `evaluate` (sync) or `evaluate_async` (async):
+
+```py
+from typing import TypedDict
+from arcjet.guard import LocalCustomRule, CustomEvaluateResult
+
+class TopicConfig(TypedDict):
+    blocked_topic: str
+
+class TopicInput(TypedDict):
+    topic: str
+
+class TopicData(TypedDict):
+    matched: str
+
+class TopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
+    def evaluate(
+        self,
+        config: TopicConfig,
+        input: TopicInput,
+    ) -> CustomEvaluateResult:
+        if input["topic"] == config["blocked_topic"]:
+            return CustomEvaluateResult(
+                conclusion="DENY",
+                data={"matched": input["topic"]},
+            )
+        return CustomEvaluateResult(conclusion="ALLOW")
+
+rule = TopicBlockRule(config={"blocked_topic": "weapons"})
+inp = rule(data={"topic": user_topic})
+decision = await aj.guard(rules=[inp], label="content")
+
+# Access typed result
+r = inp.result(decision)
+if r and r.conclusion == "DENY":
+    print(f"Blocked topic: {r.data['matched']}")
+```
+
+### Per-rule results
+
+Both the configured rule and the bound input provide typed result accessors:
+
+```py
+user_limit = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+inp = user_limit(key=user_id, requested=5)
+
+decision = await aj.guard(label="tools.weather", rules=[inp])
+
+# From the bound input (matches exact invocation)
+r = inp.result(decision)
+if r:
+    print(r.remaining_tokens, r.max_tokens)
+
+# From the configured rule (matches all invocations of this rule)
+r = user_limit.result(decision)
+
+# Check only denied results
+denied = inp.denied_result(decision)
+if denied:
+    print(f"Rate limited — resets at {denied.reset_at_unix_seconds}")
+```
+
+### Decision API
+
+```py
+decision = await aj.guard(label="tools.weather", rules=[...])
+
+# Layer 1: conclusion and reason
+decision.conclusion   # "ALLOW" or "DENY"
+decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
+
+# Layer 2: error detection
+decision.has_error()  # True if any rule errored or the server reported diagnostics
+
+# Layer 3: per-rule results (see "Per-rule results" above)
+for result in decision.results:
+    print(result.type, result.conclusion)
+```
+
+### `guard()` parameter reference
+
+| Parameter   | Type                      | Description |
+| ----------- | ------------------------- | ----------- |
+| `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
+| `label`     | `str`                     | Label identifying this guard call (required) |
+| `metadata`  | `dict[str, str] \| None`  | Optional key-value metadata |
+
+### DRY_RUN mode
+
+All guard rules accept a `mode` parameter. Use `"DRY_RUN"` to evaluate rules
+without blocking:
+
+```py
+user_limit = TokenBucket(
+    refill_rate=10,
+    interval_seconds=60,
+    max_tokens=100,
+    mode="DRY_RUN",
+)
 ```
 
 ## Best practices
