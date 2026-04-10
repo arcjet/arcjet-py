@@ -40,7 +40,7 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "0.6.1"
+version = "0.7.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "connect-python" },
