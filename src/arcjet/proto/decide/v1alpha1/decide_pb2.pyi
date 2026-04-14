@@ -323,9 +323,11 @@ class PromptInjectionReason(_message.Message):
     __slots__ = ()
     INJECTION_DETECTED_FIELD_NUMBER: _ClassVar[int]
     SCORE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_TOKENS_FIELD_NUMBER: _ClassVar[int]
     injection_detected: bool
     score: float
-    def __init__(self, injection_detected: _Optional[bool] = ..., score: _Optional[float] = ...) -> None: ...
+    total_tokens: int
+    def __init__(self, injection_detected: _Optional[bool] = ..., score: _Optional[float] = ..., total_tokens: _Optional[int] = ...) -> None: ...
 
 class IdentifiedEntity(_message.Message):
     __slots__ = ()
