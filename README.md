@@ -757,10 +757,10 @@ def chat():
 
 ## Arcjet Guard
 
-> **Preview** — `arcjet.guard` is a new lower-level API designed for AI agent
-> tool calls and background tasks where there is no HTTP request object. It gives
-> you fine-grained, per-call control over rate limiting, prompt injection
-> detection, sensitive information detection, and custom rules.
+`arcjet.guard` is a lower-level API designed for AI agent tool calls and
+background tasks where there is no HTTP request object. It gives you
+fine-grained, per-call control over rate limiting, prompt injection detection,
+sensitive information detection, and custom rules.
 
 ### How it differs from `arcjet` / `arcjet_sync`
 
