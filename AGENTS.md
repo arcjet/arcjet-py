@@ -84,7 +84,7 @@ Suppression comments:
 ### API breaking change detection
 
 ```bash
-uv run griffe check arcjet -s src --against origin/main
+uv run griffe check arcjet -s src -e tools/griffe_extensions.py --against origin/main
 ```
 
 PRs with breaking changes must be labeled with `breaking` label to be merged.
