@@ -220,7 +220,7 @@ class TestDetectSensitiveInfo:
         def counting_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
             nonlocal call_count
             call_count += 1
-            return [None] * len(tokens)  # type: ignore[invalid-return-type]
+            return [None] * len(tokens)
 
         config = _deny_config(SensitiveInfoEntityEmail())
         # First call with override
