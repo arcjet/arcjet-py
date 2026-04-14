@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from arcjet._enums import Mode
 from arcjet._client import ArcjetSync
 from arcjet._context import RequestContext
+from arcjet._enums import Mode
 from arcjet._rules import (
     BotDetection,
     EmailType,

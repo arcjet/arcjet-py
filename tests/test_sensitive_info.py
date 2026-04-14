@@ -23,16 +23,16 @@ from arcjet._analyze import (
     SensitiveInfoEntityPhoneNumber,
     SensitiveInfoResult,
 )
-from arcjet._enums import Mode
-from arcjet._local import evaluate_sensitive_info_locally
 from arcjet._client import _run_local_rules
 from arcjet._context import RequestContext
-from arcjet.proto.decide.v1alpha1 import decide_pb2
+from arcjet._enums import Mode
+from arcjet._local import evaluate_sensitive_info_locally
 from arcjet._rules import (
     SensitiveInfoDetection,
     SensitiveInfoEntityType,
     detect_sensitive_info,
 )
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 # ---------------------------------------------------------------------------
 # detect_sensitive_info() factory — validation
@@ -594,10 +594,10 @@ class TestRunLocalRulesSensitiveInfo:
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
             patch(
-                "arcjet.client.evaluate_sensitive_info_locally",
+                "arcjet._client.evaluate_sensitive_info_locally",
                 return_value=deny_result,
             ),
         ):
@@ -619,10 +619,10 @@ class TestRunLocalRulesSensitiveInfo:
         )
 
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
             patch(
-                "arcjet.client.evaluate_sensitive_info_locally",
+                "arcjet._client.evaluate_sensitive_info_locally",
                 return_value=deny_dry_run,
             ),
         ):
@@ -636,9 +636,9 @@ class TestRunLocalRulesSensitiveInfo:
         rule = detect_sensitive_info(deny=[SensitiveInfoEntityType.EMAIL])
 
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
-            patch("arcjet.client.evaluate_sensitive_info_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_sensitive_info_locally", return_value=None),
         ):
             result = _run_local_rules(ctx, (rule,))
 

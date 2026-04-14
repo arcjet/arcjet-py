@@ -1,4 +1,4 @@
-"""Unit tests for arcjet.guard.convert — proto <-> SDK conversion."""
+"""Unit tests for arcjet.guard._convert — proto <-> SDK conversion."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from arcjet.guard import (
     SlidingWindow,
     TokenBucket,
 )
-from arcjet.guard._local import hash_text
 from arcjet.guard._convert import decision_from_proto, rule_to_proto
-from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
+from arcjet.guard._local import hash_text
 from arcjet.guard._rules._base import _hash_key
+from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from .conftest import make_response
 
@@ -647,7 +647,7 @@ class TestProtobufErrorHandling:
         inp = rule(key="user_1")
 
         with patch(
-            "arcjet.guard.convert._rule_body_to_proto",
+            "arcjet.guard._convert._rule_body_to_proto",
             side_effect=OverflowError("cannot encode -1 as uint32"),
         ):
             import pytest

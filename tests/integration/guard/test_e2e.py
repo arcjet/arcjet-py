@@ -22,8 +22,8 @@ from arcjet.guard import (
     TokenBucket,
 )
 from arcjet.guard._convert import decision_from_proto, rule_to_proto
-from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 from arcjet.guard._rules import RuleWithInput
+from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 
 def _simulate_server(

@@ -188,8 +188,8 @@ def test_should_cache_deny_result_with_ttl(
     (JS: "should cache a deny result w/ `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
 
@@ -234,8 +234,8 @@ def test_should_not_cache_allow_result_with_ttl(
     (JS: "should not cache an allow result w/ `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
 
@@ -279,8 +279,8 @@ def test_should_not_cache_deny_result_without_ttl(
     (JS: "should not cache a deny result w/o `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
 
@@ -323,8 +323,8 @@ def test_should_not_cache_error_result_with_ttl(
     Only DENY decisions are cached, matching JS semantics.
     """
     from arcjet import arcjet_sync
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
 
@@ -370,8 +370,8 @@ def test_async_should_cache_deny_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     decide_calls = {"count": 0}
 
@@ -412,8 +412,8 @@ def test_async_should_not_cache_allow_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     decide_calls = {"count": 0}
 

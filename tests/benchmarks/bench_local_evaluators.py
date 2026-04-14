@@ -6,8 +6,8 @@ Measures the complete path: JSON serialisation → WASM call → proto RuleResul
 
 from __future__ import annotations
 
-from arcjet._local import evaluate_bot_locally, evaluate_email_locally
 from arcjet._context import RequestContext
+from arcjet._local import evaluate_bot_locally, evaluate_email_locally
 from arcjet._rules import BotDetection, EmailValidation
 
 

@@ -3,7 +3,7 @@
 Provides :func:`launch_arcjet` (async) and :func:`launch_arcjet_sync` (sync)
 factory functions that create configured guard clients.  The returned objects
 expose a ``.guard()`` method that converts rules to proto, calls the Decide
-v2 Guard RPC, and returns a typed :class:`~arcjet.guard.types.Decision`.
+v2 Guard RPC, and returns a typed :class:`~arcjet.guard._types.Decision`.
 """
 
 from __future__ import annotations
@@ -20,15 +20,15 @@ import pyqwest
 from arcjet._errors import ArcjetError, ArcjetMisconfiguration
 from arcjet._logging import logger
 
+from ._convert import decision_from_proto, rule_to_proto
 from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
     evaluate_sensitive_info_locally,
 )
-from ._convert import decision_from_proto, rule_to_proto
-from .proto.decide.v2 import decide_pb2 as pb
 from ._rules import RuleWithInput, SensitiveInfoWithInput
 from ._types import Decision, RuleResultError
+from .proto.decide.v2 import decide_pb2 as pb
 
 
 def _sdk_version(default: str = "0.0.0") -> str:

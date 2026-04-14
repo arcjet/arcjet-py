@@ -1,4 +1,4 @@
-"""Unit tests for arcjet.guard.rules — rule classes, Layer 3 inspection."""
+"""Unit tests for arcjet.guard._rules — rule classes, Layer 3 inspection."""
 
 from __future__ import annotations
 

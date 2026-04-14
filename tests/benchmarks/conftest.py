@@ -19,9 +19,9 @@ from arcjet._analyze import (
     DeniedBotConfig,
     DenyEmailValidationConfig,
 )
+from arcjet._context import RequestContext
 from arcjet._enums import Mode
 from arcjet._local import _get_component
-from arcjet._context import RequestContext
 from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
 
 # ---------------------------------------------------------------------------

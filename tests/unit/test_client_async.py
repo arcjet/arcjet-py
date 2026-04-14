@@ -12,8 +12,8 @@ def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.Monke
     """Test that fail_open=False raises ArcjetTransportError on network error."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetTransportError
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     def raise_decide(req):
         raise RuntimeError("network down")
@@ -61,8 +61,8 @@ def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules
 def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     def raise_decide(req):
         raise RuntimeError("boom")
@@ -93,8 +93,8 @@ def test_requested_default_and_characteristics_in_extra(
 ):
     """Test that requested default and characteristics are passed in extra metadata."""
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
 
@@ -125,8 +125,8 @@ def test_ip_override_with_ip_src(
 ):
     """Test that ip_src overrides automatic IP detection when configured."""
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
 
@@ -253,7 +253,7 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
     """Test DEFAULT_BASE_URL strips trailing slash from ARCJET_BASE_URL env var."""
     import importlib
 
-    import arcjet.client as client_module
+    import arcjet._client as client_module
     from arcjet._rules import token_bucket
 
     with monkeypatch.context() as m:
@@ -378,8 +378,8 @@ def test_sensitive_info_value_survives_context_reconstruction(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import detect_sensitive_info
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured_ctx = {}
 
@@ -387,7 +387,7 @@ def test_sensitive_info_value_survives_context_reconstruction(
         captured_ctx["sensitive_info_value"] = ctx.sensitive_info_value
         return None  # proceed to remote
 
-    import arcjet.client as client_module
+    import arcjet._client as client_module
 
     monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
 
@@ -427,8 +427,8 @@ def test_filter_local_survives_context_reconstruction(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
     from arcjet._rules import filter_request
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured_ctx = {}
 
@@ -436,7 +436,7 @@ def test_filter_local_survives_context_reconstruction(
         captured_ctx["filter_local"] = ctx.filter_local
         return None
 
-    import arcjet.client as client_module
+    import arcjet._client as client_module
 
     monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
 

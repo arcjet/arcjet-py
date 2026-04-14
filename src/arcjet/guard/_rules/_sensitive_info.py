@@ -22,7 +22,7 @@ class SensitiveInfoConfig:
     """Sensitive information detection configuration.
 
     Specify either ``allow`` or ``deny`` to control which entity types are
-    evaluated.  Only entity types in :data:`~arcjet.guard.types.SENSITIVE_INFO_ENTITY_TYPES`
+    evaluated.  Only entity types in :data:`~arcjet.guard._types.SENSITIVE_INFO_ENTITY_TYPES`
     are accepted.
 
     Attributes:

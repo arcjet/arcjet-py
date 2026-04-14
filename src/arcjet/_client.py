@@ -36,6 +36,13 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
     DecideServiceClientSync,
 )
 
+from ._cache import DecisionCache, make_cache_key
+from ._context import (
+    RequestContext,
+    coerce_request_context,
+    request_details_from_context,
+)
+from ._decision import Decision
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._local import (
     evaluate_bot_locally,
@@ -44,13 +51,6 @@ from ._local import (
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
-from ._cache import DecisionCache, make_cache_key
-from ._context import (
-    RequestContext,
-    coerce_request_context,
-    request_details_from_context,
-)
-from ._decision import Decision
 from ._rules import (
     BotDetection,
     EmailValidation,

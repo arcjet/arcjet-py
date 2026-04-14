@@ -15,12 +15,12 @@ from arcjet._analyze import (
     Err,
     Ok,
 )
-from arcjet._enums import Mode
 from arcjet._client import _build_local_deny_report, _run_local_rules
 from arcjet._context import RequestContext
 from arcjet._decision import Decision
-from arcjet.proto.decide.v1alpha1 import decide_pb2
+from arcjet._enums import Mode
 from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
+from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 # ---------------------------------------------------------------------------
 # _context_to_analyze_request
@@ -500,8 +500,8 @@ class TestRunLocalRules:
         ctx = RequestContext(ip="1.2.3.4")
         rules = (Shield(mode=Mode.LIVE),)
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
         ):
             result = _run_local_rules(ctx, rules)
         assert result is None
@@ -517,8 +517,8 @@ class TestRunLocalRules:
             mode=Mode.LIVE, allow=("CURL",), deny=(), characteristics=()
         )
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=allow_result),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=allow_result),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
         ):
             result = _run_local_rules(ctx, (rule,))
         assert result is None
@@ -535,8 +535,8 @@ class TestRunLocalRules:
             mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
         )
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=deny_result),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=deny_result),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
         ):
             decision = _run_local_rules(ctx, (rule,))
         assert decision is not None
@@ -553,8 +553,8 @@ class TestRunLocalRules:
             mode=Mode.DRY_RUN, allow=(), deny=("CURL",), characteristics=()
         )
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=deny_dry_run),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=deny_dry_run),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
         ):
             result = _run_local_rules(ctx, (rule,))
         assert result is None
@@ -566,8 +566,8 @@ class TestRunLocalRules:
             mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
         )
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
         ):
             result = _run_local_rules(ctx, (rule,))
         assert result is None

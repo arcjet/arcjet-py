@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ._enums import Mode
 from ._client import Arcjet, ArcjetSync, arcjet, arcjet_sync
 from ._dataclasses import IpDetails
 from ._decision import (
@@ -10,6 +9,7 @@ from ._decision import (
     RuleResult,
     is_spoofed_bot,
 )
+from ._enums import Mode
 from ._rules import (
     BotCategory,
     EmailType,
