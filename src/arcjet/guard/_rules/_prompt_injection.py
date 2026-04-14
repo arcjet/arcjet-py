@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from ..types import Decision, Mode, RuleResultPromptInjection
+from .._types import Decision, Mode, RuleResultPromptInjection
 from ._base import _get_internal_results, _merge_metadata
 
 

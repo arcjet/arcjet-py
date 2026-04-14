@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Mapping, Optional
 
-from ..types import Decision, InternalResult
+from .._types import Decision, InternalResult
 
 
 def _get_internal_results(decision: Decision) -> tuple[InternalResult, ...]:

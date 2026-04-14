@@ -25,10 +25,10 @@ from ._local import (
     LocalSensitiveInfoResult,
     evaluate_sensitive_info_locally,
 )
-from .convert import decision_from_proto, rule_to_proto
+from ._convert import decision_from_proto, rule_to_proto
 from .proto.decide.v2 import decide_pb2 as pb
-from .rules import RuleWithInput, SensitiveInfoWithInput
-from .types import Decision, RuleResultError
+from ._rules import RuleWithInput, SensitiveInfoWithInput
+from ._types import Decision, RuleResultError
 
 
 def _sdk_version(default: str = "0.0.0") -> str:

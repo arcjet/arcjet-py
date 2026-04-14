@@ -15,7 +15,7 @@ typecheck:  ## ty + pyright
 	uv run pyright
 
 apicheck:  ## griffe breaking-change detection
-	uv run griffe check arcjet -s src -e tools/griffe_extensions.py --against origin/main
+	uv run griffe check arcjet -s src --against origin/main
 
 # ---------------------------------------------------------------------------
 # Formatting (mutates files)

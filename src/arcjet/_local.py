@@ -38,8 +38,8 @@ from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._enums import Mode
 from ._logging import logger
-from .context import RequestContext
-from .rules import (
+from ._context import RequestContext
+from ._rules import (
     BotDetection,
     EmailValidation,
     Filter,

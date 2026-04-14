@@ -7,7 +7,7 @@ expected by WASM and the remote Decide API respectively.
 from __future__ import annotations
 
 from arcjet._local import _context_to_analyze_request
-from arcjet.context import RequestContext, request_details_from_context
+from arcjet._context import RequestContext, request_details_from_context
 
 
 def test_bench_context_to_analyze_request(benchmark, bot_ctx: RequestContext):

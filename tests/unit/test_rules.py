@@ -10,7 +10,7 @@ import pytest
 
 def test_shield_to_proto_and_characteristics(mock_protobuf_modules):
     """Test shield rule converts to protobuf with mode and characteristics."""
-    from arcjet.rules import Mode, shield
+    from arcjet._rules import Mode, shield
 
     r = shield(mode=Mode.LIVE, characteristics=("uid", "ip"))
     pb = r.to_proto()
@@ -21,7 +21,7 @@ def test_shield_to_proto_and_characteristics(mock_protobuf_modules):
 
 def test_detect_bot_allows_categories_and_names(mock_protobuf_modules):
     """Test detect_bot rule accepts both categories and string names."""
-    from arcjet.rules import BotCategory, detect_bot
+    from arcjet._rules import BotCategory, detect_bot
 
     r = detect_bot(allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"))
     pb = r.to_proto()
@@ -30,7 +30,7 @@ def test_detect_bot_allows_categories_and_names(mock_protobuf_modules):
 
 def test_rate_limit_builders_validation_and_proto(mock_protobuf_modules):
     """Test rate limit rules validate parameters and convert to protobuf."""
-    from arcjet.rules import Mode, fixed_window, sliding_window, token_bucket
+    from arcjet._rules import Mode, fixed_window, sliding_window, token_bucket
 
     tb = token_bucket(mode=Mode.DRY_RUN, refill_rate=10, interval=60, capacity=20)
     pb = tb.to_proto()
@@ -60,7 +60,7 @@ def test_rate_limit_builders_validation_and_proto(mock_protobuf_modules):
 
 def test_validate_email_coercion_and_proto(mock_protobuf_modules):
     """Test validate_email rule coerces string/enum types and converts to protobuf."""
-    from arcjet.rules import EmailType, validate_email
+    from arcjet._rules import EmailType, validate_email
 
     r = validate_email(deny=(EmailType.DISPOSABLE, "INVALID"))
     pb = r.to_proto()
@@ -78,7 +78,7 @@ def test_validate_email_coercion_and_proto(mock_protobuf_modules):
 def test_rule_spec_get_characteristics_with_non_tuple():
     """Test get_characteristics with non-tuple characteristics."""
     from arcjet.proto.decide.v1alpha1 import decide_pb2
-    from arcjet.rules import RuleSpec
+    from arcjet._rules import RuleSpec
 
     # Create a mock RuleSpec subclass with non-tuple characteristics
     class TestRule(RuleSpec):
@@ -99,7 +99,7 @@ def test_rule_spec_get_characteristics_with_non_tuple():
 def test_rule_spec_get_characteristics_with_invalid_items():
     """Test get_characteristics filters out invalid items."""
     from arcjet.proto.decide.v1alpha1 import decide_pb2
-    from arcjet.rules import RuleSpec
+    from arcjet._rules import RuleSpec
 
     class TestRule(RuleSpec):
         def __init__(self):
@@ -118,7 +118,7 @@ def test_rule_spec_get_characteristics_with_invalid_items():
 def test_rule_spec_get_characteristics_conversion_fails():
     """Test get_characteristics when conversion to tuple fails."""
     from arcjet.proto.decide.v1alpha1 import decide_pb2
-    from arcjet.rules import RuleSpec
+    from arcjet._rules import RuleSpec
 
     class NonIterableCharacteristics:
         def __iter__(self):
@@ -140,8 +140,8 @@ def test_rule_spec_get_characteristics_conversion_fails():
 
 def test_apply_global_characteristics_to_rate_limit_rules():
     """Global characteristics are applied to rate-limit rules without their own."""
-    from arcjet.client import _apply_global_characteristics
-    from arcjet.rules import (
+    from arcjet._client import _apply_global_characteristics
+    from arcjet._rules import (
         Mode,
         fixed_window,
         shield,
@@ -167,8 +167,8 @@ def test_apply_global_characteristics_to_rate_limit_rules():
 
 def test_apply_global_characteristics_does_not_override_per_rule():
     """Per-rule characteristics take precedence over global characteristics."""
-    from arcjet.client import _apply_global_characteristics
-    from arcjet.rules import token_bucket
+    from arcjet._client import _apply_global_characteristics
+    from arcjet._rules import token_bucket
 
     tb = token_bucket(
         refill_rate=1, interval=1, capacity=1, characteristics=("ip.src",)
@@ -181,8 +181,8 @@ def test_apply_global_characteristics_does_not_override_per_rule():
 
 def test_apply_global_characteristics_noop_when_empty():
     """Empty global characteristics returns rules unchanged."""
-    from arcjet.client import _apply_global_characteristics
-    from arcjet.rules import token_bucket
+    from arcjet._client import _apply_global_characteristics
+    from arcjet._rules import token_bucket
 
     tb = token_bucket(refill_rate=1, interval=1, capacity=1)
     result = _apply_global_characteristics((tb,), ())
@@ -192,7 +192,7 @@ def test_apply_global_characteristics_noop_when_empty():
 
 def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
     """Test detect_prompt_injection rule converts to protobuf with mode and threshold."""
-    from arcjet.rules import Mode, detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
 
     r = detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
     pb = r.to_proto()
@@ -203,7 +203,7 @@ def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
 
 def test_detect_prompt_injection_default_threshold(mock_protobuf_modules):
     """Test detect_prompt_injection uses default threshold of 0.5."""
-    from arcjet.rules import Mode, detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
 
     r = detect_prompt_injection(mode=Mode.DRY_RUN)
     pb = r.to_proto()
@@ -212,7 +212,7 @@ def test_detect_prompt_injection_default_threshold(mock_protobuf_modules):
 
 def test_detect_prompt_injection_validation(mock_protobuf_modules):
     """Test detect_prompt_injection validates threshold range."""
-    from arcjet.rules import detect_prompt_injection
+    from arcjet._rules import detect_prompt_injection
 
     with pytest.raises(ValueError, match="between 0.0 and 1.0"):
         detect_prompt_injection(threshold=1.5)

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Sequence, overload
 
 from arcjet._errors import ArcjetError
 
-from ..types import (
+from .._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     Decision,
     Mode,

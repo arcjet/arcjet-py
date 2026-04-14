@@ -16,7 +16,7 @@ from ._local import (
     LocalSensitiveInfoResult,
     hash_text,
 )
-from .rules import (
+from ._rules import (
     FixedWindowWithInput,
     LocalCustomWithInput,
     PromptInjectionWithInput,
@@ -25,7 +25,7 @@ from .rules import (
     SlidingWindowWithInput,
     TokenBucketWithInput,
 )
-from .types import (
+from ._types import (
     Conclusion,
     Decision,
     InternalResult,

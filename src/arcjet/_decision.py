@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from google.protobuf.json_format import MessageToDict
 from typing_extensions import deprecated
 
-import arcjet.dataclasses
+import arcjet._dataclasses
 from arcjet._convert import _ip_details_from_proto, _reason_from_proto
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -73,7 +73,7 @@ class IpInfo:
         return bool(self._ip and self._ip.is_abuser)
 
     @property
-    def details(self) -> arcjet.dataclasses.IpDetails | None:
+    def details(self) -> arcjet._dataclasses.IpDetails | None:
         """IP analysis fields, or ``None`` when unavailable.
 
         Provides geolocation, ASN, and reputation data. See ``IpDetails``
@@ -83,7 +83,7 @@ class IpInfo:
 
 
 @dataclass(frozen=True, slots=True)
-@deprecated("Use `arcjet.dataclasses.Reason` instead.")
+@deprecated("Use `arcjet._dataclasses.Reason` instead.")
 class Reason:
     """Tagged reason for a rule conclusion or overall decision.
 
@@ -187,7 +187,7 @@ class RuleResult:
         return Reason(self._rr.reason if self._rr.HasField("reason") else None)  # type: ignore -- intentionally deprecated
 
     @property
-    def reason_v2(self) -> arcjet.dataclasses.Reason:
+    def reason_v2(self) -> arcjet._dataclasses.Reason:
         """Typed reason for this rule's conclusion.
 
         Inspect ``reason_v2.type`` to determine which kind of reason was
@@ -295,7 +295,7 @@ class Decision:
         return Reason(self._d.reason if self._d.HasField("reason") else None)  # type: ignore -- intentionally deprecated
 
     @property
-    def reason_v2(self) -> arcjet.dataclasses.Reason:
+    def reason_v2(self) -> arcjet._dataclasses.Reason:
         """Reason for the overall decision.
 
         A typed union of ``BotReason``, ``RateLimitReason``, ``ShieldReason``,
@@ -328,7 +328,7 @@ class Decision:
         return IpInfo(self._d.ip_details if self._d.HasField("ip_details") else None)
 
     @property
-    def ip_details(self) -> arcjet.dataclasses.IpDetails | None:
+    def ip_details(self) -> arcjet._dataclasses.IpDetails | None:
         """IP analysis details when available.
 
         - Geolocation: `latitude`, `longitude`, `accuracy_radius`, `timezone`,

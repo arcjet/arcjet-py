@@ -38,7 +38,7 @@ jobs:
         # Only run on PRs and allow breaking changes to be merged with a label
         if: github.event_name == 'pull_request'
         continue-on-error: ${{ contains(github.event.pull_request.labels.*.name, 'breaking') }}
-        run: uv run griffe check arcjet --search src --format github -e tools/griffe_extensions.py --against origin/${{ github.event.pull_request.base.ref }}
+        run: uv run griffe check arcjet --search src --format github --against origin/${{ github.event.pull_request.base.ref }}
 
 
   test:

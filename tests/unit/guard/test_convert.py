@@ -12,9 +12,9 @@ from arcjet.guard import (
     TokenBucket,
 )
 from arcjet.guard._local import hash_text
-from arcjet.guard.convert import decision_from_proto, rule_to_proto
+from arcjet.guard._convert import decision_from_proto, rule_to_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
-from arcjet.guard.rules._base import _hash_key
+from arcjet.guard._rules._base import _hash_key
 
 from .conftest import make_response
 
@@ -663,7 +663,7 @@ class TestBuildUserAgent:
         import platform
         import re
 
-        from arcjet.guard.client import _build_user_agent
+        from arcjet.guard._client import _build_user_agent
 
         ua = _build_user_agent()
         # Should match: arcjet-py/X.Y.Z (python/X.Y.Z)
@@ -671,7 +671,7 @@ class TestBuildUserAgent:
         assert platform.python_version() in ua
 
     def test_includes_sdk_version(self) -> None:
-        from arcjet.guard.client import _build_user_agent, _sdk_version
+        from arcjet.guard._client import _build_user_agent, _sdk_version
 
         ua = _build_user_agent()
         assert _sdk_version() in ua

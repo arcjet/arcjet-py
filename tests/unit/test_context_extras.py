@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def test_context_with_various_extra_values():
     """Test RequestContext with different extra value types."""
-    from arcjet.context import RequestContext
+    from arcjet._context import RequestContext
 
     # Test with None extra
     ctx1 = RequestContext(ip="1.2.3.4", extra=None)

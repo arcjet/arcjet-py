@@ -12,8 +12,8 @@ from typing import cast
 
 import pytest
 
-from arcjet.decision import Decision, is_spoofed_bot
-from arcjet.decision import RuleResult as SDKRuleResult
+from arcjet._decision import Decision, is_spoofed_bot
+from arcjet._decision import RuleResult as SDKRuleResult
 
 
 def test_decision_and_reason_helpers(mock_protobuf_modules):
@@ -67,7 +67,7 @@ def test_is_spoofed_bot_helper(mock_protobuf_modules):
 
 def test_decision_with_ip_details(mock_protobuf_modules):
     """Test Decision with IP details."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     ip_details = decide_pb2.IpDetails()
@@ -89,7 +89,7 @@ def test_decision_with_ip_details(mock_protobuf_modules):
 
 def test_decision_ip_details_typed_access(mock_protobuf_modules):
     """Test typed access for IP details fields."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     ip_details = decide_pb2.IpDetails()
@@ -124,7 +124,7 @@ def test_decision_ip_details_typed_access(mock_protobuf_modules):
 
 def test_decision_without_ip_details_typed_access(mock_protobuf_modules):
     """Test typed access returns None when IP details are absent."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     decision = Decision(
@@ -137,7 +137,7 @@ def test_decision_without_ip_details_typed_access(mock_protobuf_modules):
 
 def test_reason_which_method(mock_protobuf_modules):
     """Test dataclass reason fields."""
-    from arcjet.dataclasses import ErrorReason
+    from arcjet._dataclasses import ErrorReason
 
     reason = ErrorReason(message="test")
     assert reason.type == "ERROR"
@@ -146,7 +146,7 @@ def test_reason_which_method(mock_protobuf_modules):
 
 def test_reason_raw_and_to_dict(mock_protobuf_modules):
     """Test dataclass reason conversion via asdict."""
-    from arcjet.dataclasses import ErrorReason
+    from arcjet._dataclasses import ErrorReason
 
     reason = ErrorReason(message="test")
     assert asdict(reason) == {"message": "test", "type": "ERROR"}
@@ -154,7 +154,7 @@ def test_reason_raw_and_to_dict(mock_protobuf_modules):
 
 def test_reason_to_json_returns_null_for_none(mock_protobuf_modules):
     """Test Decision.to_json() serializes None reason to null."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     decision = Decision(
@@ -168,7 +168,7 @@ def test_reason_to_json_returns_null_for_none(mock_protobuf_modules):
 
 def test_rule_result_properties(mock_protobuf_modules):
     """Test RuleResult properties."""
-    from arcjet.decision import RuleResult
+    from arcjet._decision import RuleResult
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     rr = decide_pb2.RuleResult(
@@ -188,7 +188,7 @@ def test_rule_result_properties(mock_protobuf_modules):
 
 def test_rule_result_empty_fingerprint(mock_protobuf_modules):
     """Test RuleResult with empty fingerprint."""
-    from arcjet.decision import RuleResult
+    from arcjet._decision import RuleResult
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     rr = decide_pb2.RuleResult(rule_id="test", fingerprint="")

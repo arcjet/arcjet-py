@@ -15,9 +15,9 @@ import time
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from .context import RequestContext
-from .decision import Decision
-from .rules import RuleSpec
+from ._context import RequestContext
+from ._decision import Decision
+from ._rules import RuleSpec
 
 
 @dataclass(frozen=True)

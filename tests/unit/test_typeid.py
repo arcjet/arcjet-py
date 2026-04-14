@@ -13,7 +13,7 @@ from unittest.mock import patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from arcjet.client import (
+from arcjet._client import (
     _CROCKFORD_ALPHABET,
     _new_local_request_id,
     _uuidv7_bytes,

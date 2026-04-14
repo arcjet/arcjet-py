@@ -9,10 +9,10 @@ import pytest
 from arcjet._analyze import Err, FilterResult, Ok
 from arcjet._enums import Mode
 from arcjet._local import evaluate_filter_locally
-from arcjet.client import _run_local_rules
-from arcjet.context import RequestContext
+from arcjet._client import _run_local_rules
+from arcjet._context import RequestContext
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-from arcjet.rules import Filter, filter_request
+from arcjet._rules import Filter, filter_request
 
 # ---------------------------------------------------------------------------
 # filter_request() factory — validation

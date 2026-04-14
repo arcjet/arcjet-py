@@ -1,6 +1,6 @@
 import datetime
 
-from arcjet.dataclasses import ErrorReason
+from arcjet._dataclasses import ErrorReason
 
 
 def test_converting_bot_reason() -> None:
@@ -21,7 +21,7 @@ def test_converting_bot_reason() -> None:
 
 def test_converting_bot_v2_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import BotReason
+    from arcjet._dataclasses import BotReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -43,7 +43,7 @@ def test_converting_bot_v2_reason() -> None:
 
 def test_converting_bot_v2_reason_spoofed_and_verified() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import BotReason
+    from arcjet._dataclasses import BotReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -67,7 +67,7 @@ def test_converting_bot_v2_reason_spoofed_and_verified() -> None:
 
 def test_converting_edge_rule_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import ErrorReason
+    from arcjet._dataclasses import ErrorReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(edge_rule=decide_pb2.EdgeRuleReason())
@@ -81,7 +81,7 @@ def test_converting_edge_rule_reason() -> None:
 
 def test_converting_email_reason_empty() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import EmailReason
+    from arcjet._dataclasses import EmailReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(email=decide_pb2.EmailReason())
@@ -95,7 +95,7 @@ def test_converting_email_reason_empty() -> None:
 
 def test_converting_email_reason_type() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import EmailReason
+    from arcjet._dataclasses import EmailReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -113,7 +113,7 @@ def test_converting_email_reason_type() -> None:
 
 def test_converting_error_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import ErrorReason
+    from arcjet._dataclasses import ErrorReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -131,7 +131,7 @@ def test_converting_error_reason() -> None:
 
 def test_converting_filter_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import FilterReason
+    from arcjet._dataclasses import FilterReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -151,7 +151,7 @@ def test_converting_filter_reason() -> None:
 
 def test_converting_rate_limit_reason() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import RateLimitReason
+    from arcjet._dataclasses import RateLimitReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -177,7 +177,7 @@ def test_converting_rate_limit_reason() -> None:
 
 def test_converting_rate_limit_reason_with_reset_time() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import RateLimitReason
+    from arcjet._dataclasses import RateLimitReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     reset_time = datetime.datetime.now(datetime.timezone.utc)
@@ -206,7 +206,7 @@ def test_converting_rate_limit_reason_with_reset_time() -> None:
 
 def test_converting_shield_reason_triggered() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import ShieldReason
+    from arcjet._dataclasses import ShieldReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -222,7 +222,7 @@ def test_converting_shield_reason_triggered() -> None:
 
 def test_converting_shield_reason_not_triggered() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import ShieldReason
+    from arcjet._dataclasses import ShieldReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -240,7 +240,7 @@ def test_converting_prompt_injection_reason() -> None:
     import warnings
 
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import PromptInjectionReason
+    from arcjet._dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -268,7 +268,7 @@ def test_converting_prompt_injection_reason_not_detected() -> None:
     import warnings
 
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import PromptInjectionReason
+    from arcjet._dataclasses import PromptInjectionReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -335,7 +335,7 @@ def test_converting_email_type_unspecified() -> None:
 
 def test_converting_ip_details() -> None:
     from arcjet._convert import _ip_details_from_proto
-    from arcjet.dataclasses import IpDetails
+    from arcjet._dataclasses import IpDetails
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_ip = decide_pb2.IpDetails(
@@ -375,7 +375,7 @@ def test_ip_details_boolean_flag_conversion() -> None:
     while preserving True values.
     """
     from arcjet._convert import _ip_details_from_proto
-    from arcjet.dataclasses import IpDetails
+    from arcjet._dataclasses import IpDetails
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_ip = decide_pb2.IpDetails(
@@ -414,7 +414,7 @@ def test_converting_missing_ip_details() -> None:
 
 def test_converting_sensitive_info_reason_empty() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import SensitiveInfoReason
+    from arcjet._dataclasses import SensitiveInfoReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -431,7 +431,7 @@ def test_converting_sensitive_info_reason_empty() -> None:
 
 def test_converting_sensitive_info_reason_with_entities() -> None:
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import IdentifiedEntity, SensitiveInfoReason
+    from arcjet._dataclasses import IdentifiedEntity, SensitiveInfoReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     proto_reason = decide_pb2.Reason(
@@ -473,7 +473,7 @@ def test_converting_sensitive_info_reason_with_entities() -> None:
 def test_converting_unsupported_reason_type() -> None:
     """Test that unsupported reason types return ErrorReason."""
     from arcjet._convert import _reason_from_proto
-    from arcjet.dataclasses import ErrorReason
+    from arcjet._dataclasses import ErrorReason
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     # Create a Reason with no fields set

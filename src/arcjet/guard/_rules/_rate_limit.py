@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from ..types import (
+from .._types import (
     Decision,
     Mode,
     RuleResultFixedWindow,

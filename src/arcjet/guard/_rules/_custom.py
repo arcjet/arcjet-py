@@ -16,7 +16,7 @@ from typing import Any, Generic, Literal, Mapping, Optional, TypeVar, cast
 
 from arcjet._logging import logger
 
-from ..types import CustomEvaluateResult, Decision, Mode, RuleResultCustom
+from .._types import CustomEvaluateResult, Decision, Mode, RuleResultCustom
 from ._base import _get_internal_results, _merge_metadata
 
 TConfig = TypeVar("TConfig")

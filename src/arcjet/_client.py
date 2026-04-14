@@ -44,14 +44,14 @@ from ._local import (
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
-from .cache import DecisionCache, make_cache_key
-from .context import (
+from ._cache import DecisionCache, make_cache_key
+from ._context import (
     RequestContext,
     coerce_request_context,
     request_details_from_context,
 )
-from .decision import Decision
-from .rules import (
+from ._decision import Decision
+from ._rules import (
     BotDetection,
     EmailValidation,
     Filter,

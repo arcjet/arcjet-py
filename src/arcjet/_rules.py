@@ -10,14 +10,14 @@ Quick examples
 
 Shield common sensitive endpoints:
 
-    from arcjet.rules import shield, Mode
+    from arcjet import shield, Mode
     rules = [
         shield(mode=Mode.LIVE),
     ]
 
 Detect bots with allow/deny lists:
 
-    from arcjet.rules import detect_bot, BotCategory
+    from arcjet import detect_bot, BotCategory
     rules = [
         detect_bot(
             allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"),
@@ -26,7 +26,7 @@ Detect bots with allow/deny lists:
 
 Rate limiting (token bucket):
 
-    from arcjet.rules import token_bucket
+    from arcjet import token_bucket
     rules = [
         token_bucket(refill_rate=10, interval=60, capacity=20),
     ]
@@ -35,7 +35,7 @@ Rate limiting (token bucket):
 
 Email validation:
 
-    from arcjet.rules import validate_email, EmailType
+    from arcjet import validate_email, EmailType
     rules = [
         validate_email(deny=(EmailType.DISPOSABLE, EmailType.INVALID))
     ]

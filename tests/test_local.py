@@ -16,11 +16,11 @@ from arcjet._analyze import (
     Ok,
 )
 from arcjet._enums import Mode
-from arcjet.client import _build_local_deny_report, _run_local_rules
-from arcjet.context import RequestContext
-from arcjet.decision import Decision
+from arcjet._client import _build_local_deny_report, _run_local_rules
+from arcjet._context import RequestContext
+from arcjet._decision import Decision
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-from arcjet.rules import BotDetection, EmailType, EmailValidation, Shield
+from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
 
 # ---------------------------------------------------------------------------
 # _context_to_analyze_request
