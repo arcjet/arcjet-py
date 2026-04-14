@@ -27,12 +27,12 @@ def _apply_all_filter(mod: Module) -> None:
     if mod.exports is not None:
         for name, member in mod.all_members.items():
             if not member.is_alias and member.is_module and name not in mod.exports:
+                # ``member.public`` is ``Optional[bool]``; setting it to
+                # ``False`` takes priority in griffe's ``is_public`` property,
+                # overriding the default "non-underscore module → public" rule.
                 member.public = False  # type: ignore[union-attr]
 
     # Recurse into child subpackages.
     for member in mod.all_members.values():
         if not member.is_alias and member.is_module:
-            try:
-                _apply_all_filter(member)  # type: ignore[arg-type]
-            except Exception:  # noqa: BLE001
-                pass  # Aliases or unresolvable members
+            _apply_all_filter(member)  # type: ignore[arg-type]
