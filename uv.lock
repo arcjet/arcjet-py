@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.10"
 
 [options]
-exclude-newer = "2026-04-07T17:43:53.983884019Z"
+exclude-newer = "2026-04-07T18:38:16.313223274Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -40,7 +40,7 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "0.8.0"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "connect-python" },
