@@ -4,6 +4,7 @@ requires-python = ">=3.10"
 
 [options]
 exclude-newer = "2026-04-14T15:30:00Z"
+exclude-newer-span = "P7D"
 
 [[package]]
 name = "annotated-types"
