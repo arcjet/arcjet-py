@@ -100,7 +100,7 @@ keeping the existing API surface intact with internal changes.
 ### Source structure
 
 - `src/arcjet/` — Main SDK package. Public API in `__init__.py`, client in
-  `client.py`, rules in `rules.py`, local WASM evaluation in `_local.py`.
+  `_client.py`, rules in `_rules.py`, local WASM evaluation in `_local.py`.
   Protobuf code in `proto/` is **generated — do not edit**.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
@@ -141,7 +141,7 @@ keeping the existing API surface intact with internal changes.
 ### Framework support
 
 The SDK is **framework-agnostic** with explicit support for ASGI (Starlette,
-FastAPI), Flask/Werkzeug, and Django. The `context.py` module provides
+FastAPI), Flask/Werkzeug, and Django. The `_context.py` module provides
 `coerce_request_context()` to convert framework requests to a common
 `RequestContext` type.
 

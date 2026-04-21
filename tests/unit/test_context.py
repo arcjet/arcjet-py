@@ -6,7 +6,7 @@ frameworks, and protobuf conversion utilities.
 
 from __future__ import annotations
 
-from arcjet.context import (
+from arcjet._context import (
     RequestContext,
     coerce_request_context,
     extract_ip_from_headers,

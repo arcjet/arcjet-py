@@ -14,8 +14,8 @@ def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.Monke
     """Test that fail_open=False raises ArcjetTransportError on network error."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetTransportError
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     def raise_decide(req):
         raise RuntimeError("network down")
@@ -36,7 +36,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
     """Test that validate_email rule raises error when email is missing."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet.rules import validate_email
+    from arcjet._rules import validate_email
 
     aj = arcjet_sync(key="ajkey_x", rules=[validate_email()])
     with pytest.raises(ArcjetMisconfiguration):
@@ -47,7 +47,7 @@ def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules
     """Test that detect_prompt_injection rule raises error when message is missing."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet.rules import detect_prompt_injection
+    from arcjet._rules import detect_prompt_injection
 
     aj = arcjet_sync(key="ajkey_x", rules=[detect_prompt_injection()])
     with pytest.raises(ArcjetMisconfiguration):
@@ -57,8 +57,8 @@ def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules
 def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     def raise_decide(req):
         raise RuntimeError("boom")
@@ -87,8 +87,8 @@ def test_requested_default_and_characteristics_in_extra(
 ):
     """Test that requested default and characteristics are passed in extra metadata."""
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     captured = {}
 
@@ -124,8 +124,8 @@ def test_caching_hits_trigger_background_report(
     real implementation and are not easily testable with sync stubs.
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     calls = {"n": 0}
 
@@ -157,8 +157,8 @@ def test_ip_override_with_ip_src(
 ):
     """Test that ip_src overrides automatic IP detection when configured."""
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     captured = {}
 
@@ -187,7 +187,7 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     """Test that ip_src is required when automatic IP detection is disabled."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
@@ -200,7 +200,7 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     """Test that proxies cannot be used with manual IP detection."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(
@@ -218,7 +218,7 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
     """Test that ip_src cannot be used when automatic IP detection is enabled."""
     from arcjet import arcjet_sync
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
     aj = arcjet_sync(
@@ -233,7 +233,7 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
 def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
     """Test that base_url parameter strips trailing slashes."""
     from arcjet import arcjet_sync
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     # Create client with trailing slash in base_url
     aj = arcjet_sync(
@@ -248,7 +248,7 @@ def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
 def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
     """Test that base_url parameter strips multiple trailing slashes."""
     from arcjet import arcjet_sync
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     # Create client with multiple trailing slashes
     aj = arcjet_sync(
@@ -263,7 +263,7 @@ def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
 def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
     """Test that base_url without trailing slash is unchanged."""
     from arcjet import arcjet_sync
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     # Create client without trailing slash
     aj = arcjet_sync(
@@ -279,7 +279,7 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
     mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
 ):
     """Test DEFAULT_BASE_URL strips trailing slash from ARCJET_BASE_URL env var."""
-    import arcjet.client as client_module
+    import arcjet._client as client_module
 
     with monkeypatch.context() as m:
         m.setenv("ARCJET_BASE_URL", "https://example.com/")
@@ -292,7 +292,7 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
 def test_default_timeout_production_without_prompt_injection(mock_protobuf_modules):
     """Test that the default timeout in production is 500ms without prompt injection."""
     from arcjet import arcjet_sync
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -308,7 +308,7 @@ def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules)
     than as part of the protect call, so a minimum of 1 second is enforced.
     """
     from arcjet import arcjet_sync
-    from arcjet.rules import detect_prompt_injection
+    from arcjet._rules import detect_prompt_injection
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -322,7 +322,7 @@ def test_default_timeout_development_without_prompt_injection(
 ):
     """Test that the default timeout in development is 1000ms without prompt injection."""
     from arcjet import arcjet_sync
-    from arcjet.rules import token_bucket
+    from arcjet._rules import token_bucket
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -336,7 +336,7 @@ def test_default_timeout_development_with_prompt_injection(
 ):
     """Test that the default timeout in development is 1000ms when detect_prompt_injection is configured."""
     from arcjet import arcjet_sync
-    from arcjet.rules import detect_prompt_injection
+    from arcjet._rules import detect_prompt_injection
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -348,7 +348,7 @@ def test_default_timeout_development_with_prompt_injection(
 def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):
     """Test that an explicit timeout_ms is not affected by the prompt injection floor."""
     from arcjet import arcjet_sync
-    from arcjet.rules import detect_prompt_injection
+    from arcjet._rules import detect_prompt_injection
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -367,7 +367,7 @@ def test_global_characteristics_applied_to_rules_by_factory(mock_protobuf_module
     rebase).
     """
     from arcjet import arcjet_sync
-    from arcjet.rules import fixed_window, shield, token_bucket
+    from arcjet._rules import fixed_window, shield, token_bucket
 
     aj = arcjet_sync(
         key="ajkey_x",
@@ -398,8 +398,8 @@ def test_sensitive_info_value_survives_context_reconstruction(
     disabling local WASM evaluation for sensitive info rules.
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import detect_sensitive_info
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import detect_sensitive_info
 
     captured_ctx = {}
 
@@ -407,7 +407,7 @@ def test_sensitive_info_value_survives_context_reconstruction(
         captured_ctx["sensitive_info_value"] = ctx.sensitive_info_value
         return None  # proceed to remote
 
-    import arcjet.client as client_module
+    import arcjet._client as client_module
 
     monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
 
@@ -443,8 +443,8 @@ def test_filter_local_survives_context_reconstruction(
     local WASM evaluation for filter rules.
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import filter_request
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import filter_request
 
     captured_ctx = {}
 
@@ -452,7 +452,7 @@ def test_filter_local_survives_context_reconstruction(
         captured_ctx["filter_local"] = ctx.filter_local
         return None
 
-    import arcjet.client as client_module
+    import arcjet._client as client_module
 
     monkeypatch.setattr(client_module, "_run_local_rules", capture_local_rules)
 

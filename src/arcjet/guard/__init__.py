@@ -34,13 +34,13 @@ Public API
     ArcjetGuard, ArcjetGuardSync
 """
 
-from .client import (
+from ._client import (
     ArcjetGuard,
     ArcjetGuardSync,
     launch_arcjet,
     launch_arcjet_sync,
 )
-from .rules import (
+from ._rules import (
     DetectPromptInjection,
     FixedWindow,
     FixedWindowWithInput,
@@ -57,7 +57,7 @@ from .rules import (
     TokenBucketWithInput,
     TypedCustomResult,
 )
-from .types import (
+from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     Conclusion,
     CustomEvaluateResult,

@@ -26,7 +26,7 @@ from arcjet.guard import (
     launch_arcjet,
     launch_arcjet_sync,
 )
-from arcjet.guard.client import _auth_headers, _build_request, _make_error_decision
+from arcjet.guard._client import _auth_headers, _build_request, _make_error_decision
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 

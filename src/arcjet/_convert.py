@@ -6,7 +6,7 @@ from google.protobuf.json_format import MessageToDict
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
-from .dataclasses import (
+from ._dataclasses import (
     BotReason,
     EmailReason,
     EmailType,

@@ -21,9 +21,9 @@ from arcjet.guard import (
     SlidingWindow,
     TokenBucket,
 )
-from arcjet.guard.convert import decision_from_proto, rule_to_proto
+from arcjet.guard._convert import decision_from_proto, rule_to_proto
+from arcjet.guard._rules import RuleWithInput
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
-from arcjet.guard.rules import RuleWithInput
 
 
 def _simulate_server(
@@ -178,7 +178,7 @@ def _guard_sync(
 ) -> tuple[pb.GuardResponse, list[RuleWithInput]]:
     """Simulate a synchronous guard() call: convert → server → convert back."""
     from arcjet.guard._local import evaluate_sensitive_info_locally
-    from arcjet.guard.rules import SensitiveInfoWithInput
+    from arcjet.guard._rules import SensitiveInfoWithInput
 
     local_results: dict = {}
     for r in rules:
@@ -372,7 +372,7 @@ class TestE2eSyncResultNoneWhenNoMatch:
         response, rules = self._make_tb_only_decision()
         decision = decision_from_proto(response)
         si = LocalDetectSensitiveInfo()
-        from arcjet.guard.rules import SensitiveInfoWithInput
+        from arcjet.guard._rules import SensitiveInfoWithInput
 
         inp = SensitiveInfoWithInput(
             _input_id="no-match",

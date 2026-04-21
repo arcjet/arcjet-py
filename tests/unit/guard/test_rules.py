@@ -1,4 +1,4 @@
-"""Unit tests for arcjet.guard.rules — rule classes, Layer 3 inspection."""
+"""Unit tests for arcjet.guard._rules — rule classes, Layer 3 inspection."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from arcjet.guard import (
     TokenBucket,
     TokenBucketWithInput,
 )
-from arcjet.guard.convert import decision_from_proto
+from arcjet.guard._convert import decision_from_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from .conftest import make_response

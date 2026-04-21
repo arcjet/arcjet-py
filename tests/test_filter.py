@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from arcjet._analyze import Err, FilterResult, Ok
+from arcjet._client import _run_local_rules
+from arcjet._context import RequestContext
 from arcjet._enums import Mode
 from arcjet._local import evaluate_filter_locally
-from arcjet.client import _run_local_rules
-from arcjet.context import RequestContext
+from arcjet._rules import Filter, filter_request
 from arcjet.proto.decide.v1alpha1 import decide_pb2
-from arcjet.rules import Filter, filter_request
 
 # ---------------------------------------------------------------------------
 # filter_request() factory — validation
@@ -316,10 +316,10 @@ class TestRunLocalRulesFilter:
         rule = filter_request(deny=['ip.src == "1.2.3.4"'])
 
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
-            patch("arcjet.client.evaluate_sensitive_info_locally", return_value=None),
-            patch("arcjet.client.evaluate_filter_locally", return_value=deny_result),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_sensitive_info_locally", return_value=None),
+            patch("arcjet._client.evaluate_filter_locally", return_value=deny_result),
         ):
             decision = _run_local_rules(ctx, (rule,))
 
@@ -336,10 +336,10 @@ class TestRunLocalRulesFilter:
         rule = filter_request(mode=Mode.DRY_RUN, deny=["x"])
 
         with (
-            patch("arcjet.client.evaluate_bot_locally", return_value=None),
-            patch("arcjet.client.evaluate_email_locally", return_value=None),
-            patch("arcjet.client.evaluate_sensitive_info_locally", return_value=None),
-            patch("arcjet.client.evaluate_filter_locally", return_value=deny_dry_run),
+            patch("arcjet._client.evaluate_bot_locally", return_value=None),
+            patch("arcjet._client.evaluate_email_locally", return_value=None),
+            patch("arcjet._client.evaluate_sensitive_info_locally", return_value=None),
+            patch("arcjet._client.evaluate_filter_locally", return_value=deny_dry_run),
         ):
             result = _run_local_rules(ctx, (rule,))
 

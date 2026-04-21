@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import time
 
-from arcjet.cache import DecisionCache, make_cache_key
-from arcjet.context import RequestContext
-from arcjet.rules import Mode, shield, token_bucket
+from arcjet._cache import DecisionCache, make_cache_key
+from arcjet._context import RequestContext
+from arcjet._rules import Mode, shield, token_bucket
 
 # ---------------------------------------------------------------------------
 # DecisionCache low-level tests (ported from arcjet-js cache/test/memory.test.ts)
@@ -23,7 +23,7 @@ from arcjet.rules import Mode, shield, token_bucket
 
 def test_cache_set_and_get(mock_protobuf_modules):
     """Test that set() stores a value and get() retrieves it."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -42,7 +42,7 @@ def test_cache_get_missing_key(mock_protobuf_modules):
 
 def test_cache_get_expired_entry(mock_protobuf_modules):
     """Test that get() returns None once the TTL has elapsed."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -56,7 +56,7 @@ def test_cache_get_expired_entry(mock_protobuf_modules):
 
 def test_cache_set_with_zero_ttl(mock_protobuf_modules):
     """Test that set() with TTL <= 0 does not store the entry."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -73,7 +73,7 @@ def test_cache_set_with_zero_ttl(mock_protobuf_modules):
 
 def test_cache_set_overwrites_existing(mock_protobuf_modules):
     """Test that set() on the same key replaces the previous entry."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -90,7 +90,7 @@ def test_cache_set_overwrites_existing(mock_protobuf_modules):
 
 def test_cache_empty_string_key(mock_protobuf_modules):
     """Test that empty string is a valid cache key."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -103,7 +103,7 @@ def test_cache_empty_string_key(mock_protobuf_modules):
 
 def test_cache_expired_entry_removal_exception(mock_protobuf_modules):
     """Test that exceptions during expired entry removal are handled gracefully."""
-    from arcjet.decision import Decision
+    from arcjet._decision import Decision
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     cache = DecisionCache()
@@ -188,8 +188,8 @@ def test_should_cache_deny_result_with_ttl(
     (JS: "should cache a deny result w/ `ttl`")
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
@@ -234,8 +234,8 @@ def test_should_not_cache_allow_result_with_ttl(
     (JS: "should not cache an allow result w/ `ttl`")
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
@@ -279,8 +279,8 @@ def test_should_not_cache_deny_result_without_ttl(
     (JS: "should not cache a deny result w/o `ttl`")
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
@@ -323,8 +323,8 @@ def test_should_not_cache_error_result_with_ttl(
     Only DENY decisions are cached, matching JS semantics.
     """
     from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
@@ -370,8 +370,8 @@ def test_async_should_cache_deny_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
@@ -412,8 +412,8 @@ def test_async_should_not_cache_allow_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
+    from arcjet._rules import token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
-    from arcjet.rules import token_bucket
 
     decide_calls = {"count": 0}
 
