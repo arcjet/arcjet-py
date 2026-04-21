@@ -22,6 +22,7 @@ from ._decision import (
     is_spoofed_bot,
 )
 from ._enums import Mode
+from ._errors import ArcjetError, ArcjetMisconfiguration, ArcjetTransportError
 from ._rules import (
     BotCategory,
     EmailType,
@@ -43,7 +44,10 @@ __all__ = [
     "arcjet_sync",
     "arcjet",
     "Arcjet",
+    "ArcjetError",
+    "ArcjetMisconfiguration",
     "ArcjetSync",
+    "ArcjetTransportError",
     "BotCategory",
     "BotReason",
     "Decision",
