@@ -356,10 +356,11 @@ class Arcjet:
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet(
-            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            key=arcjet_key,  # Get your key with: arcjet sites get-key
             rules=[
                 # Shield protects your app from common attacks e.g. SQL injection
                 shield(mode=Mode.LIVE),
@@ -874,10 +875,11 @@ class ArcjetSync:
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet_sync(
-            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            key=arcjet_key,  # Get your key with: arcjet sites get-key
             rules=[
                 # Shield protects your app from common attacks e.g. SQL injection
                 shield(mode=Mode.LIVE),
@@ -1321,8 +1323,9 @@ def arcjet(
     """Create an async Arcjet client.
 
     Args:
-        key: Your Arcjet site key from https://app.arcjet.com. Keep this
-            secret — store it in an environment variable, never in source code.
+        key: Your Arcjet site key. Get one with ``arcjet sites get-key``
+            or at https://app.arcjet.com. Keep this secret — store it in an
+            environment variable, never in source code.
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
@@ -1371,10 +1374,11 @@ def arcjet(
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet(
-            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            key=arcjet_key,  # Get your key with: arcjet sites get-key
             rules=[
                 # Shield protects your app from common attacks e.g. SQL injection
                 shield(mode=Mode.LIVE),
@@ -1444,8 +1448,9 @@ def arcjet_sync(
     not support ``async/await`` such as Flask or Django.
 
     Args:
-        key: Your Arcjet site key from https://app.arcjet.com. Keep this
-            secret — store it in an environment variable, never in source code.
+        key: Your Arcjet site key. Get one with ``arcjet sites get-key``
+            or at https://app.arcjet.com. Keep this secret — store it in an
+            environment variable, never in source code.
         rules: One or more rule specs created by ``shield()``, ``detect_bot()``,
             ``token_bucket()``, ``fixed_window()``, ``sliding_window()``, or
             ``validate_email()``.
@@ -1494,10 +1499,11 @@ def arcjet_sync(
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one at https://app.arcjet.com")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet_sync(
-            key=arcjet_key,  # Get your key from https://app.arcjet.com
+            key=arcjet_key,  # Get your key with: arcjet sites get-key
             rules=[
                 # Shield protects your app from common attacks e.g. SQL injection
                 shield(mode=Mode.LIVE),

@@ -15,27 +15,63 @@
 
 [Arcjet](https://arcjet.com) is the runtime security platform that ships with your AI code. Stop bots and automated attacks from burning your AI budget, leaking data, or misusing tools with Arcjet's AI security building blocks.
 
-This is the Python SDK for [Arcjet](https://arcjet.com).
+This is the Python SDK for [Arcjet](https://arcjet.com) — use `arcjet` /
+`arcjet_sync` for **request protection** (FastAPI, Flask, Django route handlers)
+and `arcjet.guard` for **guard protection** (AI agent tool calls, MCP servers,
+background jobs).
 
 ## Getting started
 
-1. **Get your API key** — [sign up at `app.arcjet.com`](https://app.arcjet.com).
-2. **Install the SDK:**
+### Install the Arcjet CLI
 
-```shell
-pip install arcjet
-# or with uv
-uv add arcjet
-```
+The CLI is used to log in, manage site keys, and install protection skills.
 
-3. **Set your environment variable:**
+**Homebrew (macOS and Linux):**
 
 ```sh
-# .env or .env.local
-ARCJET_KEY=ajkey_yourkey
+brew install arcjet/tap/arcjet
 ```
 
-4. **Protect a route** — see the [AI protection example](#quick-start) or
+**npx (Node.js)** — run any command without installing:
+
+```sh
+npx @arcjet/cli <command>
+```
+
+**Or [download a binary](https://github.com/arcjet/arcjet-cli/releases)** for
+macOS (Apple Silicon, Intel), Linux (x86_64, arm64), and Windows (x86_64,
+arm64).
+
+> Examples below use the `arcjet` binary. If you installed via npx, replace
+> `arcjet` with `npx @arcjet/cli`.
+
+### Quick setup with an AI agent
+
+1. Log in with the CLI:
+   ```sh
+   arcjet auth login
+   ```
+2. Install the protection skill:
+   ```sh
+   npx skills add arcjet/skills --skill add-request-protection
+   ```
+   For guard protection: `--skill add-guard-protection`
+3. Tell your agent what to protect — it handles the rest.
+
+### Manual setup
+
+1. **Log in** with the CLI (or at [`app.arcjet.com`](https://app.arcjet.com)):
+   ```sh
+   arcjet auth login
+   ```
+2. `pip install arcjet` (or `uv add arcjet`)
+3. **Get your site key:**
+   ```sh
+   arcjet sites get-key
+   ```
+   Or copy it from the [Arcjet dashboard](https://app.arcjet.com).
+4. Set `ARCJET_KEY=ajkey_yourkey` in `.env`
+5. Protect a route — see the [AI protection example](#quick-start) or
    individual [feature examples](#features) below.
 
 ### Get help
@@ -81,7 +117,8 @@ app = FastAPI()
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
     raise RuntimeError(
-        "ARCJET_KEY is required. Get one at https://app.arcjet.com"
+        "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+        " or from https://app.arcjet.com"
     )
 
 # Create a single Arcjet instance and reuse it across requests.
@@ -144,6 +181,18 @@ async def chat(request: Request, body: ChatRequest):
 ```
 
 ## Features
+
+| Feature | Request (`arcjet`) | Guard (`arcjet.guard`) |
+| --- | :---: | :---: |
+| Rate Limiting | ✅ | ✅ |
+| Prompt Injection Detection | ✅ | ✅ |
+| Sensitive Information Detection | ✅ | ✅ |
+| Bot Protection | ✅ | — |
+| Shield WAF | ✅ | — |
+| Email Validation | ✅ | — |
+| Request Filters | ✅ | — |
+| IP Analysis | ✅ | — |
+| Custom Rules | — | ✅ |
 
 - 🔒 [Prompt Injection Detection](#prompt-injection-detection) — detect and block
   prompt injection attacks before they reach your LLM.
