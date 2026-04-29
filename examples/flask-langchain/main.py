@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
-    raise RuntimeError("ARCJET_KEY is required. Get one at https://app.arcjet.com")
+    raise RuntimeError("ARCJET_KEY is required. Get one with: arcjet sites get-key")
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
@@ -43,7 +43,7 @@ prompt = ChatPromptTemplate.from_messages(
 chain = prompt | llm | StrOutputParser()
 
 aj = arcjet_sync(
-    key=arcjet_key,  # Get your key from https://app.arcjet.com
+    key=arcjet_key,  # Get your key with: arcjet sites get-key
     rules=[
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
