@@ -356,7 +356,8 @@ class Arcjet:
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one with: arcjet sites get-key")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet(
             key=arcjet_key,  # Get your key with: arcjet sites get-key
@@ -874,7 +875,8 @@ class ArcjetSync:
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one with: arcjet sites get-key")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet_sync(
             key=arcjet_key,  # Get your key with: arcjet sites get-key
@@ -1372,7 +1374,8 @@ def arcjet(
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one with: arcjet sites get-key")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet(
             key=arcjet_key,  # Get your key with: arcjet sites get-key
@@ -1496,7 +1499,8 @@ def arcjet_sync(
         arcjet_key = os.getenv("ARCJET_KEY")
         if not arcjet_key:
             raise RuntimeError(
-                "ARCJET_KEY is required. Get one with: arcjet sites get-key")
+                "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                " or from https://app.arcjet.com")
 
         aj = arcjet_sync(
             key=arcjet_key,  # Get your key with: arcjet sites get-key

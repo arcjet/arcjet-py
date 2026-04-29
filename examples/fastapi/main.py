@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
-    raise RuntimeError("ARCJET_KEY is required. Get one with: arcjet sites get-key")
+    raise RuntimeError("ARCJET_KEY is required. Get one with: arcjet sites get-key"
+                       " or from https://app.arcjet.com")
 
 aj = arcjet(
     key=arcjet_key,  # Get your key with: arcjet sites get-key

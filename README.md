@@ -32,15 +32,18 @@ The CLI is used to log in, manage site keys, and install protection skills.
 brew install arcjet/tap/arcjet
 ```
 
-**npx (Node.js):**
+**npx (Node.js)** — run any command without installing:
 
 ```sh
-npx @arcjet/cli
+npx @arcjet/cli <command>
 ```
 
 **Or [download a binary](https://github.com/arcjet/arcjet-cli/releases)** for
 macOS (Apple Silicon, Intel), Linux (x86_64, arm64), and Windows (x86_64,
 arm64).
+
+> Examples below use the `arcjet` binary. If you installed via npx, replace
+> `arcjet` with `npx @arcjet/cli`.
 
 ### Quick setup with an AI agent
 
@@ -62,8 +65,13 @@ arm64).
    arcjet auth login
    ```
 2. `pip install arcjet` (or `uv add arcjet`)
-3. Set `ARCJET_KEY=ajkey_yourkey` in `.env`
-4. Protect a route — see the [AI protection example](#quick-start) or
+3. **Get your site key:**
+   ```sh
+   arcjet sites get-key
+   ```
+   Or copy it from the [Arcjet dashboard](https://app.arcjet.com).
+4. Set `ARCJET_KEY=ajkey_yourkey` in `.env`
+5. Protect a route — see the [AI protection example](#quick-start) or
    individual [feature examples](#features) below.
 
 ### Get help
@@ -110,6 +118,7 @@ arcjet_key = os.getenv("ARCJET_KEY")
 if not arcjet_key:
     raise RuntimeError(
         "ARCJET_KEY is required. Get one with: arcjet sites get-key"
+        " or from https://app.arcjet.com"
     )
 
 # Create a single Arcjet instance and reuse it across requests.
