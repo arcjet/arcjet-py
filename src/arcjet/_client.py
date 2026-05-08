@@ -263,6 +263,26 @@ def _run_local_rules(
     return None
 
 
+def _redact_report_details(
+    ctx: RequestContext,
+) -> decide_pb2.RequestDetails:
+    """Build RequestDetails for a Report call with sensitive fields redacted.
+
+    Reports are sent when the decision is already known locally (cache hit or
+    local WASM deny). The server receives the context for dashboard/logging
+    purposes only — it never re-runs detection — so fields that contain raw
+    user content must not be sent in plain text.
+
+    ``detectPromptInjectionMessage`` is redacted here for the same reason that
+    ``sensitiveInfoValue`` is always redacted in ``request_details_from_context``:
+    both fields may contain PII or otherwise sensitive user input.
+    """
+    details = request_details_from_context(ctx)
+    if "detectPromptInjectionMessage" in details.extra:
+        details.extra["detectPromptInjectionMessage"] = "<redacted>"
+    return details
+
+
 def _build_local_deny_report(
     sdk_stack_val: str | None,
     sdk_version: str,
@@ -280,7 +300,7 @@ def _build_local_deny_report(
     rep = decide_pb2.ReportRequest(
         sdk_stack=_sdk_stack(sdk_stack_val),
         sdk_version=sdk_version,
-        details=request_details_from_context(ctx),
+        details=_redact_report_details(ctx),
         decision=dec,
     )
     rep.rules.extend([r.to_proto() for r in rules])
@@ -554,7 +574,7 @@ class Arcjet:
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
-                    details=request_details_from_context(ctx),
+                    details=_redact_report_details(ctx),
                     decision=dec,
                 )
                 rep.rules.extend([r.to_proto() for r in self._rules])
@@ -1024,7 +1044,7 @@ class ArcjetSync:
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
-                    details=request_details_from_context(ctx),
+                    details=_redact_report_details(ctx),
                     decision=dec,
                 )
                 rep.rules.extend([r.to_proto() for r in self._rules])
