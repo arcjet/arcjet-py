@@ -485,7 +485,9 @@ def test_decide_call_sends_prompt_injection_message_unredacted(
         captured["extra"] = dict(req.details.extra)
         return mock_protobuf_modules["DecideResponse"](make_allow_decision())
 
-    monkeypatch.setattr(DecideServiceClient, "decide_behavior", capture_decide, raising=False)
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", capture_decide, raising=False
+    )
 
     aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection()])
     asyncio.run(
@@ -586,7 +588,9 @@ def test_local_deny_report_redacts_prompt_injection_message(
         )
     )
 
-    assert "details" in captured, "_redact_report_details was not called in the local deny path"
+    assert "details" in captured, (
+        "_redact_report_details was not called in the local deny path"
+    )
     assert captured["details"].extra.get("detectPromptInjectionMessage") == "<redacted>"
 
 
@@ -626,7 +630,9 @@ def test_cache_hit_report_redacts_prompt_injection_message(
         decision = make_deny_decision(ttl=60)
         return mock_protobuf_modules["DecideResponse"](decision)
 
-    monkeypatch.setattr(DecideServiceClient, "decide_behavior", deny_with_ttl, raising=False)
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", deny_with_ttl, raising=False
+    )
 
     aj = arcjet(
         key="ajkey_x",
