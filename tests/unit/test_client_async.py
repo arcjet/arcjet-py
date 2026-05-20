@@ -690,6 +690,20 @@ class TestDefaultTimeoutMsEnvironmentKwarg:
             == 1000
         )
 
+    def test_prompt_injection_in_development_keeps_1000(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        from arcjet._client import _default_timeout_ms
+        from arcjet._rules import detect_prompt_injection
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        # Dev default (1000) already meets the prompt-injection min (1000);
+        # the max() should be a no-op rather than incorrectly clamping higher.
+        assert (
+            _default_timeout_ms([detect_prompt_injection()], environment="development")
+            == 1000
+        )
+
     def test_env_var_fallback_when_kwarg_none(self, monkeypatch: pytest.MonkeyPatch):
         from arcjet._client import _default_timeout_ms
 

@@ -20,7 +20,9 @@ Environment behavior:
 - For frameworks whose config library does not propagate `.env` values into
     `os.environ` (e.g. `pydantic-settings`), pass `environment=` explicitly to
     `coerce_request_context` / `extract_ip_from_headers` to override the
-    env-var read.
+    env-var read. End users typically set this once via the
+    `arcjet(environment=...)` / `arcjet_sync(environment=...)` factory kwarg,
+    which threads the value through to these helpers automatically.
 """
 
 from __future__ import annotations

@@ -1394,7 +1394,7 @@ def arcjet(
             into a typed settings object without propagating values to
             ``os.environ``::
 
-                aj = arcjet(environment=settings.ARCJET_ENV, key=..., rules=[...])
+                aj = arcjet(key=..., rules=[...], environment=settings.ARCJET_ENV)
 
     Returns:
         An ``Arcjet`` async client instance.
@@ -1463,7 +1463,7 @@ def arcjet(
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=(
-            _default_timeout_ms(rules, environment=environment)
+            _default_timeout_ms(rules=rules, environment=environment)
             if timeout_ms is None
             else timeout_ms
         ),
@@ -1533,7 +1533,7 @@ def arcjet_sync(
             into a typed settings object without propagating values to
             ``os.environ``::
 
-                aj = arcjet_sync(environment=settings.ARCJET_ENV, key=..., rules=[...])
+                aj = arcjet_sync(key=..., rules=[...], environment=settings.ARCJET_ENV)
 
     Returns:
         An ``ArcjetSync`` sync client instance.
@@ -1603,7 +1603,7 @@ def arcjet_sync(
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=(
-            _default_timeout_ms(rules, environment=environment)
+            _default_timeout_ms(rules=rules, environment=environment)
             if timeout_ms is None
             else timeout_ms
         ),
