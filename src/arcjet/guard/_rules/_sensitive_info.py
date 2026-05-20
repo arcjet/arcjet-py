@@ -88,6 +88,9 @@ class LocalDetectSensitiveInfo:
         deny: Entity types to detect and block on.
         mode: ``"LIVE"`` (default) enforces; ``"DRY_RUN"`` evaluates only.
         label: Optional human-readable label for observability.
+            Validated server-side as a slug: lowercase letters, digits,
+            dash (``-``), and dot (``.``) only; must start and end with a
+            lowercase letter or digit; max 256 bytes.
         metadata: Optional key-value metadata for analytics.
 
     Raises:

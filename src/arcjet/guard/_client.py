@@ -192,6 +192,9 @@ class ArcjetGuard:
         Args:
             rules: Bound rule inputs (e.g. ``TokenBucket(...)(key="u")``)
             label: Label identifying this guard call (required by the server).
+                Validated server-side as a slug: lowercase letters, digits,
+                dash (``-``), and dot (``.``) only; must start and end with
+                a lowercase letter or digit; max 256 bytes.
             metadata: Optional key/value metadata.
 
         Returns:
@@ -241,6 +244,9 @@ class ArcjetGuardSync:
         Args:
             rules: Bound rule inputs (e.g. ``TokenBucket(...)(key="u")``)
             label: Label identifying this guard call (required by the server).
+                Validated server-side as a slug: lowercase letters, digits,
+                dash (``-``), and dot (``.``) only; must start and end with
+                a lowercase letter or digit; max 256 bytes.
             metadata: Optional key/value metadata.
 
         Returns:
