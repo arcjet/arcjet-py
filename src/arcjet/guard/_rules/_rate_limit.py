@@ -248,9 +248,14 @@ class TokenBucket:
         refill_rate: Tokens added per interval.
         interval_seconds: Seconds between refills.
         max_tokens: Maximum bucket capacity.
-        bucket: Bucket name for counter grouping (default ``"default"``).
+        bucket: Bucket name for counter grouping (default
+            ``"default-token-bucket"``). Validated server-side as a slug:
+            lowercase letters, digits, dash (``-``), and dot (``.``) only;
+            must start and end with a lowercase letter or digit;
+            max 256 bytes.
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label.
+        label: Optional observability label. Validated server-side with
+            the same slug rules as ``bucket``.
         metadata: Config-level key-value metadata.  Merged with
             per-input metadata on each call — input keys replace
             config keys on conflict.
@@ -344,9 +349,14 @@ class FixedWindow:
     Args:
         max_requests: Maximum requests per window.
         window_seconds: Window duration in seconds.
-        bucket: Bucket name for counter grouping (default ``"default"``).
+        bucket: Bucket name for counter grouping (default
+            ``"default-fixed-window"``). Validated server-side as a slug:
+            lowercase letters, digits, dash (``-``), and dot (``.``) only;
+            must start and end with a lowercase letter or digit;
+            max 256 bytes.
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label.
+        label: Optional observability label. Validated server-side with
+            the same slug rules as ``bucket``.
         metadata: Config-level key-value metadata.  Merged with
             per-input metadata on each call — input keys replace
             config keys on conflict.
@@ -433,9 +443,14 @@ class SlidingWindow:
     Args:
         max_requests: Maximum requests per interval.
         interval_seconds: Sliding interval in seconds.
-        bucket: Bucket name for counter grouping (default ``"default"``).
+        bucket: Bucket name for counter grouping (default
+            ``"default-sliding-window"``). Validated server-side as a slug:
+            lowercase letters, digits, dash (``-``), and dot (``.``) only;
+            must start and end with a lowercase letter or digit;
+            max 256 bytes.
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label.
+        label: Optional observability label. Validated server-side with
+            the same slug rules as ``bucket``.
         metadata: Config-level key-value metadata.  Merged with
             per-input metadata on each call — input keys replace
             config keys on conflict.

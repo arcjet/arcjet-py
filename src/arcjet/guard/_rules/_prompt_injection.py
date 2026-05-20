@@ -53,7 +53,10 @@ class DetectPromptInjection:
 
     Args:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label.
+        label: Optional observability label. Validated server-side as a
+            slug: lowercase letters, digits, dash (``-``), and dot (``.``)
+            only; must start and end with a lowercase letter or digit;
+            max 256 bytes.
         metadata: Config-level key-value metadata.  Merged with
             per-input metadata on each call — input keys replace
             config keys on conflict.
