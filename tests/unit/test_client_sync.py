@@ -627,3 +627,80 @@ def test_cache_hit_report_redacts_prompt_injection_message(
 
     assert "details" in captured, "_redact_report_details was not called on cache hit"
     assert captured["details"].extra.get("detectPromptInjectionMessage") == "<redacted>"
+
+
+class TestArcjetSyncFactoryEnvironmentKwarg:
+    """Sync counterpart to `TestArcjetFactoryEnvironmentKwarg` — `environment=`
+    flows from `arcjet_sync()` into the dataclass and through
+    `_default_timeout_ms`.
+    """
+
+    def test_kwarg_reaches_dataclass(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet import arcjet_sync
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        aj = arcjet_sync(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="development",
+        )
+        assert aj._environment == "development"
+        assert aj._timeout_ms == 1000
+
+    def test_kwarg_production_beats_env_var(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet import arcjet_sync
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        aj = arcjet_sync(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="production",
+        )
+        assert aj._environment == "production"
+        assert aj._timeout_ms == 500
+
+    def test_protect_uses_environment_for_loopback_fallback(
+        self,
+        mock_protobuf_modules,
+        make_allow_decision,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """End-to-end proof for the sync path: with ARCJET_ENV unset and
+        environment="development" on the client, a loopback request fingerprints
+        with 127.0.0.1.
+        """
+        from arcjet import arcjet_sync
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+        from arcjet.proto.decide.v1alpha1.decide_connect import (
+            DecideServiceClientSync,
+        )
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+
+        captured: dict[str, str] = {}
+
+        def capture_decide(req):
+            captured["ip"] = req.details.ip
+            decision = make_allow_decision()
+            return mock_protobuf_modules["DecideResponse"](decision)
+
+        monkeypatch.setattr(
+            DecideServiceClientSync,
+            "decide_behavior",
+            capture_decide,
+            raising=False,
+        )
+
+        aj = arcjet_sync(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="development",
+        )
+        scope = {"type": "http", "headers": [], "client": ("127.0.0.1", 0)}
+        aj.protect(scope)
+        assert captured["ip"] == "127.0.0.1"

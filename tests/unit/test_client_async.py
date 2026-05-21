@@ -655,3 +655,162 @@ def test_cache_hit_report_redacts_prompt_injection_message(
 
     assert "details" in captured, "_redact_report_details was not called on cache hit"
     assert captured["details"].extra.get("detectPromptInjectionMessage") == "<redacted>"
+
+
+class TestDefaultTimeoutMsEnvironmentKwarg:
+    """`_default_timeout_ms` honors the `environment` kwarg.
+
+    The 1000 vs 500 ms split is keyed off dev/prod, so it has the same
+    pydantic-settings bug as `coerce_request_context` and must accept the
+    same kwarg.
+    """
+
+    def test_kwarg_development_returns_1000(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet._client import _default_timeout_ms
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _default_timeout_ms((), environment="development") == 1000
+
+    def test_kwarg_production_returns_500(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet._client import _default_timeout_ms
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _default_timeout_ms((), environment="production") == 500
+
+    def test_prompt_injection_min_clamp_still_applies_in_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        from arcjet._client import _default_timeout_ms
+        from arcjet._rules import detect_prompt_injection
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        # detect_prompt_injection enforces a 1000ms minimum even in production.
+        assert (
+            _default_timeout_ms([detect_prompt_injection()], environment="production")
+            == 1000
+        )
+
+    def test_prompt_injection_in_development_keeps_1000(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        from arcjet._client import _default_timeout_ms
+        from arcjet._rules import detect_prompt_injection
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        # Dev default (1000) already meets the prompt-injection min (1000);
+        # the max() should be a no-op rather than incorrectly clamping higher.
+        assert (
+            _default_timeout_ms([detect_prompt_injection()], environment="development")
+            == 1000
+        )
+
+    def test_env_var_fallback_when_kwarg_none(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet._client import _default_timeout_ms
+
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        assert _default_timeout_ms((), environment=None) == 1000
+
+
+class TestArcjetFactoryEnvironmentKwarg:
+    """End-to-end wiring: `environment=` flows from the factory into the
+    dataclass and through `_default_timeout_ms`.
+    """
+
+    def test_kwarg_reaches_dataclass(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet import arcjet
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        aj = arcjet(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="development",
+        )
+        assert aj._environment == "development"
+        # 1000 ms dev timeout proves _default_timeout_ms saw the kwarg.
+        assert aj._timeout_ms == 1000
+
+    def test_kwarg_production_sets_short_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        from arcjet import arcjet
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        aj = arcjet(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="production",
+        )
+        assert aj._environment == "production"
+        # Explicit kwarg beats env var: 500 ms prod timeout.
+        assert aj._timeout_ms == 500
+
+    def test_no_kwarg_falls_back_to_env_var(self, monkeypatch: pytest.MonkeyPatch):
+        """Pre-existing behavior: no kwarg + ARCJET_ENV=development -> dev mode.
+        Pins backward compatibility so the refactor of `_is_development()`
+        doesn't silently regress users relying on the env var today.
+        """
+        from arcjet import arcjet
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        aj = arcjet(key="ajkey_x", rules=[shield(mode=Mode.LIVE)])
+        assert aj._environment is None
+        assert aj._timeout_ms == 1000
+
+    def test_explicit_timeout_overrides_kwarg_inference(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        from arcjet import arcjet
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        aj = arcjet(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="development",
+            timeout_ms=42,
+        )
+        assert aj._timeout_ms == 42
+
+    def test_protect_uses_environment_for_loopback_fallback(
+        self,
+        mock_protobuf_modules,
+        make_allow_decision,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """End-to-end proof the bug is fixed: with ARCJET_ENV unset and
+        environment="development" on the client, a loopback request fingerprints
+        with 127.0.0.1 instead of being dropped.
+        """
+        import asyncio
+
+        from arcjet import arcjet
+        from arcjet._enums import Mode
+        from arcjet._rules import shield
+        from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+
+        captured: dict[str, str] = {}
+
+        def capture_decide(req):
+            captured["ip"] = req.details.ip
+            decision = make_allow_decision()
+            return mock_protobuf_modules["DecideResponse"](decision)
+
+        monkeypatch.setattr(
+            DecideServiceClient, "decide_behavior", capture_decide, raising=False
+        )
+
+        aj = arcjet(
+            key="ajkey_x",
+            rules=[shield(mode=Mode.LIVE)],
+            environment="development",
+        )
+        scope = {"type": "http", "headers": [], "client": ("127.0.0.1", 0)}
+        asyncio.run(aj.protect(scope))
+        assert captured["ip"] == "127.0.0.1"

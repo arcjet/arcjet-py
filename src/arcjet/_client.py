@@ -39,6 +39,7 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 from ._cache import DecisionCache, make_cache_key
 from ._context import (
     RequestContext,
+    _is_development,
     coerce_request_context,
     request_details_from_context,
 )
@@ -151,10 +152,11 @@ class ProtectOptions(TypedDict, total=False):
     """Arbitrary key/value pairs forwarded verbatim to the Arcjet Decide API."""
 
 
-def _default_timeout_ms(rules: Sequence[RuleSpec] = ()) -> int:
+def _default_timeout_ms(
+    rules: Sequence[RuleSpec] = (), environment: str | None = None
+) -> int:
     # 1000ms in development, 500ms otherwise.
-    env = (os.getenv("ARCJET_ENV") or "production").lower()
-    default = 1000 if env == "development" else 500
+    default = 1000 if _is_development(environment=environment) else 500
     # detect_prompt_injection defines its latency guarantees individually
     # rather than as part of the protect call, so enforce a 1 second minimum.
     if any(isinstance(r, PromptInjectionDetection) for r in rules):
@@ -427,6 +429,7 @@ class Arcjet:
     _proxies: tuple[str, ...] = ()
     _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
+    _environment: str | None = None
 
     async def protect(
         self,
@@ -509,7 +512,12 @@ class Arcjet:
             raise ArcjetMisconfiguration(
                 "ip_src cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
+        ctx = coerce_request_context(
+            request,
+            proxies=self._proxies,
+            ip_src=ip_src,
+            environment=self._environment,
+        )
 
         if email:
             ctx = replace(ctx, email=email)
@@ -946,6 +954,7 @@ class ArcjetSync:
     _proxies: tuple[str, ...] = ()
     _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
+    _environment: str | None = None
 
     def protect(
         self,
@@ -985,7 +994,12 @@ class ArcjetSync:
             raise ArcjetMisconfiguration(
                 "ip_src cannot be set when disable_automatic_ip_detection=False."
             )
-        ctx = coerce_request_context(request, proxies=self._proxies, ip_src=ip_src)
+        ctx = coerce_request_context(
+            request,
+            proxies=self._proxies,
+            ip_src=ip_src,
+            environment=self._environment,
+        )
 
         if email:
             ctx = replace(ctx, email=email)
@@ -1339,6 +1353,7 @@ def arcjet(
     fail_open: bool = True,
     proxies: Sequence[str] = (),
     disable_automatic_ip_detection: bool = False,
+    environment: str | None = None,
 ) -> Arcjet:
     """Create an async Arcjet client.
 
@@ -1372,6 +1387,14 @@ def arcjet(
             yourself via ``ip_src`` on each ``protect()`` call. Only use this
             when you have your own validated IP-extraction logic. See
             https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
+        environment: Environment mode (``"development"`` or ``"production"``).
+            When ``None`` (default), falls back to the ``ARCJET_ENV``
+            environment variable. Set this explicitly when using a config
+            library such as ``pydantic-settings`` that loads ``.env`` files
+            into a typed settings object without propagating values to
+            ``os.environ``::
+
+                aj = arcjet(key=..., rules=[...], environment=settings.ARCJET_ENV)
 
     Returns:
         An ``Arcjet`` async client instance.
@@ -1439,13 +1462,18 @@ def arcjet(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms(rules) if timeout_ms is None else timeout_ms,
+        _timeout_ms=(
+            _default_timeout_ms(rules=rules, environment=environment)
+            if timeout_ms is None
+            else timeout_ms
+        ),
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
+        _environment=environment,
     )
 
 
@@ -1461,6 +1489,7 @@ def arcjet_sync(
     fail_open: bool = True,
     proxies: Sequence[str] = (),
     disable_automatic_ip_detection: bool = False,
+    environment: str | None = None,
 ) -> ArcjetSync:
     """Create a sync Arcjet client.
 
@@ -1497,6 +1526,14 @@ def arcjet_sync(
             yourself via ``ip_src`` on each ``protect()`` call. Only use this
             when you have your own validated IP-extraction logic. See
             https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For.
+        environment: Environment mode (``"development"`` or ``"production"``).
+            When ``None`` (default), falls back to the ``ARCJET_ENV``
+            environment variable. Set this explicitly when using a config
+            library such as ``pydantic-settings`` that loads ``.env`` files
+            into a typed settings object without propagating values to
+            ``os.environ``::
+
+                aj = arcjet_sync(key=..., rules=[...], environment=settings.ARCJET_ENV)
 
     Returns:
         An ``ArcjetSync`` sync client instance.
@@ -1565,11 +1602,16 @@ def arcjet_sync(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=_default_timeout_ms(rules) if timeout_ms is None else timeout_ms,
+        _timeout_ms=(
+            _default_timeout_ms(rules=rules, environment=environment)
+            if timeout_ms is None
+            else timeout_ms
+        ),
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
         _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
+        _environment=environment,
     )

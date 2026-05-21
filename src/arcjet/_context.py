@@ -17,6 +17,12 @@ Key pieces:
 Environment behavior:
 - If `ARCJET_ENV=development`, a missing IP is defaulted to `127.0.0.1` and the
     header `X-Arcjet-Ip` may be used to force an IP for local testing.
+- For frameworks whose config library does not propagate `.env` values into
+    `os.environ` (e.g. `pydantic-settings`), pass `environment=` explicitly to
+    `coerce_request_context` / `extract_ip_from_headers` to override the
+    env-var read. End users typically set this once via the
+    `arcjet(environment=...)` / `arcjet_sync(environment=...)` factory kwarg,
+    which threads the value through to these helpers automatically.
 """
 
 from __future__ import annotations
@@ -31,14 +37,19 @@ from arcjet.proto.decide.v1alpha1 import decide_pb2
 HeaderValue = str | Sequence[str]
 
 
-def _is_development() -> bool:
+def _is_development(environment: str | None = None) -> bool:
     """Return True when running in development mode.
 
-    We consider the environment to be development when `ARCJET_ENV` is set to
-    "development" (case-insensitive). Defaults to production otherwise.
+    Args:
+        environment: Explicit environment string, e.g. from a framework
+            Settings object. When ``None`` (default), falls back to the
+            ``ARCJET_ENV`` environment variable. Matching is case-insensitive;
+            anything other than "development" (or unset/empty) is treated as
+            production.
     """
-    env = (os.getenv("ARCJET_ENV") or "production").lower()
-    return env == "development"
+    if environment is None:
+        environment = os.getenv("ARCJET_ENV")
+    return (environment or "production").lower() == "development"
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,14 +250,20 @@ def extract_ip_from_headers(
     headers: Mapping[str, HeaderValue],
     *,
     proxies: Sequence[str] | None = None,
+    environment: str | None = None,
 ) -> str | None:
     """
     Extract a likely client IP from headers with validation and trusted proxies.
+
+    When ``environment`` is supplied, it overrides ``ARCJET_ENV`` for the
+    development-mode gating of the ``X-Arcjet-Ip`` override. Pass this when
+    using a config library that does not propagate ``.env`` values into
+    ``os.environ`` (e.g. ``pydantic-settings``).
     """
     proxy_nets = _parse_proxies(proxies)
 
     # In development only, allow override for testing.
-    if _is_development():
+    if _is_development(environment=environment):
         xaj = _first_header(headers, "x-arcjet-ip")
         if xaj:
             # In development, accept any override to ease local testing.
@@ -319,6 +336,7 @@ def coerce_request_context(
     *,
     proxies: Sequence[str] | None = None,
     ip_src: str | None = None,
+    environment: str | None = None,
 ) -> RequestContext:
     """Best-effort coercion from common request objects.
 
@@ -333,6 +351,9 @@ def coerce_request_context(
         cookies, query string, and body.
 
     In development, if no IP can be determined, defaults to `127.0.0.1`.
+    When ``environment`` is supplied, it overrides ``ARCJET_ENV`` for the
+    development-mode check; pass this when using a config library that does
+    not propagate ``.env`` values into ``os.environ`` (e.g. ``pydantic-settings``).
     Raises `TypeError` for unsupported shapes.
     """
     if isinstance(req, RequestContext):
@@ -361,8 +382,10 @@ def coerce_request_context(
                     # Prefer the direct remote address when it's global and not a trusted proxy.
                     if _is_global_public_ip(client[0], _parse_proxies(proxies)):
                         ip = client[0]
-                ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-                if not ip and _is_development():
+                ip = ip or extract_ip_from_headers(
+                    headers, proxies=proxies, environment=environment
+                )
+                if not ip and _is_development(environment=environment):
                     ip = "127.0.0.1"
             else:
                 ip = ip_src
@@ -407,8 +430,10 @@ def coerce_request_context(
         if not ip_src:
             if _is_global_public_ip(remote, _parse_proxies(proxies)):
                 ip = remote
-            ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-            if not ip and _is_development():
+            ip = ip or extract_ip_from_headers(
+                headers, proxies=proxies, environment=environment
+            )
+            if not ip and _is_development(environment=environment):
                 ip = "127.0.0.1"
         else:
             ip = ip_src
@@ -449,8 +474,10 @@ def coerce_request_context(
         if not ip_src:
             if _is_global_public_ip(remote, _parse_proxies(proxies)):
                 ip = remote
-            ip = ip or extract_ip_from_headers(headers, proxies=proxies)
-            if not ip and _is_development():
+            ip = ip or extract_ip_from_headers(
+                headers, proxies=proxies, environment=environment
+            )
+            if not ip and _is_development(environment=environment):
                 ip = "127.0.0.1"
         else:
             ip = ip_src

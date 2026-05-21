@@ -6,8 +6,11 @@ frameworks, and protobuf conversion utilities.
 
 from __future__ import annotations
 
+import pytest
+
 from arcjet._context import (
     RequestContext,
+    _is_development,
     coerce_request_context,
     extract_ip_from_headers,
     request_details_from_context,
@@ -222,6 +225,186 @@ def test_request_details_from_context_omits_redacted_keys_when_absent():
     d = request_details_from_context(ctx)
     assert "filterLocal" not in d.extra
     assert "sensitiveInfoValue" not in d.extra
+
+
+class TestIsDevelopment:
+    """`_is_development()` resolves from the kwarg first, env var second.
+
+    The kwarg is what pydantic-settings users pass; this matrix locks in the
+    promise that an explicit value always wins over `ARCJET_ENV`.
+    """
+
+    def test_no_kwarg_no_env_returns_false(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _is_development() is False
+
+    def test_no_kwarg_env_development_returns_true(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        assert _is_development() is True
+
+    def test_kwarg_development_returns_true(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _is_development(environment="development") is True
+
+    def test_kwarg_production_beats_env_development(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        assert _is_development(environment="production") is False
+
+    def test_kwarg_is_case_insensitive(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _is_development(environment="Development") is True
+        assert _is_development(environment="DEVELOPMENT") is True
+
+    def test_kwarg_empty_string_treated_as_unset(self, monkeypatch: pytest.MonkeyPatch):
+        # Empty string falls through `(environment or "production")`, matching
+        # existing `or "production"` semantics for the env var.
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _is_development(environment="") is False
+
+    def test_kwarg_unrecognized_values_are_not_dev(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Only the exact (case-insensitive) string "development" is dev; this
+        # matches the pre-existing env-var contract — typos and aliases like
+        # "dev" or "staging" silently mean production.
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        assert _is_development(environment="staging") is False
+        assert _is_development(environment="dev") is False
+
+
+class TestExtractIpFromHeadersEnvironmentKwarg:
+    """`extract_ip_from_headers` honors the `environment` kwarg for the
+    `X-Arcjet-Ip` dev override, independent of `ARCJET_ENV`.
+    """
+
+    def test_kwarg_development_enables_override(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        headers = {"X-Arcjet-Ip": "10.0.0.1"}
+        assert extract_ip_from_headers(headers, environment="development") == "10.0.0.1"
+
+    def test_kwarg_production_disables_override_even_when_env_says_dev(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        # X-Arcjet-Ip should be ignored — kwarg explicitly says production.
+        # With no XFF and no global IP, result is None.
+        headers = {"X-Arcjet-Ip": "10.0.0.1"}
+        assert extract_ip_from_headers(headers, environment="production") is None
+
+
+class TestCoerceRequestContextEnvironmentKwarg:
+    """The loopback fallback honors the `environment` kwarg across all three
+    framework adapter paths (ASGI, Flask, Django). Each path duplicates the
+    same fallback block, so we cover each path explicitly.
+    """
+
+    def test_asgi_loopback_fallback_with_kwarg(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+        }
+        ctx = coerce_request_context(scope, environment="development")
+        assert ctx.ip == "127.0.0.1"
+
+    def test_asgi_loopback_dropped_when_kwarg_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+        }
+        ctx = coerce_request_context(scope, environment="production")
+        assert ctx.ip is None
+
+    def test_flask_loopback_fallback_with_kwarg(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+
+        class FakeFlaskRequest:
+            headers: dict[str, str] = {}
+            method = "GET"
+            path = "/"
+            host = "localhost"
+            remote_addr = "127.0.0.1"
+            is_secure = False
+            query_string = b""
+
+            def get_data(self):
+                return b""
+
+        ctx = coerce_request_context(FakeFlaskRequest(), environment="development")
+        assert ctx.ip == "127.0.0.1"
+
+    def test_flask_loopback_dropped_when_kwarg_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+
+        class FakeFlaskRequest:
+            headers: dict[str, str] = {}
+            method = "GET"
+            path = "/"
+            host = "localhost"
+            remote_addr = "127.0.0.1"
+            is_secure = False
+            query_string = b""
+
+            def get_data(self):
+                return b""
+
+        ctx = coerce_request_context(FakeFlaskRequest(), environment="production")
+        assert ctx.ip is None
+
+    def test_django_loopback_fallback_with_kwarg(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARCJET_ENV", raising=False)
+
+        class FakeDjangoRequest:
+            META = {
+                "REMOTE_ADDR": "127.0.0.1",
+                "wsgi.url_scheme": "http",
+                "HTTP_HOST": "localhost",
+                "QUERY_STRING": "",
+            }
+            method = "GET"
+            path = "/"
+            headers: dict[str, str] = {}
+            body = b""
+
+        ctx = coerce_request_context(FakeDjangoRequest(), environment="development")
+        assert ctx.ip == "127.0.0.1"
+
+    def test_django_loopback_dropped_when_kwarg_production(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ARCJET_ENV", "development")
+
+        class FakeDjangoRequest:
+            META = {
+                "REMOTE_ADDR": "127.0.0.1",
+                "wsgi.url_scheme": "http",
+                "HTTP_HOST": "localhost",
+                "QUERY_STRING": "",
+            }
+            method = "GET"
+            path = "/"
+            headers: dict[str, str] = {}
+            body = b""
+
+        ctx = coerce_request_context(FakeDjangoRequest(), environment="production")
+        assert ctx.ip is None
 
 
 def test_request_details_from_context_normalizes_query_string():
