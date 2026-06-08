@@ -2,8 +2,7 @@
 
 Mirrors :mod:`._prompt_injection`.  Publicly exported from ``arcjet.guard``
 as ``experimental_ModerateContent`` to signal that the rule and its result
-shape may change.  No moderation model is wired up server-side yet, so the
-rule currently returns an error result (fail open).
+shape may change.
 """
 
 from __future__ import annotations
@@ -59,9 +58,12 @@ class ModerateContent:
 
     .. warning::
 
-        Experimental.  No moderation model is wired up yet, so this rule
-        currently returns an error result (which is fail-open — ``"ALLOW"``).
-        The rule name and its result shape may change.
+        Experimental — the rule name and its result shape may change.
+        This functionality may not be available yet, so while this rule is
+        experimental a call may simply return an error result.
+        Errors are fail-open: the decision reports an error while the
+        conclusion stays ``"ALLOW"``.  Check the latest version of this SDK
+        to see whether the rule is now stable.
 
     Args:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
