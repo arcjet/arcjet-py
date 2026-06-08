@@ -267,6 +267,9 @@ class TestDecisionFromProto:
         decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "MODERATE_CONTENT"
+        r = inp.result(decision)
+        assert r is not None
+        assert r.detected is True
 
     def test_deny_with_sensitive_info(self) -> None:
         rule = LocalDetectSensitiveInfo()

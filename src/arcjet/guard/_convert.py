@@ -146,6 +146,7 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         v = pr.moderate_content
         return RuleResultModerateContent(
             conclusion=_conclusion_from_proto(v.conclusion),
+            detected=v.detected,
         )
 
     if which == "local_sensitive_info":

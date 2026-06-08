@@ -769,6 +769,7 @@ class TestModerateContentLayer3:
         assert r is not None
         assert r.conclusion == "DENY"
         assert r.type == "MODERATE_CONTENT"
+        assert r.detected is True
 
     def test_input_denied_result_none_for_allow(self) -> None:
         rule = experimental_ModerateContent()
@@ -790,6 +791,9 @@ class TestModerateContentLayer3:
             ],
         )
         decision = decision_from_proto(response)
+        r = inp.result(decision)
+        assert r is not None
+        assert r.detected is False
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:

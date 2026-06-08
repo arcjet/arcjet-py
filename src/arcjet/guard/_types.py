@@ -171,6 +171,9 @@ class RuleResultModerateContent:
     conclusion: Conclusion
     """Whether the request was allowed or denied by this rule."""
 
+    detected: bool
+    """Whether harmful content was detected in the input text."""
+
     reason: Literal["MODERATE_CONTENT"] = "MODERATE_CONTENT"
     """The reason category — always ``"MODERATE_CONTENT"`` for this rule."""
 
