@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Union
 
 from ._custom import LocalCustomRule, LocalCustomWithInput, TypedCustomResult
+from ._moderate_content import ModerateContent, ModerateContentWithInput
 from ._prompt_injection import DetectPromptInjection, PromptInjectionWithInput
 from ._rate_limit import (
     FixedWindow,
@@ -32,6 +33,7 @@ RuleWithInput = Union[
     FixedWindowWithInput,
     SlidingWindowWithInput,
     PromptInjectionWithInput,
+    ModerateContentWithInput,
     SensitiveInfoWithInput,
     LocalCustomWithInput[Any],
 ]
@@ -42,6 +44,7 @@ RuleWithConfig = Union[
     FixedWindow,
     SlidingWindow,
     DetectPromptInjection,
+    ModerateContent,
     LocalDetectSensitiveInfo,
     LocalCustomRule[Any, Any, Any],
 ]
@@ -56,6 +59,7 @@ __all__ = [
     # WithInput dataclasses
     "FixedWindowWithInput",
     "LocalCustomWithInput",
+    "ModerateContentWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",
@@ -66,6 +70,7 @@ __all__ = [
     "FixedWindow",
     "LocalCustomRule",
     "LocalDetectSensitiveInfo",
+    "ModerateContent",
     "SlidingWindow",
     "TokenBucket",
     # Unions

@@ -47,6 +47,8 @@ from ._rules import (
     LocalCustomRule,
     LocalCustomWithInput,
     LocalDetectSensitiveInfo,
+    ModerateContent,
+    ModerateContentWithInput,
     PromptInjectionWithInput,
     RuleWithConfig,
     RuleWithInput,
@@ -57,6 +59,12 @@ from ._rules import (
     TokenBucketWithInput,
     TypedCustomResult,
 )
+
+# Experimental: content moderation. Exposed under an ``experimental_`` prefix on
+# the PascalCase rule name (matching the other rule classes) to signal that the
+# rule and its result shape may change. No moderation model is wired up
+# server-side yet, so it currently returns an error result (fail open).
+experimental_ModerateContent = ModerateContent
 from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     Conclusion,
@@ -68,6 +76,7 @@ from ._types import (
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
     RuleResultSensitiveInfo,
@@ -87,6 +96,7 @@ __all__ = [
     "RuleResultCustom",
     "RuleResultError",
     "RuleResultFixedWindow",
+    "RuleResultModerateContent",
     "RuleResultNotRun",
     "RuleResultPromptInjection",
     "RuleResultSensitiveInfo",
@@ -101,9 +111,12 @@ __all__ = [
     "LocalDetectSensitiveInfo",
     "SlidingWindow",
     "TokenBucket",
+    # Experimental rule factories
+    "experimental_ModerateContent",
     # Concrete input types
     "FixedWindowWithInput",
     "LocalCustomWithInput",
+    "ModerateContentWithInput",
     "PromptInjectionWithInput",
     "SensitiveInfoWithInput",
     "SlidingWindowWithInput",

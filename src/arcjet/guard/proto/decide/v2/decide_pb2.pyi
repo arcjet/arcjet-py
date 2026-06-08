@@ -22,6 +22,7 @@ class GuardReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_REASON_RATE_LIMIT: _ClassVar[GuardReason]
     GUARD_REASON_PROMPT_INJECTION: _ClassVar[GuardReason]
     GUARD_REASON_SENSITIVE_INFO: _ClassVar[GuardReason]
+    GUARD_REASON_MODERATE_CONTENT: _ClassVar[GuardReason]
 
 class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -30,6 +31,7 @@ class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_TYPE_FIXED_WINDOW: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_SLIDING_WINDOW: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_PROMPT_INJECTION: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_MODERATE_CONTENT: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_CUSTOM: _ClassVar[GuardRuleType]
 
@@ -48,11 +50,13 @@ GUARD_REASON_CUSTOM: GuardReason
 GUARD_REASON_RATE_LIMIT: GuardReason
 GUARD_REASON_PROMPT_INJECTION: GuardReason
 GUARD_REASON_SENSITIVE_INFO: GuardReason
+GUARD_REASON_MODERATE_CONTENT: GuardReason
 GUARD_RULE_TYPE_UNSPECIFIED: GuardRuleType
 GUARD_RULE_TYPE_TOKEN_BUCKET: GuardRuleType
 GUARD_RULE_TYPE_FIXED_WINDOW: GuardRuleType
 GUARD_RULE_TYPE_SLIDING_WINDOW: GuardRuleType
 GUARD_RULE_TYPE_PROMPT_INJECTION: GuardRuleType
+GUARD_RULE_TYPE_MODERATE_CONTENT: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_CUSTOM: GuardRuleType
 GUARD_RULE_MODE_UNSPECIFIED: GuardRuleMode
@@ -104,6 +108,12 @@ class RuleSlidingWindow(_message.Message):
     def __init__(self, config_max_requests: _Optional[int] = ..., config_interval_seconds: _Optional[int] = ..., config_bucket: _Optional[str] = ..., input_key_hash: _Optional[str] = ..., input_requested: _Optional[int] = ...) -> None: ...
 
 class RuleDetectPromptInjection(_message.Message):
+    __slots__ = ()
+    INPUT_TEXT_FIELD_NUMBER: _ClassVar[int]
+    input_text: str
+    def __init__(self, input_text: _Optional[str] = ...) -> None: ...
+
+class RuleModerateContent(_message.Message):
     __slots__ = ()
     INPUT_TEXT_FIELD_NUMBER: _ClassVar[int]
     input_text: str
@@ -169,15 +179,17 @@ class GuardRule(_message.Message):
     FIXED_WINDOW_FIELD_NUMBER: _ClassVar[int]
     SLIDING_WINDOW_FIELD_NUMBER: _ClassVar[int]
     DETECT_PROMPT_INJECTION_FIELD_NUMBER: _ClassVar[int]
+    MODERATE_CONTENT_FIELD_NUMBER: _ClassVar[int]
     LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     LOCAL_CUSTOM_FIELD_NUMBER: _ClassVar[int]
     token_bucket: RuleTokenBucket
     fixed_window: RuleFixedWindow
     sliding_window: RuleSlidingWindow
     detect_prompt_injection: RuleDetectPromptInjection
+    moderate_content: RuleModerateContent
     local_sensitive_info: RuleLocalSensitiveInfo
     local_custom: RuleLocalCustom
-    def __init__(self, token_bucket: _Optional[_Union[RuleTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[RuleFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[RuleSlidingWindow, _Mapping]] = ..., detect_prompt_injection: _Optional[_Union[RuleDetectPromptInjection, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[RuleLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[RuleLocalCustom, _Mapping]] = ...) -> None: ...
+    def __init__(self, token_bucket: _Optional[_Union[RuleTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[RuleFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[RuleSlidingWindow, _Mapping]] = ..., detect_prompt_injection: _Optional[_Union[RuleDetectPromptInjection, _Mapping]] = ..., moderate_content: _Optional[_Union[RuleModerateContent, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[RuleLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[RuleLocalCustom, _Mapping]] = ...) -> None: ...
 
 class GuardRuleSubmission(_message.Message):
     __slots__ = ()
@@ -254,6 +266,14 @@ class ResultPromptInjection(_message.Message):
     detected: bool
     def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
 
+class ResultModerateContent(_message.Message):
+    __slots__ = ()
+    CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_FIELD_NUMBER: _ClassVar[int]
+    conclusion: GuardConclusion
+    detected: bool
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
+
 class ResultLocalSensitiveInfo(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
@@ -301,6 +321,7 @@ class GuardRuleResult(_message.Message):
     FIXED_WINDOW_FIELD_NUMBER: _ClassVar[int]
     SLIDING_WINDOW_FIELD_NUMBER: _ClassVar[int]
     PROMPT_INJECTION_FIELD_NUMBER: _ClassVar[int]
+    MODERATE_CONTENT_FIELD_NUMBER: _ClassVar[int]
     LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     LOCAL_CUSTOM_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
@@ -313,11 +334,12 @@ class GuardRuleResult(_message.Message):
     fixed_window: ResultFixedWindow
     sliding_window: ResultSlidingWindow
     prompt_injection: ResultPromptInjection
+    moderate_content: ResultModerateContent
     local_sensitive_info: ResultLocalSensitiveInfo
     local_custom: ResultLocalCustom
     error: ResultError
     not_run: ResultNotRun
-    def __init__(self, result_id: _Optional[str] = ..., config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., token_bucket: _Optional[_Union[ResultTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[ResultFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[ResultSlidingWindow, _Mapping]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[ResultLocalCustom, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
+    def __init__(self, result_id: _Optional[str] = ..., config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., token_bucket: _Optional[_Union[ResultTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[ResultFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[ResultSlidingWindow, _Mapping]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., moderate_content: _Optional[_Union[ResultModerateContent, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[ResultLocalCustom, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
 
 class GuardDecision(_message.Message):
     __slots__ = ()

@@ -19,6 +19,7 @@ from ._local import (
 from ._rules import (
     FixedWindowWithInput,
     LocalCustomWithInput,
+    ModerateContentWithInput,
     PromptInjectionWithInput,
     RuleWithInput,
     SensitiveInfoWithInput,
@@ -34,6 +35,7 @@ from ._types import (
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
     RuleResultSensitiveInfo,
@@ -66,6 +68,7 @@ def _reason_from_oneof(field_name: str) -> Reason:
         "fixed_window": "RATE_LIMIT",
         "sliding_window": "RATE_LIMIT",
         "prompt_injection": "PROMPT_INJECTION",
+        "moderate_content": "MODERATE_CONTENT",
         "local_sensitive_info": "SENSITIVE_INFO",
         "local_custom": "CUSTOM",
         "error": "ERROR",
@@ -80,6 +83,7 @@ _REASON_MAP: dict[int, Reason] = {
     pb.GUARD_REASON_CUSTOM: "CUSTOM",
     pb.GUARD_REASON_RATE_LIMIT: "RATE_LIMIT",
     pb.GUARD_REASON_PROMPT_INJECTION: "PROMPT_INJECTION",
+    pb.GUARD_REASON_MODERATE_CONTENT: "MODERATE_CONTENT",
     pb.GUARD_REASON_SENSITIVE_INFO: "SENSITIVE_INFO",
 }
 
@@ -135,6 +139,12 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
     if which == "prompt_injection":
         v = pr.prompt_injection
         return RuleResultPromptInjection(
+            conclusion=_conclusion_from_proto(v.conclusion),
+        )
+
+    if which == "moderate_content":
+        v = pr.moderate_content
+        return RuleResultModerateContent(
             conclusion=_conclusion_from_proto(v.conclusion),
         )
 
@@ -256,6 +266,13 @@ def _rule_body_to_proto(
     if isinstance(rule, PromptInjectionWithInput):
         return pb.GuardRule(
             detect_prompt_injection=pb.RuleDetectPromptInjection(
+                input_text=rule.text,
+            ),
+        )
+
+    if isinstance(rule, ModerateContentWithInput):
+        return pb.GuardRule(
+            moderate_content=pb.RuleModerateContent(
                 input_text=rule.text,
             ),
         )
