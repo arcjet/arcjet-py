@@ -10,12 +10,14 @@ from arcjet.guard import (
     FixedWindow,
     FixedWindowWithInput,
     LocalDetectSensitiveInfo,
+    ModerateContentWithInput,
     PromptInjectionWithInput,
     SensitiveInfoWithInput,
     SlidingWindow,
     SlidingWindowWithInput,
     TokenBucket,
     TokenBucketWithInput,
+    experimental_ModerateContent,
 )
 from arcjet.guard._convert import decision_from_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -50,6 +52,12 @@ class TestRuleFactories:
         inp = rule("some text")
         assert inp._config_id
         assert isinstance(inp, PromptInjectionWithInput)
+
+    def test_experimental_moderate_content_returns_rule_with_input(self) -> None:
+        rule = experimental_ModerateContent()
+        inp = rule("some text")
+        assert inp._config_id
+        assert isinstance(inp, ModerateContentWithInput)
 
     def test_detect_sensitive_info_returns_rule_with_input(self) -> None:
         rule = LocalDetectSensitiveInfo()
@@ -733,6 +741,99 @@ class TestPromptInjectionLayer3:
         )
         decision = decision_from_proto(response)
         assert rule.denied_result(decision) is None
+
+
+class TestModerateContentLayer3:
+    def test_input_result_returns_typed(self) -> None:
+        rule = experimental_ModerateContent()
+        inp = rule("some harmful content")
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+
+        r = inp.result(decision)
+        assert r is not None
+        assert r.conclusion == "DENY"
+        assert r.type == "MODERATE_CONTENT"
+        assert r.detected is True
+
+    def test_input_denied_result_none_for_allow(self) -> None:
+        rule = experimental_ModerateContent()
+        inp = rule("safe text")
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        r = inp.result(decision)
+        assert r is not None
+        assert r.detected is False
+        assert inp.denied_result(decision) is None
+
+    def test_config_results_and_denied(self) -> None:
+        rule = experimental_ModerateContent()
+        i1 = rule("safe text")
+        i2 = rule("bad text")
+
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=i1._config_id,
+                    input_id=i1._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                    ),
+                ),
+                pb.GuardRuleResult(
+                    result_id="gres_2",
+                    config_id=i2._config_id,
+                    input_id=i2._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+
+        results = rule.results(decision)
+        assert len(results) == 2
+
+        denied = rule.denied_result(decision)
+        assert denied is not None
+        assert denied.conclusion == "DENY"
 
 
 class TestSensitiveInfoLayer3:

@@ -26,6 +26,7 @@ Conclusion = Literal["ALLOW", "DENY"]
 Reason = Literal[
     "RATE_LIMIT",
     "PROMPT_INJECTION",
+    "MODERATE_CONTENT",
     "SENSITIVE_INFO",
     "CUSTOM",
     "ERROR",
@@ -164,6 +165,23 @@ class RuleResultPromptInjection:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleResultModerateContent:
+    """Result from a content moderation evaluation (experimental)."""
+
+    conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
+    detected: bool
+    """Whether harmful content was detected in the input text."""
+
+    reason: Literal["MODERATE_CONTENT"] = "MODERATE_CONTENT"
+    """The reason category — always ``"MODERATE_CONTENT"`` for this rule."""
+
+    type: Literal["MODERATE_CONTENT"] = "MODERATE_CONTENT"
+    """Discriminant — always ``"MODERATE_CONTENT"``."""
+
+
+@dataclass(frozen=True, slots=True)
 class RuleResultSensitiveInfo:
     """Result from a sensitive information detection evaluation."""
 
@@ -254,6 +272,7 @@ RuleResult = Union[
     RuleResultFixedWindow,
     RuleResultSlidingWindow,
     RuleResultPromptInjection,
+    RuleResultModerateContent,
     RuleResultSensitiveInfo,
     RuleResultCustom,
     RuleResultNotRun,
