@@ -1419,6 +1419,11 @@ class TestHasErrorWithResponseErrors:
         decision = decision_from_proto(response)
         assert decision.has_error()
 
+    def test_has_error_emits_deprecation_warning(self) -> None:
+        decision = decision_from_proto(make_response(pb.GUARD_CONCLUSION_ALLOW, []))
+        with pytest.warns(DeprecationWarning, match="has_error\\(\\) is deprecated"):
+            decision.has_error()
+
 
 class TestThreadSafety:
     """Verify concurrent rule invocation from multiple threads."""

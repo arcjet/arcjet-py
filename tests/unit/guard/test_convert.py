@@ -8,8 +8,10 @@ from arcjet.guard import (
     DetectPromptInjection,
     FixedWindow,
     LocalDetectSensitiveInfo,
+    RuleResultError,
     SlidingWindow,
     TokenBucket,
+    Warning,
     experimental_ModerateContent,
 )
 from arcjet.guard._convert import decision_from_proto, rule_to_proto
@@ -497,6 +499,136 @@ class TestEdgeCases:
         decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.has_error()
+
+
+class TestWarningsAndFailedOpen:
+    """Decision-level warnings, error_results(), and has_failed_open()."""
+
+    def test_response_errors_surface_as_warnings(self) -> None:
+        response = pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_test",
+                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                rule_results=[],
+            ),
+            errors=[
+                pb.ResultError(message="invalid metadata key", code="AJ1001"),
+                pb.ResultError(message="invalid label", code="AJ1002"),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert decision.warnings == (
+            Warning(code="AJ1001", message="invalid metadata key"),
+            Warning(code="AJ1002", message="invalid label"),
+        )
+        # A warning alone never makes a decision fail open.
+        assert not decision.has_failed_open()
+        assert decision.error_results() == ()
+
+    def test_allow_with_error_result_is_failed_open(self) -> None:
+        rl = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rl(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    error=pb.ResultError(message="boom", code="INTERNAL"),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert decision.conclusion == "ALLOW"
+        assert decision.has_failed_open()
+        errs = decision.error_results()
+        assert len(errs) == 1
+        assert isinstance(errs[0], RuleResultError)
+        assert errs[0].code == "INTERNAL"
+
+    def test_deny_with_error_is_not_failed_open(self) -> None:
+        # A DENY conclusion was reached despite an errored rule — the decision
+        # did not fail open (it denied on purpose).
+        rl = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rl(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    error=pb.ResultError(message="boom", code="INTERNAL"),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+        assert decision.conclusion == "DENY"
+        assert not decision.has_failed_open()
+        # error_results() still surfaces the errored rule regardless of conclusion.
+        assert len(decision.error_results()) == 1
+
+    def test_warning_and_error_are_distinct_severity_axes(self) -> None:
+        # A warning (processed correctly, fix it) and an error (could not
+        # process) are independent: a warning does not make the decision fail
+        # open, but an errored rule does.
+        rl = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rl(key="user_1")
+        response = pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_test",
+                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                rule_results=[
+                    pb.GuardRuleResult(
+                        result_id="gres_1",
+                        config_id=inp._config_id,
+                        input_id=inp._input_id,
+                        type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                        error=pb.ResultError(message="boom", code="INTERNAL"),
+                    ),
+                ],
+            ),
+            errors=[pb.ResultError(message="stripped key", code="AJ1002")],
+        )
+        decision = decision_from_proto(response)
+        assert decision.conclusion == "ALLOW"
+        assert len(decision.warnings) == 1
+        assert len(decision.error_results()) == 1
+        # Failed open is driven by the error, not the warning.
+        assert decision.has_failed_open()
+
+    def test_missing_decision_synthesizes_failed_open(self) -> None:
+        # No decision in the response — the SDK synthesizes a fail-open ALLOW
+        # carrying a synthetic error result.
+        decision = decision_from_proto(pb.GuardResponse())
+        assert decision.conclusion == "ALLOW"
+        assert decision.has_failed_open()
+        assert len(decision.error_results()) == 1
+        assert decision.error_results()[0].code == "NO_DECISION"
+
+    def test_warnings_coerce_non_string_fields(self) -> None:
+        # A malformed response can put a non-string where code/message is
+        # expected; the SDK boundary coerces to safe fallbacks rather than
+        # propagating the bad value.
+        from typing import cast
+
+        from arcjet.guard._convert import _warnings_from_proto
+
+        class _BadError:
+            # Intentionally non-string to simulate malformed wire data.
+            code = 42  # type: ignore[assignment]
+            message = None  # type: ignore[assignment]
+
+        warnings = _warnings_from_proto(cast("list[pb.ResultError]", [_BadError()]))
+        assert warnings == (Warning(code="UNKNOWN", message="Unknown warning"),)
+
+    def test_warnings_empty_when_no_response_errors(self) -> None:
+        decision = decision_from_proto(make_response(pb.GUARD_CONCLUSION_ALLOW, []))
+        assert decision.warnings == ()
+        assert not decision.has_failed_open()
 
 
 class TestRuleToProtoLocalSensitiveInfo:
