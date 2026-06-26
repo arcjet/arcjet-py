@@ -57,6 +57,7 @@ def _build_request(
     label: str,
     metadata: dict[str, str] | None,
     local_eval_duration_ms: int,
+    correlation_id: str | None = None,
 ) -> pb.GuardRequest:
     req = pb.GuardRequest(
         user_agent=user_agent,
@@ -67,6 +68,8 @@ def _build_request(
     if metadata:
         for k, v in metadata.items():
             req.metadata[k] = v
+    if correlation_id:
+        req.correlation_id = correlation_id
     req.rule_submissions.extend(submissions)
     return req
 
@@ -111,6 +114,7 @@ def _prepare_guard(
     user_agent: str,
     label: str,
     metadata: dict[str, str] | None,
+    correlation_id: str | None = None,
 ) -> Decision | pb.GuardRequest:
     """Validate rules, run local evaluations, and build the proto request.
 
@@ -148,6 +152,7 @@ def _prepare_guard(
         label=label,
         metadata=metadata,
         local_eval_duration_ms=local_eval_duration_ms,
+        correlation_id=correlation_id,
     )
 
 
@@ -186,6 +191,7 @@ class ArcjetGuard:
         *,
         label: str,
         metadata: dict[str, str] | None = None,
+        correlation_id: str | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (async).
 
@@ -196,12 +202,21 @@ class ArcjetGuard:
                 dash (``-``), and dot (``.``) only; must start and end with
                 a lowercase letter or digit; max 256 bytes.
             metadata: Optional key/value metadata.
+            correlation_id: Optional opaque identifier used to correlate this
+                guard call with other ``guard()``/``protect()`` calls in the
+                same workflow or agent run. A dedicated, indexable field (unlike
+                ``metadata``); does not affect the decision. Bounded server-side
+                to 256 bytes of printable ASCII; invalid values are dropped.
 
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
         result = _prepare_guard(
-            rules, user_agent=self._user_agent, label=label, metadata=metadata
+            rules,
+            user_agent=self._user_agent,
+            label=label,
+            metadata=metadata,
+            correlation_id=correlation_id,
         )
         if isinstance(result, Decision):
             return result
@@ -238,6 +253,7 @@ class ArcjetGuardSync:
         *,
         label: str,
         metadata: dict[str, str] | None = None,
+        correlation_id: str | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (sync).
 
@@ -248,12 +264,21 @@ class ArcjetGuardSync:
                 dash (``-``), and dot (``.``) only; must start and end with
                 a lowercase letter or digit; max 256 bytes.
             metadata: Optional key/value metadata.
+            correlation_id: Optional opaque identifier used to correlate this
+                guard call with other ``guard()``/``protect()`` calls in the
+                same workflow or agent run. A dedicated, indexable field (unlike
+                ``metadata``); does not affect the decision. Bounded server-side
+                to 256 bytes of printable ASCII; invalid values are dropped.
 
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
         result = _prepare_guard(
-            rules, user_agent=self._user_agent, label=label, metadata=metadata
+            rules,
+            user_agent=self._user_agent,
+            label=label,
+            metadata=metadata,
+            correlation_id=correlation_id,
         )
         if isinstance(result, Decision):
             return result

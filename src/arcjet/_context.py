@@ -77,6 +77,13 @@ class RequestContext:
     - detect_prompt_injection_message: User message for prompt injection
         detection rule.
     - extra: Additional key/value metadata to be forwarded to the Decide API.
+    - correlation_id: Optional, caller-supplied opaque identifier used to
+        correlate this request with other `protect()` and `guard()` calls that
+        belong to the same workflow, agent run, or multi-step task. It does not
+        affect the decision and is excluded from fingerprinting; it is stored
+        alongside the recorded decision so a chain of actions can be
+        reconstructed. Bounded server-side to 256 bytes of printable ASCII;
+        invalid values are dropped, not truncated.
     """
 
     ip: str | None = None
@@ -93,6 +100,7 @@ class RequestContext:
     detect_prompt_injection_message: str | None = None
     filter_local: Mapping[str, str] | None = None
     extra: Mapping[str, str] | None = None
+    correlation_id: str | None = None
 
 
 class SupportsRequestContext(Protocol):
@@ -306,6 +314,10 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
         d.body = ctx.body
     if ctx.email:
         d.email = ctx.email
+    if ctx.correlation_id:
+        # Dedicated top-level field (not `extra`). Excluded from the cache key;
+        # see `make_cache_key`, which only hashes rule characteristics.
+        d.correlation_id = ctx.correlation_id
 
     if ctx.headers:
         for k, v in ctx.headers.items():

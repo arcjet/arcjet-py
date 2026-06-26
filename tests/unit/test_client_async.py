@@ -152,6 +152,39 @@ def test_ip_override_with_ip_src(
     assert d.is_allowed()
 
 
+def test_correlation_id_sent_in_decide_request(
+    mock_protobuf_modules,
+    make_allow_decision,
+    dev_environment,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """correlation_id is forwarded on RequestDetails, not placed in extra."""
+    from arcjet import arcjet
+    from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+
+    captured = {}
+
+    def capture_decide(req):
+        captured["correlation_id"] = req.details.correlation_id
+        captured["extra"] = dict(req.details.extra)
+        decision = make_allow_decision()
+        return mock_protobuf_modules["DecideResponse"](decision)
+
+    monkeypatch.setattr(
+        DecideServiceClient, "decide_behavior", capture_decide, raising=False
+    )
+    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    aj = arcjet(key="ajkey_x", rules=rules)
+    import asyncio
+
+    asyncio.run(aj.protect({"headers": [], "type": "http"}, correlation_id="wf_abcdef"))
+    assert captured["correlation_id"] == "wf_abcdef"
+    # It is a dedicated field, never funneled into the `extra` map.
+    assert "correlation_id" not in captured["extra"]
+    assert "correlationId" not in captured["extra"]
+
+
 def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     """Test that ip_src is required when automatic IP detection is disabled."""
     from arcjet import arcjet

@@ -151,6 +151,16 @@ class ProtectOptions(TypedDict, total=False):
     extra: Mapping[str, str]
     """Arbitrary key/value pairs forwarded verbatim to the Arcjet Decide API."""
 
+    correlation_id: str
+    """Optional, caller-supplied opaque identifier used to correlate this
+    request with other ``protect()`` and ``guard()`` calls that belong to the
+    same workflow, agent run, or multi-step task.
+
+    It does not affect the decision and is excluded from fingerprinting (and the
+    decision cache key), so two requests that differ only by correlation ID
+    still share rate-limit state. Bounded server-side to 256 bytes of printable
+    ASCII; invalid values are dropped, not truncated."""
+
 
 def _default_timeout_ms(
     rules: Sequence[RuleSpec] = (), environment: str | None = None
@@ -442,6 +452,7 @@ class Arcjet:
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         filter_local: Mapping[str, str] | None = None,
+        correlation_id: str | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request.
@@ -470,6 +481,10 @@ class Arcjet:
             filter_local: Additional key/value pairs available as ``local.<key>``
                 in ``filter_request()`` expressions. Only used when a
                 ``filter_request()`` rule is configured.
+            correlation_id: Optional opaque identifier used to correlate this
+                request with other ``protect()``/``guard()`` calls in the same
+                workflow or agent run. Does not affect the decision and is
+                excluded from fingerprinting (and the decision cache key).
             ip_src: Override the detected client IP. Only valid when
                 ``disable_automatic_ip_detection=True`` was set on the client.
                 **Caution:** only pass IPs from sources you trust. See
@@ -529,6 +544,8 @@ class Arcjet:
             )
         if filter_local:
             ctx = replace(ctx, filter_local=filter_local)
+        if correlation_id:
+            ctx = replace(ctx, correlation_id=correlation_id)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
@@ -967,6 +984,7 @@ class ArcjetSync:
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
         filter_local: Mapping[str, str] | None = None,
+        correlation_id: str | None = None,
         ip_src: str | None = None,
     ) -> Decision:
         """Evaluate the configured security rules against an incoming request (sync).
@@ -1011,6 +1029,8 @@ class ArcjetSync:
             )
         if filter_local:
             ctx = replace(ctx, filter_local=filter_local)
+        if correlation_id:
+            ctx = replace(ctx, correlation_id=correlation_id)
         # Enforce required per-request context based on configured rules.
         if self._needs_email and not (email or ctx.email):
             raise ArcjetMisconfiguration(
