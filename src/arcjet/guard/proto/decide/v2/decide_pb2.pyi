@@ -368,13 +368,15 @@ class GuardRequest(_message.Message):
     LABEL_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
     RULE_SUBMISSIONS_FIELD_NUMBER: _ClassVar[int]
+    CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
     user_agent: str
     local_eval_duration_ms: int
     sent_at_unix_ms: int
     label: str
     metadata: _containers.ScalarMap[str, str]
     rule_submissions: _containers.RepeatedCompositeFieldContainer[GuardRuleSubmission]
-    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ...) -> None: ...
+    correlation_id: str
+    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ...) -> None: ...
 
 class GuardResponse(_message.Message):
     __slots__ = ()
