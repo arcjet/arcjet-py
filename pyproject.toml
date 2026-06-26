@@ -53,13 +53,13 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
   "pytest-benchmark>=5.1.0",
-  "fastapi==0.135.1",                      # For testing integration with FastAPI
+  "fastapi==0.137.2",                      # For testing integration with FastAPI
   "flask==3.1.3",                          # For testing integration with Flask
-  "griffe==2.0.0",
+  "griffe==2.1.0",
   "httpx==0.28.1",                         # Used by FastAPI tests
-  "pyright==1.1.408",
+  "pyright==1.1.410",
   "hypothesis>=6.100.0",
-  "pytest==9.0.3",
+  "pytest==9.1.1",
   "pytest-cov>=7.0.0",
   "ruff==0.15.6",
   "tomli>=2.0.0; python_version < '3.11'",
