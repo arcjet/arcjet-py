@@ -67,6 +67,7 @@ class SDKStack(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SDK_STACK_ASTRO: _ClassVar[SDKStack]
     SDK_STACK_FASTIFY: _ClassVar[SDKStack]
     SDK_STACK_REACT_ROUTER: _ClassVar[SDKStack]
+    SDK_STACK_GO: _ClassVar[SDKStack]
 
 class RateLimitAlgorithm(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -142,6 +143,7 @@ SDK_STACK_REMIX: SDKStack
 SDK_STACK_ASTRO: SDKStack
 SDK_STACK_FASTIFY: SDKStack
 SDK_STACK_REACT_ROUTER: SDKStack
+SDK_STACK_GO: SDKStack
 RATE_LIMIT_ALGORITHM_UNSPECIFIED: RateLimitAlgorithm
 RATE_LIMIT_ALGORITHM_TOKEN_BUCKET: RateLimitAlgorithm
 RATE_LIMIT_ALGORITHM_FIXED_WINDOW: RateLimitAlgorithm
@@ -538,6 +540,7 @@ class RequestDetails(_message.Message):
     EMAIL_FIELD_NUMBER: _ClassVar[int]
     COOKIES_FIELD_NUMBER: _ClassVar[int]
     QUERY_FIELD_NUMBER: _ClassVar[int]
+    CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
     ip: str
     method: str
     protocol: str
@@ -549,7 +552,8 @@ class RequestDetails(_message.Message):
     email: str
     cookies: str
     query: str
-    def __init__(self, ip: _Optional[str] = ..., method: _Optional[str] = ..., protocol: _Optional[str] = ..., host: _Optional[str] = ..., path: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., body: _Optional[bytes] = ..., extra: _Optional[_Mapping[str, str]] = ..., email: _Optional[str] = ..., cookies: _Optional[str] = ..., query: _Optional[str] = ...) -> None: ...
+    correlation_id: str
+    def __init__(self, ip: _Optional[str] = ..., method: _Optional[str] = ..., protocol: _Optional[str] = ..., host: _Optional[str] = ..., path: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., body: _Optional[bytes] = ..., extra: _Optional[_Mapping[str, str]] = ..., email: _Optional[str] = ..., cookies: _Optional[str] = ..., query: _Optional[str] = ..., correlation_id: _Optional[str] = ...) -> None: ...
 
 class Decision(_message.Message):
     __slots__ = ()
