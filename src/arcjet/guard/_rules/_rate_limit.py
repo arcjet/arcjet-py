@@ -9,11 +9,14 @@ from typing import Mapping, Optional
 from .._types import (
     Decision,
     Mode,
+    RuleResultError,
     RuleResultFixedWindow,
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
 )
 from ._base import (
+    _error_result_for_config,
+    _error_result_for_input,
     _get_internal_results,
     _hash_key,
     _merge_metadata,
@@ -137,6 +140,15 @@ class TokenBucketWithInput:
             return r
         return None
 
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get this invocation's errored result, or ``None`` if it didn't error.
+
+        Returns the :class:`RuleResultError` only — never the non-error
+        result. The non-error accessors (``result``/``results``/
+        ``denied_result``) exclude it.
+        """
+        return _error_result_for_input(decision, self._config_id, self._input_id)
+
 
 @dataclass(frozen=True, slots=True)
 class FixedWindowWithInput:
@@ -187,6 +199,15 @@ class FixedWindowWithInput:
             return r
         return None
 
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get this invocation's errored result, or ``None`` if it didn't error.
+
+        Returns the :class:`RuleResultError` only — never the non-error
+        result. The non-error accessors (``result``/``results``/
+        ``denied_result``) exclude it.
+        """
+        return _error_result_for_input(decision, self._config_id, self._input_id)
+
 
 @dataclass(frozen=True, slots=True)
 class SlidingWindowWithInput:
@@ -236,6 +257,15 @@ class SlidingWindowWithInput:
         if r is not None and r.conclusion == "DENY":
             return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get this invocation's errored result, or ``None`` if it didn't error.
+
+        Returns the :class:`RuleResultError` only — never the non-error
+        result. The non-error accessors (``result``/``results``/
+        ``denied_result``) exclude it.
+        """
+        return _error_result_for_input(decision, self._config_id, self._input_id)
 
 
 class TokenBucket:
@@ -339,6 +369,10 @@ class TokenBucket:
                 return r
         return None
 
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get the first errored result for this rule, or ``None``."""
+        return _error_result_for_config(decision, self._config_id)
+
 
 class FixedWindow:
     """Fixed window rate limiting rule.
@@ -433,6 +467,10 @@ class FixedWindow:
                 return r
         return None
 
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get the first errored result for this rule, or ``None``."""
+        return _error_result_for_config(decision, self._config_id)
+
 
 class SlidingWindow:
     """Sliding window rate limiting rule.
@@ -526,3 +564,7 @@ class SlidingWindow:
             if r.conclusion == "DENY":
                 return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get the first errored result for this rule, or ``None``."""
+        return _error_result_for_config(decision, self._config_id)

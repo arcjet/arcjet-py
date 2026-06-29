@@ -16,8 +16,19 @@ from typing import Any, Generic, Literal, Mapping, Optional, TypeVar, cast
 
 from arcjet._logging import logger
 
-from .._types import CustomEvaluateResult, Decision, Mode, RuleResultCustom
-from ._base import _get_internal_results, _merge_metadata
+from .._types import (
+    CustomEvaluateResult,
+    Decision,
+    Mode,
+    RuleResultCustom,
+    RuleResultError,
+)
+from ._base import (
+    _error_result_for_config,
+    _error_result_for_input,
+    _get_internal_results,
+    _merge_metadata,
+)
 
 TConfig = TypeVar("TConfig")
 TInput = TypeVar("TInput")
@@ -119,6 +130,16 @@ class LocalCustomWithInput(Generic[TData]):
         if r is not None and r.conclusion == "DENY":
             return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get this invocation's errored result, or ``None`` if it didn't error.
+
+        Returns the :class:`RuleResultError` only — an errored rule has no
+        custom result data, so this is not wrapped in
+        :class:`TypedCustomResult`. The non-error accessors
+        (``result``/``results``/``denied_result``) exclude it.
+        """
+        return _error_result_for_input(decision, self._config_id, self._input_id)
 
 
 class LocalCustomRule(Generic[TConfig, TInput, TData]):
@@ -311,3 +332,11 @@ class LocalCustomRule(Generic[TConfig, TInput, TData]):
             if r.conclusion == "DENY":
                 return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get the first errored result for this rule, or ``None``.
+
+        Returns the raw :class:`RuleResultError` — an errored rule has no
+        custom result data to wrap.
+        """
+        return _error_result_for_config(decision, self._config_id)
