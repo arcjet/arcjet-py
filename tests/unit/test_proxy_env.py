@@ -66,6 +66,8 @@ class _FakeProxy:
         try:
             self._sock.close()
         except OSError:
+            # Best-effort cleanup: the listener socket may already be closed
+            # (e.g. after a successful accept), which is fine to ignore.
             pass
         self._thread.join(timeout=1.0)
 
@@ -80,9 +82,15 @@ def _make_transport() -> pyqwest.SyncHTTPTransport:
 
 
 def _attempt_request() -> None:
+    # Construct the client outside the try block: a transport/client setup
+    # failure is a real test error and must not be swallowed, otherwise the
+    # negative tests (asserting the proxy was *not* contacted) could pass
+    # without ever exercising the proxy behavior.
     client = pyqwest.SyncClient(_make_transport())
-    # The request itself is expected to fail (the fake proxy closes the tunnel,
-    # or DNS fails for a direct request). We only care about what the proxy saw.
+    # Only the request itself is expected to fail (the fake proxy closes the
+    # tunnel, or DNS fails for a direct request to the reserved .test host).
+    # We assert on what the proxy observed, not on the request outcome, so any
+    # request-path error here is intentionally ignored.
     try:
         client.get(TARGET_URL)
     except Exception:
