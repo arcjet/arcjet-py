@@ -28,6 +28,7 @@ from ._rules import (
     TokenBucketWithInput,
 )
 from ._types import (
+    ArcjetWarning,
     Conclusion,
     Decision,
     InternalResult,
@@ -43,7 +44,6 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
-    Warning,
 )
 
 _CONCLUSION_MAP: dict[int, Conclusion] = {
@@ -349,17 +349,17 @@ def _rule_body_to_proto(
     raise ValueError(f"Unknown rule type: {type(rule).__name__}")
 
 
-def _warnings_from_proto(errors: Iterable[pb.ResultError]) -> tuple[Warning, ...]:
+def _warnings_from_proto(errors: Iterable[pb.ResultError]) -> tuple[ArcjetWarning, ...]:
     """Convert the proto ``GuardResponse.errors`` payload (non-fatal request
-    validation diagnostics) into decision-level :class:`Warning` entries,
+    validation diagnostics) into decision-level :class:`ArcjetWarning` entries,
     coercing each field to ``str`` at the SDK boundary. Network data is
     untrusted — a malformed response can put a non-string where a string is
     expected."""
-    warnings: list[Warning] = []
+    warnings: list[ArcjetWarning] = []
     for err in errors:
         code = err.code if isinstance(err.code, str) else "UNKNOWN"
         message = err.message if isinstance(err.message, str) else "Unknown warning"
-        warnings.append(Warning(code=code, message=message))
+        warnings.append(ArcjetWarning(code=code, message=message))
     return tuple(warnings)
 
 

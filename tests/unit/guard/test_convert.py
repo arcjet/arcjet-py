@@ -5,13 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from arcjet.guard import (
+    ArcjetWarning,
     DetectPromptInjection,
     FixedWindow,
     LocalDetectSensitiveInfo,
     RuleResultError,
     SlidingWindow,
     TokenBucket,
-    Warning,
     experimental_ModerateContent,
 )
 from arcjet.guard._convert import decision_from_proto, rule_to_proto
@@ -518,8 +518,8 @@ class TestWarningsAndFailedOpen:
         )
         decision = decision_from_proto(response)
         assert decision.warnings == (
-            Warning(code="AJ1001", message="invalid metadata key"),
-            Warning(code="AJ1002", message="invalid label"),
+            ArcjetWarning(code="AJ1001", message="invalid metadata key"),
+            ArcjetWarning(code="AJ1002", message="invalid label"),
         )
         # A warning alone never makes a decision fail open.
         assert not decision.has_failed_open()
@@ -623,7 +623,7 @@ class TestWarningsAndFailedOpen:
             message = None  # type: ignore[assignment]
 
         warnings = _warnings_from_proto(cast("list[pb.ResultError]", [_BadError()]))
-        assert warnings == (Warning(code="UNKNOWN", message="Unknown warning"),)
+        assert warnings == (ArcjetWarning(code="UNKNOWN", message="Unknown warning"),)
 
     def test_warnings_empty_when_no_response_errors(self) -> None:
         decision = decision_from_proto(make_response(pb.GUARD_CONCLUSION_ALLOW, []))

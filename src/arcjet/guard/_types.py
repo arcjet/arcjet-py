@@ -39,7 +39,7 @@ Reason = Literal[
 
 
 @dataclass(frozen=True, slots=True)
-class Warning:
+class ArcjetWarning:
     """A warning means the decision (or a single rule result) was processed
     correctly — the result is trustworthy — but something should be fixed,
     e.g. an invalid metadata key that was stripped or an invalid label.
@@ -102,7 +102,7 @@ class RuleResultTokenBucket:
     type: Literal["TOKEN_BUCKET"] = "TOKEN_BUCKET"
     """Discriminant — always ``"TOKEN_BUCKET"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -137,7 +137,7 @@ class RuleResultFixedWindow:
     type: Literal["FIXED_WINDOW"] = "FIXED_WINDOW"
     """Discriminant — always ``"FIXED_WINDOW"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -169,7 +169,7 @@ class RuleResultSlidingWindow:
     type: Literal["SLIDING_WINDOW"] = "SLIDING_WINDOW"
     """Discriminant — always ``"SLIDING_WINDOW"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -201,7 +201,7 @@ class RuleResultPromptInjection:
     type: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
     """Discriminant — always ``"PROMPT_INJECTION"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -224,7 +224,7 @@ class RuleResultModerateContent:
     type: Literal["MODERATE_CONTENT"] = "MODERATE_CONTENT"
     """Discriminant — always ``"MODERATE_CONTENT"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -244,7 +244,7 @@ class RuleResultSensitiveInfo:
     type: Literal["SENSITIVE_INFO"] = "SENSITIVE_INFO"
     """Discriminant — always ``"SENSITIVE_INFO"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -267,7 +267,7 @@ class RuleResultCustom:
     type: Literal["CUSTOM"] = "CUSTOM"
     """Discriminant — always ``"CUSTOM"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -290,7 +290,7 @@ class RuleResultNotRun:
     type: Literal["NOT_RUN"] = "NOT_RUN"
     """Discriminant — always ``"NOT_RUN"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -314,7 +314,7 @@ class RuleResultError:
     """Discriminant — ``"RULE_ERROR"`` (distinct from the ``"ERROR"`` reason
     to avoid ambiguity with the :class:`Reason` value)."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -340,7 +340,7 @@ class RuleResultUnknown:
     type: Literal["UNKNOWN"] = "UNKNOWN"
     """Discriminant — always ``"UNKNOWN"``."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -399,7 +399,7 @@ class Decision:
     reason: Reason = "UNKNOWN"
     """Broad reason category (only meaningful for DENY decisions)."""
 
-    warnings: tuple[Warning, ...] = ()
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Decision-level warnings — diagnostics from request validation (e.g. an
     invalid metadata key that was stripped). The decision is still valid; these
     are informational and never change the conclusion."""
