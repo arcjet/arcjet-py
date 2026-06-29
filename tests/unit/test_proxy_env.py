@@ -7,11 +7,14 @@ standard ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` environment variables
 pin that behavior so a future change to how we construct the transport (e.g.
 accidentally disabling system proxies) is caught.
 
-The tests are hermetic: they point ``HTTPS_PROXY`` at a local throwaway TCP
-listener that records the first bytes it receives and never touch the network.
-For HTTPS targets ``reqwest`` issues an HTTP ``CONNECT`` tunnel request to the
-proxy, so the listener observes ``CONNECT <host>:443`` when (and only when) the
-proxy is used.
+The tests make no connection to a real server: when the proxy is used, the
+request goes to a local throwaway TCP listener that records the first bytes it
+receives. For HTTPS targets ``reqwest`` issues an HTTP ``CONNECT`` tunnel
+request to the proxy, so the listener observes ``CONNECT <host>:443`` when (and
+only when) the proxy is used. The negative cases (proxy bypassed) instead
+attempt a *direct* request to ``decide.arcjet.test``; that host uses a reserved
+TLD (RFC 6761) so it never resolves to a real address — the only outbound
+activity is a DNS lookup that is expected to fail.
 """
 
 from __future__ import annotations
@@ -41,10 +44,20 @@ class _FakeProxy:
         self._sock.settimeout(5.0)
         self.port: int = self._sock.getsockname()[1]
         self.first_line: str | None = None
+        # Set once the serve thread finishes (after capturing a line or timing
+        # out). Lets the positive test synchronize before reading first_line
+        # instead of racing the background thread.
+        self._done = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
     def _serve(self) -> None:
+        try:
+            self._capture()
+        finally:
+            self._done.set()
+
+    def _capture(self) -> None:
         try:
             conn, _ = self._sock.accept()
         except (OSError, socket.timeout):
@@ -57,6 +70,13 @@ class _FakeProxy:
                 return
             if data:
                 self.first_line = data.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+
+    def wait_for_connection(self, timeout: float = 5.0) -> bool:
+        """Block until the serve thread has handled a connection (or timed out).
+
+        Returns True if the thread finished within ``timeout``.
+        """
+        return self._done.wait(timeout)
 
     @property
     def url(self) -> str:
@@ -73,8 +93,10 @@ class _FakeProxy:
 
 
 def _make_transport() -> pyqwest.SyncHTTPTransport:
-    # Mirror how the SDK builds its transport (HTTP/2), so that we exercise the
-    # same proxy/CONNECT-tunnel code path the real client uses.
+    # Use the same HTTP/2 setting the SDK's transport uses (see arcjet_sync()
+    # and the guard client), so we exercise the same proxy/CONNECT-tunnel code
+    # path the real client uses. connect_timeout is a test-only addition to keep
+    # the bypass cases fast; the SDK does not set it.
     return pyqwest.SyncHTTPTransport(
         http_version=pyqwest.HTTPVersion.HTTP2,
         connect_timeout=3.0,
@@ -127,6 +149,9 @@ def test_https_proxy_is_used(clean_proxy_env, fake_proxy, var: str) -> None:
     """An HTTPS request tunnels through HTTPS_PROXY (upper- and lower-case)."""
     clean_proxy_env.setenv(var, fake_proxy.url)
     _attempt_request()
+    # Synchronize with the listener thread before reading first_line, otherwise
+    # the assertion can race the background recv().
+    assert fake_proxy.wait_for_connection(), "proxy was not contacted"
     assert fake_proxy.first_line is not None, "proxy was not contacted"
     assert fake_proxy.first_line.startswith(f"CONNECT {TARGET_HOST}:443")
 

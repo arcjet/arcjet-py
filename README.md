@@ -1141,8 +1141,10 @@ export NO_PROXY="decide.arcjet.com,localhost"
 
 `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` are all supported (the lower-case
 variants work too). Because the Arcjet API is reached over HTTPS, `HTTPS_PROXY`
-is the relevant variable for proxying Arcjet traffic. `NO_PROXY` matches by
-hostname (or `*` to disable proxying entirely); IP/CIDR ranges are not matched.
+is the relevant variable for proxying Arcjet traffic. `NO_PROXY` accepts a
+comma-separated list of hostnames to bypass, or `*` to disable proxying
+entirely. Since Arcjet is reached by hostname, list the hostname (e.g.
+`decide.arcjet.com`) to bypass it.
 
 ### Async vs. sync client
 
