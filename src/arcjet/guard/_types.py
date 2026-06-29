@@ -408,12 +408,12 @@ class Decision:
         default=(), repr=False, compare=False
     )
 
-    def error_results(self) -> tuple[RuleResultError, ...]:
+    def error_results(self) -> list[RuleResultError]:
         """The results that errored — rules (or the decision itself) that could
         not be processed. Empty when nothing errored. Each entry carries a
         ``code`` and ``message``; correlate one to a rule with
         ``rule.result(decision)``."""
-        return tuple(r for r in self.results if isinstance(r, RuleResultError))
+        return [r for r in self.results if isinstance(r, RuleResultError)]
 
     def has_failed_open(self) -> bool:
         """True when this decision returned ``"ALLOW"`` only because a rule or
@@ -438,7 +438,7 @@ class Decision:
         """
         _stdlib_warnings.warn(
             "Decision.has_error() is deprecated: use decision.warnings for "
-            "request diagnostics and error_results() / has_failed_open() for "
+            "request diagnostics and error_results / has_failed_open() for "
             "errors. It will be removed in the next major release.",
             DeprecationWarning,
             stacklevel=2,

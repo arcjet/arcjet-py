@@ -387,7 +387,7 @@ def decision_from_proto(
     proto = response.decision
     if not proto or not proto.id:
         # No usable decision — synthesize a fail-open ALLOW carrying an error
-        # result so error_results() / has_failed_open() see the failure.
+        # result so error_results / has_failed_open() see the failure.
         error = RuleResultError(
             message="No decision in response",
             code="NO_DECISION",

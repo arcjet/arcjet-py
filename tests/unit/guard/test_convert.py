@@ -502,7 +502,7 @@ class TestEdgeCases:
 
 
 class TestWarningsAndFailedOpen:
-    """Decision-level warnings, error_results(), and has_failed_open()."""
+    """Decision-level warnings, error_results, and has_failed_open()."""
 
     def test_response_errors_surface_as_warnings(self) -> None:
         response = pb.GuardResponse(
@@ -523,7 +523,7 @@ class TestWarningsAndFailedOpen:
         )
         # A warning alone never makes a decision fail open.
         assert not decision.has_failed_open()
-        assert decision.error_results() == ()
+        assert decision.error_results() == []
 
     def test_allow_with_error_result_is_failed_open(self) -> None:
         rl = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
@@ -568,7 +568,7 @@ class TestWarningsAndFailedOpen:
         decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert not decision.has_failed_open()
-        # error_results() still surfaces the errored rule regardless of conclusion.
+        # error_results still surfaces the errored rule regardless of conclusion.
         assert len(decision.error_results()) == 1
 
     def test_warning_and_error_are_distinct_severity_axes(self) -> None:

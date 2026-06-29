@@ -1055,7 +1055,7 @@ decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "SENSITIVE_INFO", "CUS
 
 # Layer 2: error/warning detection
 decision.has_failed_open()  # True if ALLOW only because a rule/decision could not be processed (fail-closed gate)
-decision.error_results()    # Results that errored (rules or the decision that could not be processed)
+decision.error_results()  # Results that errored (rules or the decision that could not be processed)
 decision.warnings           # Decision-level diagnostics (e.g. an invalid metadata key that was stripped)
 
 # Layer 3: per-rule results (see "Per-rule results" above)
