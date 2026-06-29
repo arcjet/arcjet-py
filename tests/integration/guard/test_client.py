@@ -245,12 +245,14 @@ class TestHelpers:
             label="my-label",
             metadata={"env": "test"},
             local_eval_duration_ms=5,
+            correlation_id="wf_abcdef",
         )
         assert req.user_agent == "test/1.0"
         assert req.label == "my-label"
         assert dict(req.metadata) == {"env": "test"}
         assert req.local_eval_duration_ms == 5
         assert req.sent_at_unix_ms > 0
+        assert req.correlation_id == "wf_abcdef"
         assert len(req.rule_submissions) == 1
 
     def test_build_request_no_metadata(self) -> None:
