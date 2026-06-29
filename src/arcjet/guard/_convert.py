@@ -7,8 +7,9 @@ directly.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from arcjet._errors import ArcjetError
-from arcjet._logging import logger
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from ._local import (
@@ -27,6 +28,7 @@ from ._rules import (
     TokenBucketWithInput,
 )
 from ._types import (
+    ArcjetWarning,
     Conclusion,
     Decision,
     InternalResult,
@@ -347,6 +349,20 @@ def _rule_body_to_proto(
     raise ValueError(f"Unknown rule type: {type(rule).__name__}")
 
 
+def _warnings_from_proto(errors: Iterable[pb.ResultError]) -> tuple[ArcjetWarning, ...]:
+    """Convert the proto ``GuardResponse.errors`` payload (non-fatal request
+    validation diagnostics) into decision-level :class:`ArcjetWarning` entries,
+    coercing each field to ``str`` at the SDK boundary. Network data is
+    untrusted — a malformed response can put a non-string where a string is
+    expected."""
+    warnings: list[ArcjetWarning] = []
+    for err in errors:
+        code = err.code if isinstance(err.code, str) else "UNKNOWN"
+        message = err.message if isinstance(err.message, str) else "Unknown warning"
+        warnings.append(ArcjetWarning(code=code, message=message))
+    return tuple(warnings)
+
+
 def decision_from_proto(
     response: pb.GuardResponse,
 ) -> Decision:
@@ -362,21 +378,16 @@ def decision_from_proto(
     falls back to deriving the reason from the first DENY result.
 
     Response-level ``errors`` (recoverable validation diagnostics) are
-    logged but do not affect the decision.
+    surfaced as ``decision.warnings``; they never change the conclusion.
     """
-    # Log recoverable server-side validation errors if present.
-    has_response_errors = len(response.errors) > 0
-    for err in response.errors:
-        logger.warning(
-            "arcjet guard server diagnostic: [%s] %s",
-            err.code,
-            err.message,
-            extra={"event": "guard_server_diagnostic"},
-        )
+    # Top-level diagnostics are decision-level warnings; present whether or not
+    # a decision came back. The decision remains valid when they are populated.
+    warnings = _warnings_from_proto(response.errors)
 
     proto = response.decision
     if not proto or not proto.id:
-        # No decision in response — synthesize an ALLOW with error.
+        # No usable decision — synthesize a fail-open ALLOW carrying an error
+        # result so error_results / has_failed_open() see the failure.
         error = RuleResultError(
             message="No decision in response",
             code="NO_DECISION",
@@ -386,6 +397,7 @@ def decision_from_proto(
             id="",
             results=(error,),
             reason="ERROR",
+            warnings=warnings,
             _internal_results=(
                 InternalResult(result=error, config_id="", input_id=""),
             ),
@@ -424,6 +436,6 @@ def decision_from_proto(
         id=proto.id,
         results=results,
         reason=reason,
+        warnings=warnings,
         _internal_results=tuple(internal_results),
-        _has_response_errors=has_response_errors,
     )

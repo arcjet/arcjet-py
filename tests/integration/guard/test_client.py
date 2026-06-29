@@ -322,6 +322,13 @@ class TestArcjetGuardSync:
         assert decision.conclusion == "ALLOW"
         assert decision.reason == "ERROR"
         assert decision.has_error()
+        # A transport failure fails open: ALLOW with a synthetic error result.
+        assert decision.has_failed_open()
+        errs = decision.error_results()
+        assert len(errs) == 1
+        assert errs[0].code == "TRANSPORT_ERROR"
+        # No server response, so no decision-level warnings.
+        assert decision.warnings == ()
 
     def test_sensitive_info_with_mock_wasm(self) -> None:
         from unittest.mock import patch
@@ -348,6 +355,9 @@ class TestArcjetGuardSync:
         assert decision.id == ""
         assert decision.reason == "ERROR"
         assert decision.has_error()
+        assert decision.has_failed_open()
+        assert len(decision.error_results()) == 1
+        assert decision.warnings == ()
         assert len(decision.results) == 1
         r = decision.results[0]
         assert isinstance(r, RuleResultError)
@@ -408,6 +418,11 @@ class TestArcjetGuardAsync:
         assert decision.conclusion == "ALLOW"
         assert decision.reason == "ERROR"
         assert decision.has_error()
+        assert decision.has_failed_open()
+        errs = decision.error_results()
+        assert len(errs) == 1
+        assert errs[0].code == "TRANSPORT_ERROR"
+        assert decision.warnings == ()
 
     def test_empty_rules_returns_validation_error(self) -> None:
         client = FakeAsyncClient()
@@ -417,6 +432,9 @@ class TestArcjetGuardAsync:
         assert decision.id == ""
         assert decision.reason == "ERROR"
         assert decision.has_error()
+        assert decision.has_failed_open()
+        assert len(decision.error_results()) == 1
+        assert decision.warnings == ()
         assert len(decision.results) == 1
         r = decision.results[0]
         assert isinstance(r, RuleResultError)

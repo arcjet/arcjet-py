@@ -1053,8 +1053,10 @@ decision = await aj.guard(label="tools.weather", rules=[...])
 decision.conclusion   # "ALLOW" or "DENY"
 decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
 
-# Layer 2: error detection
-decision.has_error()  # True if any rule errored or the server reported diagnostics
+# Layer 2: error/warning detection
+decision.has_failed_open()  # True if ALLOW only because a rule/decision could not be processed (fail-closed gate)
+decision.error_results()  # Results that errored (rules or the decision that could not be processed)
+decision.warnings           # Decision-level diagnostics (e.g. an invalid metadata key that was stripped)
 
 # Layer 3: per-rule results (see "Per-rule results" above)
 for result in decision.results:

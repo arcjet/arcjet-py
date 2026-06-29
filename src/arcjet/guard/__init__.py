@@ -67,6 +67,7 @@ from ._rules import (
 experimental_ModerateContent = ModerateContent
 from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
+    ArcjetWarning,
     Conclusion,
     CustomEvaluateResult,
     Decision,
@@ -104,6 +105,7 @@ __all__ = [
     "RuleResultTokenBucket",
     "RuleResultUnknown",
     "SENSITIVE_INFO_ENTITY_TYPES",
+    "ArcjetWarning",
     # Rule classes
     "DetectPromptInjection",
     "FixedWindow",

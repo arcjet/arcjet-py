@@ -7,12 +7,14 @@ These are independent of protobuf — the SDK exposes plain frozen dataclasses,
 not proto messages.  The type system is designed for progressive disclosure:
 
 - **Layer 1:** ``decision.conclusion`` (``"ALLOW"`` | ``"DENY"``) and ``decision.reason``.
-- **Layer 2:** ``decision.has_error()`` — out-of-band signal helpers.
+- **Layer 2:** ``decision.warnings``, ``decision.error_results()``, and
+  ``decision.has_failed_open()`` — out-of-band signal helpers.
 - **Layer 3:** ``rule.results(decision)`` — typed per-rule results.
 """
 
 from __future__ import annotations
 
+import warnings as _stdlib_warnings
 from dataclasses import dataclass, field
 from typing import (
     Literal,
@@ -34,6 +36,24 @@ Reason = Literal[
     "UNKNOWN",
 ]
 """Broad reason category for a decision or rule result."""
+
+
+@dataclass(frozen=True, slots=True)
+class ArcjetWarning:
+    """A warning means the decision (or a single rule result) was processed
+    correctly — the result is trustworthy — but something should be fixed,
+    e.g. an invalid metadata key that was stripped or an invalid label.
+
+    Contrast with :class:`RuleResultError`, which means a rule or the
+    decision *could not* be processed and the security signal is degraded.
+    """
+
+    code: str = ""
+    """Machine-readable code (e.g. ``"AJ1100"``)."""
+
+    message: str = ""
+    """Human-readable description."""
+
 
 Mode = Literal["LIVE", "DRY_RUN"]
 """Rule evaluation mode.  ``"LIVE"`` enforces the rule; ``"DRY_RUN"``
@@ -82,6 +102,12 @@ class RuleResultTokenBucket:
     type: Literal["TOKEN_BUCKET"] = "TOKEN_BUCKET"
     """Discriminant — always ``"TOKEN_BUCKET"``."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
+
     remaining_tokens: int = 0
     """Number of tokens remaining in the bucket after this evaluation."""
 
@@ -111,6 +137,12 @@ class RuleResultFixedWindow:
     type: Literal["FIXED_WINDOW"] = "FIXED_WINDOW"
     """Discriminant — always ``"FIXED_WINDOW"``."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
+
     remaining_requests: int = 0
     """Number of requests remaining in the current window."""
 
@@ -136,6 +168,12 @@ class RuleResultSlidingWindow:
 
     type: Literal["SLIDING_WINDOW"] = "SLIDING_WINDOW"
     """Discriminant — always ``"SLIDING_WINDOW"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
 
     remaining_requests: int = 0
     """Number of requests remaining in the current sliding interval."""
@@ -163,6 +201,12 @@ class RuleResultPromptInjection:
     type: Literal["PROMPT_INJECTION"] = "PROMPT_INJECTION"
     """Discriminant — always ``"PROMPT_INJECTION"``."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
+
 
 @dataclass(frozen=True, slots=True)
 class RuleResultModerateContent:
@@ -180,6 +224,12 @@ class RuleResultModerateContent:
     type: Literal["MODERATE_CONTENT"] = "MODERATE_CONTENT"
     """Discriminant — always ``"MODERATE_CONTENT"``."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
+
 
 @dataclass(frozen=True, slots=True)
 class RuleResultSensitiveInfo:
@@ -193,6 +243,12 @@ class RuleResultSensitiveInfo:
 
     type: Literal["SENSITIVE_INFO"] = "SENSITIVE_INFO"
     """Discriminant — always ``"SENSITIVE_INFO"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
 
     detected_entity_types: tuple[str, ...] = ()
     """Entity types detected in the input (e.g. ``"EMAIL"``, ``"PHONE_NUMBER"``)."""
@@ -211,6 +267,12 @@ class RuleResultCustom:
     type: Literal["CUSTOM"] = "CUSTOM"
     """Discriminant — always ``"CUSTOM"``."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
+
     data: Mapping[str, str] = field(default_factory=dict)
     """Arbitrary key-value data returned by the custom rule's evaluate function."""
 
@@ -227,6 +289,12 @@ class RuleResultNotRun:
 
     type: Literal["NOT_RUN"] = "NOT_RUN"
     """Discriminant — always ``"NOT_RUN"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +313,12 @@ class RuleResultError:
     type: Literal["RULE_ERROR"] = "RULE_ERROR"
     """Discriminant — ``"RULE_ERROR"`` (distinct from the ``"ERROR"`` reason
     to avoid ambiguity with the :class:`Reason` value)."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
 
     message: str = ""
     """Human-readable error description."""
@@ -265,6 +339,12 @@ class RuleResultUnknown:
 
     type: Literal["UNKNOWN"] = "UNKNOWN"
     """Discriminant — always ``"UNKNOWN"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings — this rule was processed correctly (the result is
+    trustworthy) but something about it should be fixed. Informational; never
+    changes the rule's conclusion. Empty until the Decide service emits
+    per-rule diagnostics."""
 
 
 RuleResult = Union[
@@ -296,7 +376,8 @@ class Decision:
     """A guard decision — either ``"ALLOW"`` or ``"DENY"``.
 
     **Layer 1**: ``decision.conclusion`` and ``decision.reason``.
-    **Layer 2**: ``decision.has_error()``.
+    **Layer 2**: ``decision.warnings``, ``decision.error_results()``, and
+    ``decision.has_failed_open()`` (the fail-closed gate).
     **Layer 3**: Use ``rule.results(decision)`` or ``rule_input.result(decision)``.
     """
 
@@ -318,15 +399,48 @@ class Decision:
     reason: Reason = "UNKNOWN"
     """Broad reason category (only meaningful for DENY decisions)."""
 
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Decision-level warnings — diagnostics from request validation (e.g. an
+    invalid metadata key that was stripped). The decision is still valid; these
+    are informational and never change the conclusion."""
+
     _internal_results: tuple[InternalResult, ...] = field(
         default=(), repr=False, compare=False
     )
 
-    _has_response_errors: bool = field(default=False, repr=False, compare=False)
-    """True when the server response included non-fatal validation errors."""
+    def error_results(self) -> list[RuleResultError]:
+        """The results that errored — rules (or the decision itself) that could
+        not be processed. Empty when nothing errored. Each entry carries a
+        ``code`` and ``message``; correlate one to a rule with
+        ``rule.result(decision)``."""
+        return [r for r in self.results if isinstance(r, RuleResultError)]
+
+    def has_failed_open(self) -> bool:
+        """True when this decision returned ``"ALLOW"`` only because a rule or
+        the decision could not be processed — i.e. it failed open. Gate a
+        fail-closed policy on this::
+
+            if decision.has_failed_open():
+                return deny()
+
+        "Failed open" describes an outcome of *this decision*, not the policy
+        configuration.
+        """
+        return self.conclusion == "ALLOW" and bool(self.error_results())
 
     def has_error(self) -> bool:
-        """True if any rule errored or the server reported diagnostics."""
-        return self._has_response_errors or any(
-            r.type == "RULE_ERROR" for r in self.results
+        """True if there is any warning or any errored rule.
+
+        .. deprecated::
+            Use :attr:`warnings` for request diagnostics and
+            :meth:`error_results` / :meth:`has_failed_open` for errors.
+            Removed in the next major.
+        """
+        _stdlib_warnings.warn(
+            "Decision.has_error() is deprecated: use decision.warnings for "
+            "request diagnostics and error_results / has_failed_open() for "
+            "errors. It will be removed in the next major release.",
+            DeprecationWarning,
+            stacklevel=2,
         )
+        return bool(self.warnings) or bool(self.error_results())
