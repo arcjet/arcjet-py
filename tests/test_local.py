@@ -19,6 +19,7 @@ from arcjet._client import _build_local_deny_report, _run_local_rules
 from arcjet._context import RequestContext
 from arcjet._decision import Decision
 from arcjet._enums import Mode
+from arcjet._errors import ArcjetRuntimeError
 from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -62,6 +63,54 @@ class TestContextToAnalyzeRequest:
         ctx = RequestContext(headers={"X-Custom-Header": "value"})
         result = json.loads(_local._context_to_analyze_request(ctx))
         assert "x-custom-header" in result["headers"]
+
+
+# ---------------------------------------------------------------------------
+# _translate_wasmtime_import_error
+# ---------------------------------------------------------------------------
+
+
+class TestTranslateWasmtimeImportError:
+    def test_translates_missing_libgcc_error(self):
+        exc = OSError(
+            "Error loading shared library libgcc_s.so.1: No such file or "
+            "directory (needed by /usr/local/lib/python3.10/site-packages/"
+            "wasmtime/linux-x86_64/_libwasmtime.so)"
+        )
+
+        result = _local._translate_wasmtime_import_error(exc)
+
+        assert isinstance(result, ArcjetRuntimeError)
+        assert "libgcc" in str(result)
+        assert "apk add libgcc" in str(result)
+        # Don't lose the original diagnostic detail.
+        assert "libgcc_s.so.1" in str(result)
+
+    def test_passes_through_unrelated_oserror_unchanged(self):
+        """Only the known libgcc signature should be translated.
+
+        Any other OSError (a different missing library, a permissions
+        error, a sandboxed filesystem, etc.) must propagate unchanged —
+        translating it would misdiagnose an unrelated failure as a libgcc
+        problem and send the user chasing the wrong fix.
+        """
+        exc = OSError(
+            "Error loading shared library libssl.so.3: No such file or "
+            "directory (needed by /usr/local/lib/python3.10/site-packages/"
+            "some_other_package/_native.so)"
+        )
+
+        result = _local._translate_wasmtime_import_error(exc)
+
+        assert result is exc
+        assert not isinstance(result, ArcjetRuntimeError)
+
+    def test_passes_through_generic_oserror_unchanged(self):
+        exc = OSError("Permission denied")
+
+        result = _local._translate_wasmtime_import_error(exc)
+
+        assert result is exc
 
 
 # ---------------------------------------------------------------------------

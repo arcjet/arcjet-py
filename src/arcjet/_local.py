@@ -14,30 +14,11 @@ import json
 import threading
 from typing import Callable
 
-from arcjet._analyze import (
-    AllowedBotConfig,
-    AllowEmailValidationConfig,
-    AnalyzeComponent,
-    DeniedBotConfig,
-    DenyEmailValidationConfig,
-    DetectedSensitiveInfoEntity,
-    Err,
-    FilterResult,
-    Ok,
-    SensitiveInfoConfig,
-    SensitiveInfoEntitiesAllow,
-    SensitiveInfoEntitiesDeny,
-    SensitiveInfoEntity,
-    SensitiveInfoEntityCreditCardNumber,
-    SensitiveInfoEntityCustom,
-    SensitiveInfoEntityEmail,
-    SensitiveInfoEntityIpAddress,
-    SensitiveInfoEntityPhoneNumber,
-)
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._context import RequestContext
 from ._enums import Mode
+from ._errors import ArcjetRuntimeError
 from ._logging import logger
 from ._rules import (
     BotDetection,
@@ -46,6 +27,54 @@ from ._rules import (
     SensitiveInfoDetection,
     SensitiveInfoEntityType,
 )
+
+# Signature substring of the OSError wasmtime-py raises when its bundled
+# native library can't find libgcc — most commonly on Alpine Linux, which
+# (unlike most distros) doesn't ship libgcc by default. See arcjet-py#159.
+_MISSING_LIBGCC_SIGNATURE = "libgcc_s.so.1"
+
+
+def _translate_wasmtime_import_error(exc: OSError) -> BaseException:
+    """Translate a known wasmtime native-library load failure into a clearer error.
+
+    Only the specific missing-libgcc signature is translated; any other
+    OSError (a different missing library, a permissions issue, etc.) is
+    returned unchanged so we don't mask or misdiagnose unrelated failures.
+    """
+    if _MISSING_LIBGCC_SIGNATURE in str(exc):
+        return ArcjetRuntimeError(
+            "Arcjet's local WebAssembly runtime (wasmtime) could not load "
+            "because `libgcc` is missing. Most Linux distributions include "
+            "this by default, but Alpine Linux does not — run "
+            "`apk add libgcc` (or your distro's equivalent) and try again.\n"
+            f"Original error: {exc}"
+        )
+    return exc
+
+
+try:
+    from arcjet._analyze import (
+        AllowedBotConfig,
+        AllowEmailValidationConfig,
+        AnalyzeComponent,
+        DeniedBotConfig,
+        DenyEmailValidationConfig,
+        DetectedSensitiveInfoEntity,
+        Err,
+        FilterResult,
+        Ok,
+        SensitiveInfoConfig,
+        SensitiveInfoEntitiesAllow,
+        SensitiveInfoEntitiesDeny,
+        SensitiveInfoEntity,
+        SensitiveInfoEntityCreditCardNumber,
+        SensitiveInfoEntityCustom,
+        SensitiveInfoEntityEmail,
+        SensitiveInfoEntityIpAddress,
+        SensitiveInfoEntityPhoneNumber,
+    )
+except OSError as exc:
+    raise _translate_wasmtime_import_error(exc) from exc
 
 # Shared mapping from WASM blocked-reason strings to proto EmailType values
 _EMAIL_TYPE_MAP: dict[str, decide_pb2.EmailType] = {
