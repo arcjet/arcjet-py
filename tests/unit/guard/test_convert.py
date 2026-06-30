@@ -619,8 +619,8 @@ class TestWarningsAndFailedOpen:
 
         class _BadError:
             # Intentionally non-string to simulate malformed wire data.
-            code = 42  # type: ignore[assignment]
-            message = None  # type: ignore[assignment]
+            code = 42
+            message = None
 
         warnings = _warnings_from_proto(cast("list[pb.ResultError]", [_BadError()]))
         assert warnings == (ArcjetWarning(code="UNKNOWN", message="Unknown warning"),)
