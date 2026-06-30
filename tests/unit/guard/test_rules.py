@@ -1455,3 +1455,179 @@ class TestThreadSafety:
         input_ids = {r._input_id for r in results}
         assert len(config_ids) == 1
         assert len(input_ids) == 10
+
+
+def _errored_result(inp, *, code: str = "AJ1100", message: str = "boom"):
+    """Build a GuardRuleResult carrying an error, matched to ``inp``."""
+    return pb.GuardRuleResult(
+        result_id="gres_err",
+        config_id=inp._config_id,
+        input_id=inp._input_id,
+        type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+        error=pb.ResultError(message=message, code=code),
+    )
+
+
+class TestErrorResultAccessor:
+    """``error_result()`` surfaces errored rule results without ever leaking
+    them into the non-error accessors.
+
+    The error/non-error split is the entire point: ``result``/``results``/
+    ``denied_result`` return only ALLOW/DENY (non-error) results, while
+    ``error_result`` returns only :class:`RuleResultError`.
+    """
+
+    def test_input_error_result_returns_error(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW, [_errored_result(inp, code="AJ1100")]
+        )
+        decision = decision_from_proto(response)
+
+        err = inp.error_result(decision)
+        assert err is not None
+        assert err.type == "RULE_ERROR"
+        assert err.reason == "ERROR"
+        assert err.conclusion == "ALLOW"  # errors fail open
+        assert err.code == "AJ1100"
+        assert err.message == "boom"
+
+    def test_config_error_result_returns_error(self) -> None:
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW, [_errored_result(inp, code="AJ1200")]
+        )
+        decision = decision_from_proto(response)
+
+        err = rule.error_result(decision)
+        assert err is not None
+        assert err.code == "AJ1200"
+
+    def test_result_accessors_exclude_error(self) -> None:
+        # An errored rule must NOT surface through result/results/denied_result.
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(pb.GUARD_CONCLUSION_ALLOW, [_errored_result(inp)])
+        decision = decision_from_proto(response)
+
+        assert inp.result(decision) is None
+        assert inp.results(decision) == []
+        assert inp.denied_result(decision) is None
+        assert rule.result(decision) is None
+        assert rule.results(decision) == []
+        assert rule.denied_result(decision) is None
+        # ...but it IS retrievable via error_result.
+        assert inp.error_result(decision) is not None
+
+    def test_error_result_none_when_no_error(self) -> None:
+        # A normal (non-error) result must not be reported as an error.
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=99,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+
+        assert inp.error_result(decision) is None
+        assert rule.error_result(decision) is None
+        assert inp.result(decision) is not None
+
+    def test_deny_result_not_dropped_alongside_error_axis(self) -> None:
+        # The trap: removing the error must not drop denials. A DENY is a
+        # trustworthy non-error result and must still flow through result().
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    result_id="gres_1",
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        remaining_tokens=0,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+
+        denied = inp.denied_result(decision)
+        assert denied is not None
+        assert denied.conclusion == "DENY"
+        assert inp.error_result(decision) is None  # a DENY is not an error
+
+    def test_two_invocations_resolve_distinct_errors(self) -> None:
+        # Same rule type, two calls: each instance resolves its own error by
+        # identifier (config_id + input_id), never the other's.
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        call1 = rule(key="first")
+        call2 = rule(key="second")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                _errored_result(call1, code="AJ1001", message="first failed"),
+                pb.GuardRuleResult(
+                    result_id="gres_2",
+                    config_id=call2._config_id,
+                    input_id=call2._input_id,
+                    type=pb.GUARD_RULE_TYPE_TOKEN_BUCKET,
+                    token_bucket=pb.ResultTokenBucket(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        remaining_tokens=42,
+                        max_tokens=100,
+                    ),
+                ),
+            ],
+        )
+        decision = decision_from_proto(response)
+
+        err1 = call1.error_result(decision)
+        assert err1 is not None
+        assert err1.code == "AJ1001"
+        assert err1.message == "first failed"
+        # call2 did not error; its non-error result resolves cleanly.
+        assert call2.error_result(decision) is None
+        r2 = call2.result(decision)
+        assert r2 is not None
+        assert r2.remaining_tokens == 42
+
+    def test_no_error_results_plural_method(self) -> None:
+        # There is deliberately no plural error_results() accessor.
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        inp = rule(key="user_1")
+        assert not hasattr(rule, "error_results")
+        assert not hasattr(inp, "error_results")
+
+    def test_error_result_across_all_rule_types(self) -> None:
+        # error_result exists and behaves on every rule's WithInput + config.
+        rules = [
+            FixedWindow(max_requests=100, window_seconds=3600)(key="u"),
+            SlidingWindow(max_requests=100, interval_seconds=60)(key="u"),
+            DetectPromptInjection()("text"),
+            experimental_ModerateContent()("text"),
+            LocalDetectSensitiveInfo()("text"),
+        ]
+        for inp in rules:
+            response = make_response(pb.GUARD_CONCLUSION_ALLOW, [_errored_result(inp)])
+            decision = decision_from_proto(response)
+            assert inp.error_result(decision) is not None
+            assert inp.result(decision) is None

@@ -6,8 +6,13 @@ import uuid
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from .._types import Decision, Mode, RuleResultPromptInjection
-from ._base import _get_internal_results, _merge_metadata
+from .._types import Decision, Mode, RuleResultError, RuleResultPromptInjection
+from ._base import (
+    _error_result_for_config,
+    _error_result_for_input,
+    _get_internal_results,
+    _merge_metadata,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +47,15 @@ class PromptInjectionWithInput:
         if r is not None and r.conclusion == "DENY":
             return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get this invocation's errored result, or ``None`` if it didn't error.
+
+        Returns the :class:`RuleResultError` only — never the non-error
+        result. The non-error accessors (``result``/``results``/
+        ``denied_result``) exclude it.
+        """
+        return _error_result_for_input(decision, self._config_id, self._input_id)
 
 
 class DetectPromptInjection:
@@ -122,3 +136,7 @@ class DetectPromptInjection:
             if r.conclusion == "DENY":
                 return r
         return None
+
+    def error_result(self, decision: Decision) -> RuleResultError | None:
+        """Get the first errored result for this rule, or ``None``."""
+        return _error_result_for_config(decision, self._config_id)
