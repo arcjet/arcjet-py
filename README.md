@@ -1129,6 +1129,25 @@ aj = arcjet(
 )
 ```
 
+### Outbound HTTP proxy
+
+If your environment requires outbound requests to the Arcjet API to go through a
+forward proxy (e.g. Squid), set the standard proxy environment variables. The
+SDK honors them automatically — no code changes required:
+
+```sh
+export HTTPS_PROXY="http://proxy.example.com:3128"
+# Optional: comma-separated hosts that should bypass the proxy
+export NO_PROXY="decide.arcjet.com,localhost"
+```
+
+`HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` are all supported (the lower-case
+variants work too). Because the Arcjet API is reached over HTTPS, `HTTPS_PROXY`
+is the relevant variable for proxying Arcjet traffic. `NO_PROXY` accepts a
+comma-separated list of hostnames to bypass, or `*` to disable proxying
+entirely. Since Arcjet is reached by hostname, list the hostname (e.g.
+`decide.arcjet.com`) to bypass it.
+
 ### Async vs. sync client
 
 Use `arcjet` (async) with FastAPI and other async frameworks. Use `arcjet_sync`
