@@ -11,3 +11,7 @@ class ArcjetMisconfiguration(ArcjetError):
 
 class ArcjetTransportError(ArcjetError):
     """Raised when Arcjet API cannot be reached or returns a transport error."""
+
+
+class ArcjetRuntimeError(ArcjetError):
+    """Raised when a required native runtime dependency fails to load."""
