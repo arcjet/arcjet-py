@@ -1,8 +1,7 @@
 name: Release
 
 # Surfaces the tag being released in the run list and the environment
-# approval notification. See arcjet/arcjet ADR
-# docs/adrs/2026-07-08-preflight-visibility-for-gated-workflows.md
+# approval notification.
 run-name: "Release ${{ github.ref_name }} to PyPI"
 
 on:
