@@ -385,3 +385,38 @@ class GuardResponse(_message.Message):
     decision: GuardDecision
     errors: _containers.RepeatedCompositeFieldContainer[ResultError]
     def __init__(self, decision: _Optional[_Union[GuardDecision, _Mapping]] = ..., errors: _Optional[_Iterable[_Union[ResultError, _Mapping]]] = ...) -> None: ...
+
+class CaptureEvent(_message.Message):
+    __slots__ = ()
+    class MetadataEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    OCCURRED_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    DECISION_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    occurred_at_unix_ms: int
+    correlation_id: str
+    decision_id: str
+    action: str
+    metadata: _containers.ScalarMap[str, str]
+    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class CaptureRequest(_message.Message):
+    __slots__ = ()
+    USER_AGENT_FIELD_NUMBER: _ClassVar[int]
+    SENT_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    EVENTS_FIELD_NUMBER: _ClassVar[int]
+    user_agent: str
+    sent_at_unix_ms: int
+    events: _containers.RepeatedCompositeFieldContainer[CaptureEvent]
+    def __init__(self, user_agent: _Optional[str] = ..., sent_at_unix_ms: _Optional[int] = ..., events: _Optional[_Iterable[_Union[CaptureEvent, _Mapping]]] = ...) -> None: ...
+
+class CaptureResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...

@@ -8,12 +8,15 @@ v2 Guard RPC, and returns a typed :class:`~arcjet.guard._types.Decision`.
 
 from __future__ import annotations
 
+import asyncio
 import platform
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Protocol, Sequence, Union
+from typing import Any, Protocol, Sequence, Union
 
 import pyqwest
 
@@ -72,6 +75,48 @@ def _build_request(
         req.correlation_id = correlation_id
     req.rule_submissions.extend(submissions)
     return req
+
+
+def _build_capture_request(
+    action: str,
+    *,
+    user_agent: str,
+    correlation_id: str | None,
+    decision_id: str | None,
+    occurred_at: datetime | None,
+    metadata: dict[str, str] | None,
+) -> pb.CaptureRequest:
+    sent_at_unix_ms = int(time.time() * 1000)
+    occurred_at_unix_ms = (
+        int(occurred_at.timestamp() * 1000)
+        if occurred_at is not None
+        else sent_at_unix_ms
+    )
+    event = pb.CaptureEvent(
+        occurred_at_unix_ms=occurred_at_unix_ms,
+        action=action,
+    )
+    if correlation_id:
+        event.correlation_id = correlation_id
+    if decision_id:
+        event.decision_id = decision_id
+    if metadata:
+        for k, v in metadata.items():
+            event.metadata[k] = v
+    req = pb.CaptureRequest(
+        user_agent=user_agent,
+        sent_at_unix_ms=sent_at_unix_ms,
+    )
+    req.events.append(event)
+    return req
+
+
+def _log_capture_drop(error: BaseException) -> None:
+    # Capture is best-effort by contract: a failed send drops the event and
+    # must never surface into caller code, so drops are only logged at debug.
+    logger.debug(
+        "arcjet capture event dropped: %s", error, extra={"event": "capture_error"}
+    )
 
 
 def _make_error_decision(message: str) -> Decision:
@@ -165,6 +210,14 @@ class _AsyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    async def capture(
+        self,
+        request: pb.CaptureRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.CaptureResponse: ...
+
 
 class _SyncGuardTransport(Protocol):
     def guard(
@@ -175,6 +228,14 @@ class _SyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    def capture(
+        self,
+        request: pb.CaptureRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.CaptureResponse: ...
+
 
 @dataclass(slots=True)
 class ArcjetGuard:
@@ -184,6 +245,9 @@ class ArcjetGuard:
     _client: _AsyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    # Strong references to in-flight capture tasks so the event loop cannot
+    # garbage-collect them before they complete.
+    _pending_captures: set[asyncio.Task[Any]] = field(default_factory=set)
 
     async def guard(
         self,
@@ -236,6 +300,75 @@ class ArcjetGuard:
             return _make_error_decision(str(e))
 
         return decision_from_proto(resp)
+
+    def experimental_capture(
+        self,
+        action: str,
+        *,
+        correlation_id: str | None = None,
+        decision_id: str | None = None,
+        occurred_at: datetime | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        """Record a fact about what the application did — never a judgment.
+
+        **Experimental.** Dogfooding only: the API shape may change and there
+        is no delivery guarantee. Fire-and-forget: the RPC runs as a
+        background task on the running event loop and a failure of any kind
+        (invalid input, transport error, server rejection, no running loop)
+        drops the event, logged at debug level only. Returning means the send
+        has been initiated, not that the event was durably recorded: an ack
+        from the server means "received," not "stored."
+
+        Event identifiers are authored by the server when the event is
+        received; the SDK does not mint or expose them.
+
+        Args:
+            action: The fact itself: what the application did, in customer
+                vocabulary. Convention: ``"resource.verb"``, past tense
+                (e.g. ``"refund.issued"``). Required — events without an
+                action are dropped server-side.
+            correlation_id: Optional opaque identifier used to correlate this
+                event with other ``guard()``/``capture()`` calls in the same
+                workflow or agent run. Never inherited automatically.
+            decision_id: Optional join key referencing the decision (e.g. a
+                ``Decision.id``) this event's action relates to.
+            occurred_at: When the action occurred. Defaults to the time of
+                the call; pass it explicitly when emission is deferred (e.g.
+                from a queue or background worker). Informational and
+                untrusted like every client-supplied timestamp — the server
+                records its own authoritative receive time.
+            metadata: Arbitrary key/value metadata. Customer-supplied and
+                untrusted, same size caps as ``guard()`` metadata.
+        """
+        try:
+            request = _build_capture_request(
+                action,
+                user_agent=self._user_agent,
+                correlation_id=correlation_id,
+                decision_id=decision_id,
+                occurred_at=occurred_at,
+                metadata=metadata,
+            )
+            task = asyncio.get_running_loop().create_task(
+                self._client.capture(
+                    request,
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
+            )
+            self._pending_captures.add(task)
+            task.add_done_callback(self._on_capture_done)
+        except Exception as e:
+            _log_capture_drop(e)
+
+    def _on_capture_done(self, task: asyncio.Task[Any]) -> None:
+        self._pending_captures.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            _log_capture_drop(error)
 
 
 @dataclass(slots=True)
@@ -298,6 +431,74 @@ class ArcjetGuardSync:
             return _make_error_decision(str(e))
 
         return decision_from_proto(resp)
+
+    def experimental_capture(
+        self,
+        action: str,
+        *,
+        correlation_id: str | None = None,
+        decision_id: str | None = None,
+        occurred_at: datetime | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        """Record a fact about what the application did — never a judgment.
+
+        **Experimental.** Dogfooding only: the API shape may change and there
+        is no delivery guarantee. Fire-and-forget: the RPC runs on a daemon
+        thread and a failure of any kind (invalid input, transport error,
+        server rejection) drops the event, logged at debug level only.
+        Returning means the send has been initiated, not that the event was
+        durably recorded: an ack from the server means "received," not
+        "stored."
+
+        Event identifiers are authored by the server when the event is
+        received; the SDK does not mint or expose them.
+
+        Args:
+            action: The fact itself: what the application did, in customer
+                vocabulary. Convention: ``"resource.verb"``, past tense
+                (e.g. ``"refund.issued"``). Required — events without an
+                action are dropped server-side.
+            correlation_id: Optional opaque identifier used to correlate this
+                event with other ``guard()``/``capture()`` calls in the same
+                workflow or agent run. Never inherited automatically.
+            decision_id: Optional join key referencing the decision (e.g. a
+                ``Decision.id``) this event's action relates to.
+            occurred_at: When the action occurred. Defaults to the time of
+                the call; pass it explicitly when emission is deferred (e.g.
+                from a queue or background worker). Informational and
+                untrusted like every client-supplied timestamp — the server
+                records its own authoritative receive time.
+            metadata: Arbitrary key/value metadata. Customer-supplied and
+                untrusted, same size caps as ``guard()`` metadata.
+        """
+        try:
+            request = _build_capture_request(
+                action,
+                user_agent=self._user_agent,
+                correlation_id=correlation_id,
+                decision_id=decision_id,
+                occurred_at=occurred_at,
+                metadata=metadata,
+            )
+            threading.Thread(
+                target=self._send_capture,
+                args=(request,),
+                name="arcjet-capture",
+                daemon=True,
+            ).start()
+        except Exception as e:
+            _log_capture_drop(e)
+
+    def _send_capture(self, request: pb.CaptureRequest) -> None:
+        try:
+            self._client.capture(
+                request,
+                headers=_auth_headers(self._key),
+                timeout_ms=self._timeout_ms,
+            )
+        except Exception as e:
+            _log_capture_drop(e)
 
 
 def launch_arcjet(
