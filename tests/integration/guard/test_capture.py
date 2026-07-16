@@ -26,7 +26,13 @@ class FakeAsyncCaptureClient:
         self.received = asyncio.Event()
         self._error = error
 
-    async def guard(self, request, *, headers=None, timeout_ms=None):
+    async def guard(
+        self,
+        request: pb.GuardRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GuardResponse:
         raise AssertionError("guard() must not be called by capture tests")
 
     async def capture(
@@ -53,7 +59,13 @@ class FakeSyncCaptureClient:
         self.received = threading.Event()
         self._error = error
 
-    def guard(self, request, *, headers=None, timeout_ms=None):
+    def guard(
+        self,
+        request: pb.GuardRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GuardResponse:
         raise AssertionError("guard() must not be called by capture tests")
 
     def capture(
@@ -201,3 +213,60 @@ def test_sync_capture_swallows_transport_errors() -> None:
     client.experimental_capture("refund.issued")
 
     assert fake.received.wait(timeout=5)
+
+
+def test_naive_occurred_at_is_treated_as_utc() -> None:
+    fake = FakeSyncCaptureClient()
+    client = _make_sync_client(fake)
+
+    naive = _OCCURRED_AT.replace(tzinfo=None)
+    client.experimental_capture("refund.issued", occurred_at=naive)
+
+    assert fake.received.wait(timeout=5)
+    request = fake.last_request
+    assert request is not None
+    # Naive datetimes are normalized to UTC, not the local timezone, so the
+    # emitted unix-ms is deterministic across environments.
+    assert request.events[0].occurred_at_unix_ms == int(_OCCURRED_AT.timestamp() * 1000)
+
+
+def test_sync_capture_drops_when_in_flight_cap_reached() -> None:
+    from arcjet.guard._client import _MAX_INFLIGHT_CAPTURES
+
+    fake = FakeSyncCaptureClient()
+    client = _make_sync_client(fake)
+
+    # Exhaust every send slot; the next call must drop without sending.
+    for _ in range(_MAX_INFLIGHT_CAPTURES):
+        assert client._capture_slots.acquire(blocking=False)
+    try:
+        client.experimental_capture("refund.issued")
+        assert not fake.received.wait(timeout=0.2)
+    finally:
+        for _ in range(_MAX_INFLIGHT_CAPTURES):
+            client._capture_slots.release()
+
+
+def test_async_capture_drops_when_in_flight_cap_reached() -> None:
+    from arcjet.guard._client import _MAX_INFLIGHT_CAPTURES
+
+    fake = FakeAsyncCaptureClient()
+    client = _make_async_client(fake)
+
+    async def scenario() -> None:
+        # Fill the pending set with placeholder tasks; the next call must
+        # drop without scheduling a send.
+        placeholders = {
+            asyncio.ensure_future(asyncio.sleep(10))
+            for _ in range(_MAX_INFLIGHT_CAPTURES)
+        }
+        client._pending_captures.update(placeholders)
+        try:
+            client.experimental_capture("refund.issued")
+            await asyncio.sleep(0.1)
+        finally:
+            for task in placeholders:
+                task.cancel()
+
+    asyncio.run(scenario())
+    assert fake.last_request is None

@@ -13,7 +13,7 @@ import platform
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import Any, Protocol, Sequence, Union
@@ -87,11 +87,14 @@ def _build_capture_request(
     metadata: dict[str, str] | None,
 ) -> pb.CaptureRequest:
     sent_at_unix_ms = int(time.time() * 1000)
-    occurred_at_unix_ms = (
-        int(occurred_at.timestamp() * 1000)
-        if occurred_at is not None
-        else sent_at_unix_ms
-    )
+    if occurred_at is not None:
+        # Naive datetimes would otherwise be interpreted in the local
+        # timezone, making the emitted unix-ms environment-dependent.
+        if occurred_at.tzinfo is None:
+            occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+        occurred_at_unix_ms = int(occurred_at.timestamp() * 1000)
+    else:
+        occurred_at_unix_ms = sent_at_unix_ms
     event = pb.CaptureEvent(
         occurred_at_unix_ms=occurred_at_unix_ms,
         action=action,
@@ -109,6 +112,12 @@ def _build_capture_request(
     )
     req.events.append(event)
     return req
+
+
+# Bound on concurrent in-flight capture sends per client. Calls beyond the
+# bound drop their event (the best-effort contract) rather than accumulating
+# unbounded background threads/tasks under high call volume.
+_MAX_INFLIGHT_CAPTURES = 32
 
 
 def _log_capture_drop(error: BaseException) -> None:
@@ -315,8 +324,9 @@ class ArcjetGuard:
         **Experimental.** Dogfooding only: the API shape may change and there
         is no delivery guarantee. Fire-and-forget: the RPC runs as a
         background task on the running event loop and a failure of any kind
-        (invalid input, transport error, server rejection, no running loop)
-        drops the event, logged at debug level only. Returning means the send
+        (invalid input, transport error, server rejection, no running loop,
+        or too many in-flight sends) drops the event, logged at debug level
+        only. Returning means the send
         has been initiated, not that the event was durably recorded: an ack
         from the server means "received," not "stored."
 
@@ -342,6 +352,9 @@ class ArcjetGuard:
                 untrusted, same size caps as ``guard()`` metadata.
         """
         try:
+            if len(self._pending_captures) >= _MAX_INFLIGHT_CAPTURES:
+                _log_capture_drop(RuntimeError("too many in-flight capture events"))
+                return
             request = _build_capture_request(
                 action,
                 user_agent=self._user_agent,
@@ -379,6 +392,10 @@ class ArcjetGuardSync:
     _client: _SyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    # Bounds concurrent capture daemon threads; see _MAX_INFLIGHT_CAPTURES.
+    _capture_slots: threading.BoundedSemaphore = field(
+        default_factory=lambda: threading.BoundedSemaphore(_MAX_INFLIGHT_CAPTURES)
+    )
 
     def guard(
         self,
@@ -445,11 +462,11 @@ class ArcjetGuardSync:
 
         **Experimental.** Dogfooding only: the API shape may change and there
         is no delivery guarantee. Fire-and-forget: the RPC runs on a daemon
-        thread and a failure of any kind (invalid input, transport error,
-        server rejection) drops the event, logged at debug level only.
-        Returning means the send has been initiated, not that the event was
-        durably recorded: an ack from the server means "received," not
-        "stored."
+        thread (bounded; calls beyond the in-flight cap drop their event) and
+        a failure of any kind (invalid input, transport error, server
+        rejection) drops the event, logged at debug level only. Returning
+        means the send has been initiated, not that the event was durably
+        recorded: an ack from the server means "received," not "stored."
 
         Event identifiers are authored by the server when the event is
         received; the SDK does not mint or expose them.
@@ -472,6 +489,9 @@ class ArcjetGuardSync:
             metadata: Arbitrary key/value metadata. Customer-supplied and
                 untrusted, same size caps as ``guard()`` metadata.
         """
+        if not self._capture_slots.acquire(blocking=False):
+            _log_capture_drop(RuntimeError("too many in-flight capture events"))
+            return
         try:
             request = _build_capture_request(
                 action,
@@ -488,6 +508,7 @@ class ArcjetGuardSync:
                 daemon=True,
             ).start()
         except Exception as e:
+            self._capture_slots.release()
             _log_capture_drop(e)
 
     def _send_capture(self, request: pb.CaptureRequest) -> None:
@@ -499,6 +520,8 @@ class ArcjetGuardSync:
             )
         except Exception as e:
             _log_capture_drop(e)
+        finally:
+            self._capture_slots.release()
 
 
 def launch_arcjet(
