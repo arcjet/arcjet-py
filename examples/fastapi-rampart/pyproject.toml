@@ -1,0 +1,17 @@
+[project]
+name = "example-fastapi-rampart"
+version = "0.1.0"
+description = "Arcjet Python SDK Example — sensitive info detection with the Rampart backend"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "arcjet[sensitive-info-rampart]",
+  "fastapi[standard]>=0.124.4",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

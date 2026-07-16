@@ -989,7 +989,7 @@ class TestEntityTypeValidation:
         from arcjet._errors import ArcjetError
 
         with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
-            LocalDetectSensitiveInfo(allow=["SSN"])
+            LocalDetectSensitiveInfo(allow=["NOT_A_TYPE"])
 
     def test_invalid_deny_type_raises(self) -> None:
         import pytest
@@ -1005,12 +1005,73 @@ class TestEntityTypeValidation:
         from arcjet._errors import ArcjetError
 
         with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
-            LocalDetectSensitiveInfo(allow=["EMAIL", "SSN"])
+            LocalDetectSensitiveInfo(allow=["EMAIL", "NOT_A_TYPE"])
 
     def test_empty_lists_accepted(self) -> None:
         rule = LocalDetectSensitiveInfo(allow=[], deny=[])  # type: ignore[call-overload]
         assert rule._config.allow == ()
         assert rule._config.deny == ()
+
+
+class _StubBackend:
+    def detect(self, context, value, entities, options=None):
+        from arcjet._analyze import SensitiveInfoResult
+
+        return SensitiveInfoResult(allowed=[], denied=[])
+
+
+class TestSensitiveInfoBackendOption:
+    def test_backend_only_type_without_backend_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match='"GIVEN_NAME"'):
+            LocalDetectSensitiveInfo(deny=["GIVEN_NAME"])
+
+    def test_backend_only_type_in_allow_without_backend_raises(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match='"GIVEN_NAME"'):
+            LocalDetectSensitiveInfo(allow=["GIVEN_NAME"])
+
+    def test_backend_only_type_with_backend_accepted(self) -> None:
+        rule = LocalDetectSensitiveInfo(
+            deny=["GIVEN_NAME", "SSN"], backend=_StubBackend()
+        )
+        assert rule._config.deny == ("GIVEN_NAME", "SSN")
+        assert rule._config.backend is not None
+
+    def test_native_types_without_backend_ok(self) -> None:
+        rule = LocalDetectSensitiveInfo(deny=["EMAIL", "IP_ADDRESS"])
+        assert rule._config.backend is None
+
+    def test_non_callable_backend_rejected(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match="detect"):
+            LocalDetectSensitiveInfo(deny=["EMAIL"], backend=object())  # type: ignore[arg-type]
+
+    def test_backend_class_not_instance_rejected(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        # Passing the class rather than an instance must be rejected up front.
+        with pytest.raises(ArcjetError, match="not a class"):
+            LocalDetectSensitiveInfo(deny=["EMAIL"], backend=_StubBackend)  # type: ignore[arg-type]
+
+    def test_unknown_type_still_rejected_with_backend(self) -> None:
+        import pytest
+
+        from arcjet._errors import ArcjetError
+
+        with pytest.raises(ArcjetError, match="Invalid sensitive info entity type"):
+            LocalDetectSensitiveInfo(deny=["NOT_A_TYPE"], backend=_StubBackend())
 
     def test_allow_and_deny_mutually_exclusive(self) -> None:
         with pytest.raises(ArcjetError, match="allow.*deny.*not both"):

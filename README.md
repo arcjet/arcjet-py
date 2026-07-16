@@ -489,9 +489,10 @@ details.
 ## Sensitive information detection
 
 Detect and block PII in request content before it reaches your LLM or data
-store. Built-in entity types: `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`,
-`CREDIT_CARD_NUMBER`. You can also provide a custom `detect` callback for
-additional patterns.
+store. The default (local WebAssembly) backend detects `EMAIL`, `PHONE_NUMBER`,
+`IP_ADDRESS`, and `CREDIT_CARD_NUMBER`. You can provide a custom `detect`
+callback for additional patterns, or the optional on-device Rampart `backend`
+(see below) for names, addresses, and government/financial identifiers.
 
 ```py
 from arcjet import arcjet, detect_sensitive_info, SensitiveInfoEntityType, Mode
@@ -527,6 +528,44 @@ rules = [
     ),
 ]
 ```
+
+### On-device Rampart backend (more entity types)
+
+The default backend detects the four types above. To detect names, addresses,
+and government/financial identifiers, install the optional
+`arcjet[sensitive-info-rampart]` extra and pass its `backend` to the rule. It
+runs the on-device [Rampart](https://huggingface.co/nationaldesignstudio/rampart)
+NER model entirely locally, so no data leaves your environment:
+
+```sh
+pip install "arcjet[sensitive-info-rampart]"
+```
+
+```py
+from arcjet import arcjet, detect_sensitive_info, Mode
+from arcjet_sensitive_info_rampart import rampart
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["EMAIL", "GIVEN_NAME", "SURNAME", "STREET_NAME", "SSN"],
+            backend=rampart(),
+        ),
+    ],
+)
+```
+
+The backend adds these entity types: `GIVEN_NAME`, `SURNAME`, `SSN`, `URL`,
+`TAX_ID`, `BANK_ACCOUNT`, `ROUTING_NUMBER`, `GOVERNMENT_ID`, `PASSPORT`,
+`DRIVERS_LICENSE`, `BUILDING_NUMBER`, `STREET_NAME`, `SECONDARY_ADDRESS`,
+`CITY`, `STATE`, `ZIP_CODE`. Listing one of these **without** a supporting
+`backend` (or a custom `detect` function) raises, since the default engine can
+never match it. The bundled model loads once on first use and is reused for
+every request. See the
+[`arcjet-sensitive-info-rampart` README](./sensitive-info-rampart/README.md) and
+the [`examples/fastapi-rampart`](./examples/fastapi-rampart) example.
 
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
@@ -962,8 +1001,8 @@ if decision.conclusion == "DENY":
 
 ### Sensitive information detection
 
-Detects PII locally via WASM — the raw text never leaves the SDK. Built-in
-entity types: `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`, `CREDIT_CARD_NUMBER`.
+Detects PII locally — the raw text never leaves the SDK. The default backend
+detects `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`, `CREDIT_CARD_NUMBER`.
 
 ```py
 from arcjet.guard import LocalDetectSensitiveInfo
@@ -977,6 +1016,18 @@ decision = await aj.guard(
     rules=[sensitive(user_input)],
 )
 ```
+
+For additional entity types (names, addresses, SSN, etc.), install
+`arcjet[sensitive-info-rampart]` and pass the on-device Rampart `backend`:
+
+```py
+from arcjet.guard import LocalDetectSensitiveInfo
+from arcjet_sensitive_info_rampart import rampart
+
+sensitive = LocalDetectSensitiveInfo(deny=["GIVEN_NAME", "SSN"], backend=rampart())
+```
+
+Listing a backend-only type without a supporting `backend` raises.
 
 ### Custom rules
 

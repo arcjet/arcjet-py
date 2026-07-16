@@ -40,6 +40,15 @@ keywords = [
   "waf",
 ]
 
+[project.optional-dependencies]
+# On-device Rampart NER model backend for sensitive info detection. The heavy
+# runtime deps and the bundled model ship in the separate
+# `arcjet-sensitive-info-rampart` distribution, so they are only installed when
+# this extra is requested.
+# Pinned to the matching minor: the backend imports private core modules, so
+# the two are released in lockstep (see the reciprocal bound in that package).
+sensitive-info-rampart = ["arcjet-sensitive-info-rampart>=0.9.0,<0.10.0"]
+
 [project.urls]
 "homepage" = "https://arcjet.com"
 "source" = "https://github.com/arcjet/arcjet-py"
@@ -50,8 +59,16 @@ keywords = [
 requires = ["uv_build>=0.10.9,<0.12"]
 build-backend = "uv_build"
 
+[tool.uv.workspace]
+members = ["sensitive-info-rampart"]
+
+[tool.uv.sources]
+arcjet-sensitive-info-rampart = { workspace = true }
+
 [dependency-groups]
 dev = [
+  # Exercise the Rampart backend (and its runtime deps) in the test suite.
+  "arcjet-sensitive-info-rampart",
   "pytest-benchmark>=5.1.0",
   "fastapi==0.137.2",                      # For testing integration with FastAPI
   "flask==3.1.3",                          # For testing integration with Flask

@@ -22,6 +22,13 @@ from typing import (
     Union,
 )
 
+from arcjet._sensitive_info_backend import (
+    BACKEND_ONLY_SENSITIVE_INFO_TYPES as _BACKEND_ONLY_SENSITIVE_INFO_TYPES,
+)
+from arcjet._sensitive_info_backend import (
+    NATIVE_SENSITIVE_INFO_TYPES as _NATIVE_SENSITIVE_INFO_TYPES,
+)
+
 Conclusion = Literal["ALLOW", "DENY"]
 """The outcome of a guard decision — only ``"ALLOW"`` or ``"DENY"``."""
 
@@ -59,17 +66,44 @@ Mode = Literal["LIVE", "DRY_RUN"]
 """Rule evaluation mode.  ``"LIVE"`` enforces the rule; ``"DRY_RUN"``
 evaluates without blocking."""
 
-SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = frozenset(
-    {"EMAIL", "PHONE_NUMBER", "IP_ADDRESS", "CREDIT_CARD_NUMBER"}
-)
-"""Built-in sensitive information entity types supported by the WASM
-analyzer.  Custom entity types are not supported in ``arcjet.guard`` —
-use a custom rule instead.
+NATIVE_SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = _NATIVE_SENSITIVE_INFO_TYPES
+"""Sensitive info entity types the default (WASM) backend detects natively.
 
 - ``"EMAIL"`` — Email addresses
 - ``"PHONE_NUMBER"`` — Phone numbers
 - ``"IP_ADDRESS"`` — IPv4 and IPv6 addresses
 - ``"CREDIT_CARD_NUMBER"`` — Credit/debit card numbers
+"""
+
+SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = (
+    _NATIVE_SENSITIVE_INFO_TYPES | _BACKEND_ONLY_SENSITIVE_INFO_TYPES
+)
+"""All recognized sensitive information entity types.  Custom entity types are
+not supported in ``arcjet.guard`` — use a custom rule instead.
+
+The four in :data:`NATIVE_SENSITIVE_INFO_ENTITY_TYPES` are detected by the
+default (WASM) backend.  The remaining types are detected only when a
+``SensitiveInfoBackend`` that supports them is configured via the ``backend``
+option (such as ``arcjet-sensitive-info-rampart``).  Listing one of them without
+such a backend is a configuration error — :class:`LocalDetectSensitiveInfo`
+raises rather than accepting a rule that can never match:
+
+- ``"GIVEN_NAME"`` — Given (first) names
+- ``"SURNAME"`` — Surnames (last names)
+- ``"SSN"`` — US Social Security numbers
+- ``"URL"`` — URLs
+- ``"TAX_ID"`` — Tax identifiers
+- ``"BANK_ACCOUNT"`` — Bank account numbers
+- ``"ROUTING_NUMBER"`` — Bank routing numbers
+- ``"GOVERNMENT_ID"`` — Government identifiers
+- ``"PASSPORT"`` — Passport numbers
+- ``"DRIVERS_LICENSE"`` — Driver's license numbers
+- ``"BUILDING_NUMBER"`` — Street/building numbers
+- ``"STREET_NAME"`` — Street names
+- ``"SECONDARY_ADDRESS"`` — Secondary address lines (apartment, suite, etc.)
+- ``"CITY"`` — Cities
+- ``"STATE"`` — States/regions
+- ``"ZIP_CODE"`` — Postal/ZIP codes
 """
 
 

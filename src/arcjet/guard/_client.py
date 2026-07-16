@@ -102,6 +102,7 @@ def _run_local_evaluations(
                 rule.text,
                 allow=rule.config.allow,
                 deny=rule.config.deny,
+                backend=rule.config.backend,
             )
             if result is not None:
                 results[rule._input_id] = result

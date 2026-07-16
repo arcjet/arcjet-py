@@ -97,6 +97,180 @@ class TestDetectSensitiveInfoFactory:
             detect_sensitive_info(deny=[""])
 
 
+class _StubBackend:
+    """Minimal SensitiveInfoBackend used to exercise the pluggable path."""
+
+    def __init__(self, result: SensitiveInfoResult | None = None):
+        self.result = result or SensitiveInfoResult(allowed=[], denied=[])
+        self.calls: list[tuple] = []
+
+    def detect(self, context, value, entities, options=None):
+        self.calls.append((context, value, entities, options))
+        return self.result
+
+
+class TestBackendOption:
+    """Tests for the pluggable ``backend`` option (JS PRs #6120/#6141)."""
+
+    def test_factory_stores_backend(self):
+        backend = _StubBackend()
+        rule = detect_sensitive_info(deny=["EMAIL"], backend=backend)
+        assert rule.backend is backend
+
+    def test_factory_default_backend_is_none(self):
+        rule = detect_sensitive_info(deny=["EMAIL"])
+        assert rule.backend is None
+
+    def test_backend_only_type_without_backend_raises(self):
+        with pytest.raises(ValueError, match="GIVEN_NAME"):
+            detect_sensitive_info(deny=[SensitiveInfoEntityType.GIVEN_NAME])
+
+    def test_backend_only_type_in_allow_without_backend_raises(self):
+        # Validation covers the allow list too, not just deny.
+        with pytest.raises(ValueError, match="GIVEN_NAME"):
+            detect_sensitive_info(allow=[SensitiveInfoEntityType.GIVEN_NAME])
+
+    def test_backend_only_type_lists_all_unsupported(self):
+        with pytest.raises(ValueError, match="SSN.*GIVEN_NAME|GIVEN_NAME.*SSN"):
+            detect_sensitive_info(deny=["GIVEN_NAME", "SSN", "EMAIL"])
+
+    def test_backend_only_type_with_backend_ok(self):
+        rule = detect_sensitive_info(
+            deny=[SensitiveInfoEntityType.GIVEN_NAME], backend=_StubBackend()
+        )
+        assert rule.deny == (SensitiveInfoEntityType.GIVEN_NAME,)
+
+    def test_backend_only_type_with_custom_detect_ok(self):
+        rule = detect_sensitive_info(
+            deny=["GIVEN_NAME"], detect=lambda tokens: [None] * len(tokens)
+        )
+        assert rule.deny == ("GIVEN_NAME",)
+
+    def test_custom_string_type_without_backend_ok(self):
+        # Free-form custom strings (not built-in backend-only types) still pass.
+        rule = detect_sensitive_info(deny=["MY_CUSTOM_TYPE"])
+        assert rule.deny == ("MY_CUSTOM_TYPE",)
+
+    def test_non_callable_backend_rejected(self):
+        with pytest.raises(TypeError, match="detect"):
+            SensitiveInfoDetection(mode=Mode.LIVE, deny=("EMAIL",), backend=object())  # type: ignore[arg-type]
+
+    def test_backend_class_not_instance_rejected(self):
+        # Passing the backend class instead of an instance must be rejected at
+        # construction, not swallowed at call time and silently allowed.
+        with pytest.raises(TypeError, match="not a class"):
+            SensitiveInfoDetection(
+                mode=Mode.LIVE,
+                deny=("EMAIL",),
+                backend=_StubBackend,  # type: ignore[arg-type]
+            )
+
+    def test_is_invalid_backend_helper(self):
+        # The shared predicate both rule constructors use to validate a backend.
+        from arcjet._sensitive_info_backend import is_invalid_backend
+
+        assert is_invalid_backend(object()) is True  # no `detect`
+        assert is_invalid_backend(_StubBackend) is True  # class, not an instance
+        assert is_invalid_backend(_StubBackend()) is False  # valid instance
+
+    def test_dataclass_construction_validates_backend_only_types(self):
+        # Constructing the dataclass directly (bypassing the factory) must still
+        # reject a backend-only type with no backend, or the rule would silently
+        # allow all traffic.
+        with pytest.raises(ValueError, match="GIVEN_NAME"):
+            SensitiveInfoDetection(mode=Mode.LIVE, deny=("GIVEN_NAME",))
+
+    def test_dataclass_construction_allows_backend_only_with_backend(self):
+        rule = SensitiveInfoDetection(
+            mode=Mode.LIVE, deny=("GIVEN_NAME",), backend=_StubBackend()
+        )
+        assert rule.deny == ("GIVEN_NAME",)
+
+    def test_evaluate_uses_provided_backend(self):
+        stub = _StubBackend(
+            SensitiveInfoResult(
+                allowed=[],
+                denied=[
+                    DetectedSensitiveInfoEntity(
+                        start=0,
+                        end=4,
+                        identified_type=SensitiveInfoEntityCustom(value="GIVEN_NAME"),
+                    )
+                ],
+            )
+        )
+        ctx = RequestContext(sensitive_info_value="Alex")
+        rule = detect_sensitive_info(deny=["GIVEN_NAME"], backend=stub)
+
+        # No WASM component is needed when a backend is provided.
+        with patch("arcjet._local._get_component", return_value=None):
+            result = evaluate_sensitive_info_locally(ctx, rule)
+
+        assert len(stub.calls) == 1
+        assert stub.calls[0][1] == "Alex"
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_DENY
+        assert result.reason.sensitive_info.denied[0].identified_type == "GIVEN_NAME"
+
+    def test_evaluate_backend_exception_returns_none(self):
+        class Boom:
+            def detect(self, *a, **k):
+                raise RuntimeError("backend failed")
+
+        ctx = RequestContext(sensitive_info_value="Alex")
+        rule = detect_sensitive_info(deny=["GIVEN_NAME"], backend=Boom())
+        result = evaluate_sensitive_info_locally(ctx, rule)
+        assert result is None
+
+    def test_evaluate_drops_unrecognized_backend_types(self):
+        # A buggy/malicious backend returning a type that is neither a recognized
+        # built-in nor a configured specifier must not drive a DENY decision.
+        stub = _StubBackend(
+            SensitiveInfoResult(
+                allowed=[],
+                denied=[
+                    DetectedSensitiveInfoEntity(
+                        start=0,
+                        end=4,
+                        identified_type=SensitiveInfoEntityCustom(value="BOGUS"),
+                    )
+                ],
+            )
+        )
+        ctx = RequestContext(sensitive_info_value="Alex")
+        rule = detect_sensitive_info(deny=["GIVEN_NAME"], backend=stub)
+        result = evaluate_sensitive_info_locally(ctx, rule)
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_ALLOW
+        assert list(result.reason.sensitive_info.denied) == []
+
+    def test_evaluate_keeps_configured_custom_backend_type(self):
+        # A custom specifier the rule explicitly configured is honored even
+        # though it is not a recognized built-in type.
+        stub = _StubBackend(
+            SensitiveInfoResult(
+                allowed=[],
+                denied=[
+                    DetectedSensitiveInfoEntity(
+                        start=0,
+                        end=4,
+                        identified_type=SensitiveInfoEntityCustom(
+                            value="MY_CUSTOM_TYPE"
+                        ),
+                    )
+                ],
+            )
+        )
+        ctx = RequestContext(sensitive_info_value="Alex")
+        rule = detect_sensitive_info(deny=["MY_CUSTOM_TYPE"], backend=stub)
+        result = evaluate_sensitive_info_locally(ctx, rule)
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_DENY
+        assert (
+            result.reason.sensitive_info.denied[0].identified_type == "MY_CUSTOM_TYPE"
+        )
+
+
 # ---------------------------------------------------------------------------
 # SensitiveInfoDetection dataclass — validation
 # ---------------------------------------------------------------------------

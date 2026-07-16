@@ -343,7 +343,7 @@ class TestArcjetGuardSync:
         guard = _make_guard_sync(client)
         rule = LocalDetectSensitiveInfo()
         inp = rule("no pii here")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 

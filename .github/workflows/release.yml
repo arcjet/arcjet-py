@@ -29,6 +29,14 @@ jobs:
       - name: Install Python 3.10
         run: uv python install 3.10
       - name: Build
-        run: uv build
-      - name: Publish
-        run: uv publish
+        # Build every workspace member (arcjet and arcjet-sensitive-info-rampart).
+        run: uv build --all-packages
+      # Publish each distribution separately: PyPI trusted publishing mints a
+      # project-scoped token per OIDC exchange, so one `uv publish` run cannot
+      # upload to two different projects. `arcjet-*` matches only the core
+      # package (hyphen); `arcjet_sensitive_info_rampart-*` matches only the
+      # backend (underscore).
+      - name: Publish arcjet-sensitive-info-rampart
+        run: uv publish dist/arcjet_sensitive_info_rampart-*
+      - name: Publish arcjet
+        run: uv publish dist/arcjet-*
