@@ -214,7 +214,7 @@ class TestSensitiveInfoBackendOption:
             def detect(self, *a, **k):
                 return object()
 
-        rule = LocalDetectSensitiveInfo(deny=["GIVEN_NAME"], backend=Malformed())
+        rule = LocalDetectSensitiveInfo(deny=["GIVEN_NAME"], backend=Malformed())  # type: ignore[arg-type]
         inp = rule("Alex")
         result = evaluate_sensitive_info_locally(
             inp.text,
