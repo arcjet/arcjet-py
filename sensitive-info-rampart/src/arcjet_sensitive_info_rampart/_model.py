@@ -101,8 +101,8 @@ def aggregate_tokens(
     current: DetectedSpan | None = None
 
     for token in tokens:
-        type = normalize_label(token.entity)
-        if type is None or token.score < threshold:
+        entity_type = normalize_label(token.entity)
+        if entity_type is None or token.score < threshold:
             if current is not None:
                 spans.append(current)
                 current = None
@@ -111,7 +111,7 @@ def aggregate_tokens(
         is_begin = token.entity[:2].lower() == "b-"
         if (
             current is not None
-            and current.type == type
+            and current.type == entity_type
             and not is_begin
             and _is_whitespace(value[current.end : token.start])
         ):
@@ -120,7 +120,7 @@ def aggregate_tokens(
 
         if current is not None:
             spans.append(current)
-        current = DetectedSpan(start=token.start, end=token.end, type=type)
+        current = DetectedSpan(start=token.start, end=token.end, type=entity_type)
 
     if current is not None:
         spans.append(current)

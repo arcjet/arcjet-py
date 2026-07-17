@@ -57,11 +57,15 @@ def luhn(digits: str) -> bool:
     return total % 10 == 0
 
 
-def _match_all(value: str, pattern: re.Pattern[str], type: str) -> list[DetectedSpan]:
+def _match_all(
+    value: str, pattern: re.Pattern[str], entity_type: str
+) -> list[DetectedSpan]:
     """Run a regex over ``value`` and map each match to a :class:`DetectedSpan`."""
     spans: list[DetectedSpan] = []
     for match in pattern.finditer(value):
-        spans.append(DetectedSpan(start=match.start(), end=match.end(), type=type))
+        spans.append(
+            DetectedSpan(start=match.start(), end=match.end(), type=entity_type)
+        )
     return spans
 
 
