@@ -118,9 +118,10 @@ def default_backend() -> SensitiveInfoBackend:
 
     The concrete backend lives in :mod:`arcjet._local` (it wraps the WASM
     component), so it is imported lazily here to keep this module free of that
-    dependency. Both the core and guard local evaluators reach the default
-    backend through this single accessor rather than importing the private
-    instance directly.
+    dependency. The guard local evaluator reaches the default backend through
+    this accessor rather than importing the private instance directly; the core
+    evaluator lives alongside the instance in :mod:`arcjet._local` and
+    references it there.
     """
     from arcjet._local import _WASM_SENSITIVE_INFO_BACKEND
 

@@ -97,11 +97,12 @@ class SensitiveInfoWithInput:
 
 
 class LocalDetectSensitiveInfo:
-    """Sensitive information detection rule (local WASM evaluation).
+    """Sensitive information detection rule (local evaluation).
 
-    Detects PII (email addresses, phone numbers, etc.) in text locally
-    via WASM.  The raw text never leaves the SDK — only a SHA-256 hash
-    is sent to the server alongside the locally-computed result.
+    Detects PII (email addresses, phone numbers, etc.) in text locally,
+    using the bundled WASM backend by default or an alternative ``backend``
+    when one is configured.  The raw text never leaves the SDK — only a
+    SHA-256 hash is sent to the server alongside the locally-computed result.
 
     Specify either ``allow`` or ``deny`` to control which entity types
     are evaluated.  The default (WASM) backend detects ``"EMAIL"``,
