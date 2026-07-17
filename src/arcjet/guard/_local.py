@@ -1,8 +1,9 @@
-"""Local WASM-based rule evaluation for ``arcjet.guard``.
+"""Local rule evaluation for ``arcjet.guard``.
 
-Evaluates sensitive info detection rules via the arcjet-analyze WASM
-component.  The raw text never leaves the SDK — only a SHA-256 hash is sent
-to the server alongside the locally-computed result.
+Evaluates sensitive info detection rules locally, using the bundled
+arcjet-analyze WASM backend by default or an alternative ``backend`` when one
+is configured.  The raw text never leaves the SDK — only a SHA-256 hash is
+sent to the server alongside the locally-computed result.
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ def hash_text(text: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class LocalSensitiveInfoResult:
-    """Result of running sensitive info detection locally via WASM."""
+    """Result of running sensitive info detection locally."""
 
     conclusion: str
     detected_entity_types: list[str]
