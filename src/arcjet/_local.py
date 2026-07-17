@@ -528,12 +528,15 @@ def evaluate_sensitive_info_locally(
         # local evaluation.
         allowed, denied = result.allowed, result.denied
     except Exception as exc:
-        # A configured backend that raises here would otherwise fail silently and
-        # fall through with no local detection, so surface it at error level. Log
-        # only the exception type — the message can embed the scanned value, and
-        # this evaluator handles sensitive input, so the full string is not
-        # logged to avoid leaking PII.
-        logger.error("local sensitive info detection error: %s", type(exc).__name__)
+        # A user-provided backend that raises would otherwise fail silently and
+        # fall through with no local detection, so surface it at error level. The
+        # default WASM path logs at debug like the other local evaluators
+        # (bot/email/filter), since transient component failures fall through to
+        # the remote Decide API. Log only the exception type — the message can
+        # embed the scanned value, and this evaluator handles sensitive input, so
+        # the full string is not logged to avoid leaking PII.
+        log = logger.error if rule.backend is not None else logger.debug
+        log("local sensitive info detection error: %s", type(exc).__name__)
         return None
 
     if rule.backend is not None:

@@ -153,13 +153,14 @@ def evaluate_sensitive_info_locally(
             denied = _filter_recognized(denied, _accepted_types(allow, deny))
         denied_types = [_detected_entity_type_str(e) for e in denied]
     except Exception as exc:
-        # A configured backend that raises here would otherwise fail silently, so
+        # A user-provided backend that raises would otherwise fail silently, so
         # surface it at error level in addition to returning the error result.
-        # Log only the exception type — its message can embed the scanned value
-        # (PII), so the full string is kept out of application logs.
-        logger.error(
-            "guard: local sensitive info detection error: %s", type(exc).__name__
-        )
+        # The default WASM path logs at debug, aligning with the other guard
+        # local evaluators, since it falls through to the server. Log only the
+        # exception type — its message can embed the scanned value (PII), so the
+        # full string is kept out of application logs.
+        log = logger.error if provided_backend is not None else logger.debug
+        log("guard: local sensitive info detection error: %s", type(exc).__name__)
         # Report only the exception type, not str(exc): this message is
         # serialized into the guard proto and sent upstream, and a backend's
         # exception can embed the scanned value (PII).
