@@ -522,6 +522,11 @@ def evaluate_sensitive_info_locally(
             entities_config,
             options,
         )
+        # Read the result shape inside the exception boundary too: a malformed
+        # backend return (e.g. not a SensitiveInfoResult) makes this access raise,
+        # which should fail closed to the remote Decide API rather than crash
+        # local evaluation.
+        allowed, denied = result.allowed, result.denied
     except Exception as exc:
         # A configured backend that raises here would otherwise fail silently and
         # fall through with no local detection, so surface it at error level. Log
@@ -531,7 +536,6 @@ def evaluate_sensitive_info_locally(
         logger.error("local sensitive info detection error: %s", type(exc).__name__)
         return None
 
-    allowed, denied = result.allowed, result.denied
     if rule.backend is not None:
         # Validate the types a third-party backend returned rather than trusting
         # them: keep recognized built-ins and the types this rule configured, and

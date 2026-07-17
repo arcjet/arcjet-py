@@ -206,6 +206,25 @@ class TestSensitiveInfoBackendOption:
         assert isinstance(result, LocalSensitiveInfoError)
         assert result.code == "SENSITIVE_INFO_ERROR"
 
+    def test_malformed_backend_output_returns_sensitive_info_error(self) -> None:
+        # A backend returning something that is not a SensitiveInfoResult must
+        # fail closed to a LocalSensitiveInfoError rather than crash request
+        # handling when the result shape is read.
+        class Malformed:
+            def detect(self, *a, **k):
+                return object()
+
+        rule = LocalDetectSensitiveInfo(deny=["GIVEN_NAME"], backend=Malformed())
+        inp = rule("Alex")
+        result = evaluate_sensitive_info_locally(
+            inp.text,
+            allow=inp.config.allow,
+            deny=inp.config.deny,
+            backend=inp.config.backend,
+        )
+        assert isinstance(result, LocalSensitiveInfoError)
+        assert result.code == "SENSITIVE_INFO_ERROR"
+
     def test_unknown_returned_types_dropped(self) -> None:
         from arcjet._analyze import (
             DetectedSensitiveInfoEntity,

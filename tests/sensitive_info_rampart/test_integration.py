@@ -16,7 +16,7 @@ import os
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("ARCJET_RAMPART_INTEGRATION"),
+    os.getenv("ARCJET_RAMPART_INTEGRATION") != "1",
     reason="set ARCJET_RAMPART_INTEGRATION=1 to run the real-model integration tests",
 )
 

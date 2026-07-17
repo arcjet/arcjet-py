@@ -222,6 +222,19 @@ class TestBackendOption:
         result = evaluate_sensitive_info_locally(ctx, rule)
         assert result is None
 
+    def test_evaluate_malformed_backend_output_returns_none(self):
+        # A backend returning something that is not a SensitiveInfoResult must
+        # fail closed (fall back to the remote Decide API) rather than crash
+        # local evaluation when the result shape is read.
+        class Malformed:
+            def detect(self, *a, **k):
+                return object()
+
+        ctx = RequestContext(sensitive_info_value="Alex")
+        rule = detect_sensitive_info(deny=["GIVEN_NAME"], backend=Malformed())
+        result = evaluate_sensitive_info_locally(ctx, rule)
+        assert result is None
+
     def test_evaluate_drops_unrecognized_backend_types(self):
         # A buggy/malicious backend returning a type that is neither a recognized
         # built-in nor a configured specifier must not drive a DENY decision.

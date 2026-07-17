@@ -138,6 +138,19 @@ def evaluate_sensitive_info_locally(
             entities_cfg,
             options,
         )
+        # Read and process the result shape inside the exception boundary too: a
+        # malformed backend return (e.g. not a SensitiveInfoResult, or malformed
+        # entities) makes this access raise, which should fail closed to a
+        # LocalSensitiveInfoError rather than crash request handling.
+        denied = result.denied
+        if provided_backend is not None:
+            # Validate the types a third-party backend returned rather than
+            # trusting them; drop anything outside the recognized built-ins and
+            # the types this rule configured, reusing the same helper as the core
+            # evaluator in ``arcjet._local``. The default WASM path returns
+            # built-ins only, so it is left untouched.
+            denied = _filter_recognized(denied, _accepted_types(allow, deny))
+        denied_types = [_detected_entity_type_str(e) for e in denied]
     except Exception as exc:
         # A configured backend that raises here would otherwise fail silently, so
         # surface it at error level in addition to returning the error result.
@@ -155,15 +168,6 @@ def evaluate_sensitive_info_locally(
         )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
-    denied = result.denied
-    if provided_backend is not None:
-        # Validate the types a third-party backend returned rather than trusting
-        # them; drop anything outside the recognized built-ins and the types this
-        # rule configured, reusing the same helper as the core evaluator in
-        # ``arcjet._local``. The default WASM path returns built-ins only, so it
-        # is left untouched.
-        denied = _filter_recognized(denied, _accepted_types(allow, deny))
-    denied_types = [_detected_entity_type_str(e) for e in denied]
     has_deny = len(denied_types) > 0
     conclusion = "DENY" if has_deny else "ALLOW"
 
