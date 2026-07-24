@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, Mapping, Optional, TypeVar, cast
 
 from arcjet._logging import logger
+from arcjet._metadata import Metadata
 
 from .._types import (
     CustomEvaluateResult,
@@ -107,7 +108,7 @@ class LocalCustomWithInput(Generic[TData]):
     evaluate_duration_ms: int
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     def results(self, decision: Decision) -> list[TypedCustomResult[TData]]:
         """Get this input's results as a list (empty or single-element)."""
@@ -163,7 +164,8 @@ class LocalCustomRule(Generic[TConfig, TInput, TData]):
             slug: lowercase letters, digits, dash (``-``), and dot (``.``)
             only; must start and end with a lowercase letter or digit;
             max 256 bytes.
-        metadata: Config-level key-value metadata.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
 
     Example::
 
@@ -203,7 +205,7 @@ class LocalCustomRule(Generic[TConfig, TInput, TData]):
         config: TConfig,
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._config: TConfig = config
@@ -244,7 +246,7 @@ class LocalCustomRule(Generic[TConfig, TInput, TData]):
         self,
         *,
         data: TInput,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> LocalCustomWithInput[TData]:
         """Run sync evaluation and produce a ``LocalCustomWithInput``.
 
@@ -281,7 +283,7 @@ class LocalCustomRule(Generic[TConfig, TInput, TData]):
         self,
         *,
         data: TInput,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> LocalCustomWithInput[TData]:
         """Run async evaluation and produce a ``LocalCustomWithInput``.
 

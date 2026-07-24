@@ -333,6 +333,14 @@ class StubDecideResponse:
         return field == "decision"
 
 
+class StubWarning:
+    """Stub for protobuf Warning ({code, message})."""
+
+    def __init__(self, code: str = "", message: str = "") -> None:
+        self.code = code
+        self.message = message
+
+
 class StubReportRequest:
     """Stub for protobuf ReportRequest."""
 
@@ -348,6 +356,8 @@ class StubReportRequest:
         self.details = details
         self.decision = decision
         self.rules: list[StubRule] = []
+        self.metadata_json: dict[str, str] = {}
+        self.local_warnings: list[StubWarning] = []
 
 
 class StubDecideRequest:
@@ -363,6 +373,8 @@ class StubDecideRequest:
         self.sdk_version = sdk_version
         self.details = details
         self.rules: list[StubRule] = []
+        self.metadata_json: dict[str, str] = {}
+        self.local_warnings: list[StubWarning] = []
 
 
 class StubDecideServiceClient:
@@ -516,6 +528,7 @@ def mock_protobuf_modules(
         Decision=StubDecision,
         DecideRequest=StubDecideRequest,
         ReportRequest=StubReportRequest,
+        Warning=StubWarning,
         EmailType=StubEmailType,
     )
 

@@ -10,6 +10,7 @@ from ._decision import (
     is_spoofed_bot,
 )
 from ._enums import Mode
+from ._metadata import Metadata, MetadataValue
 from ._rules import (
     BotCategory,
     EmailType,
@@ -52,6 +53,8 @@ __all__ = [
     "IpInfo",
     "IpDetails",
     "is_spoofed_bot",
+    "Metadata",
+    "MetadataValue",
     "Mode",
     "PromptInjectionDetection",
     "Reason",

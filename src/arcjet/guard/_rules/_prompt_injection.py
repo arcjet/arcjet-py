@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Optional
+
+from arcjet._metadata import Metadata
 
 from .._types import Decision, Mode, RuleResultError, RuleResultPromptInjection
 from ._base import (
@@ -24,7 +26,7 @@ class PromptInjectionWithInput:
     text: str
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     def results(self, decision: Decision) -> list[RuleResultPromptInjection]:
         """Get this input's results as a list (empty or single-element)."""
@@ -71,9 +73,10 @@ class DetectPromptInjection:
             slug: lowercase letters, digits, dash (``-``), and dot (``.``)
             only; must start and end with a lowercase letter or digit;
             max 256 bytes.
-        metadata: Config-level key-value metadata.  Merged with
-            per-input metadata on each call — input keys replace
-            config keys on conflict.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+            Merged with per-input metadata on each call: the merge is
+            shallow, so an input key replaces the config key's whole value.
 
     Example::
 
@@ -89,7 +92,7 @@ class DetectPromptInjection:
         *,
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._mode: Mode = mode
@@ -105,7 +108,7 @@ class DetectPromptInjection:
         self,
         text: str,
         *,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> PromptInjectionWithInput:
         return PromptInjectionWithInput(
             _input_id=str(uuid.uuid4()),

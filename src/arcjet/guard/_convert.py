@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from arcjet._errors import ArcjetError
+from arcjet._metadata import LocalWarning, encode_metadata
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 from ._local import (
@@ -188,6 +189,9 @@ def rule_to_proto(
     rule: RuleWithInput,
     local_results: dict[str, LocalSensitiveInfoResult | LocalSensitiveInfoError]
     | None = None,
+    *,
+    rule_index: int = 0,
+    warnings_out: list[LocalWarning] | None = None,
 ) -> pb.GuardRuleSubmission:
     """Convert a ``*WithInput`` to a proto ``GuardRuleSubmission``.
 
@@ -201,6 +205,13 @@ def rule_to_proto(
     Rate-limit keys are SHA-256 hashed client-side so the raw key never
     leaves the SDK.
 
+    Per-rule ``metadata`` is JSON-encoded per top-level key into
+    ``metadata_json``.  Keys the SDK cannot encode are dropped and appended to
+    *warnings_out* (prefixed with ``rules[<rule_index>].``, matching the
+    server's message convention) so they can ride on the request's
+    ``local_warnings``.  ``GuardRuleSubmission`` has no ``local_warnings`` field
+    of its own — client-side diagnostics sit on the request envelope.
+
     Raises:
         ArcjetError: If the rule cannot be encoded into protobuf (e.g.
             negative config values that violate uint32 constraints).
@@ -213,12 +224,18 @@ def rule_to_proto(
         ) from exc
     mode = _MODE_MAP.get(rule.mode, pb.GUARD_RULE_MODE_LIVE)
 
+    metadata_json, metadata_warnings = encode_metadata(
+        rule.metadata, message_prefix=f"rules[{rule_index}]."
+    )
+    if warnings_out is not None:
+        warnings_out.extend(metadata_warnings)
+
     try:
         return pb.GuardRuleSubmission(
             config_id=rule._config_id,
             input_id=rule._input_id,
             label=rule.label or "",
-            metadata=dict(rule.metadata) if rule.metadata else {},
+            metadata_json=metadata_json,
             rule=guard_rule,
             mode=mode,
         )
@@ -361,6 +378,28 @@ def _warnings_from_proto(errors: Iterable[pb.ResultError]) -> tuple[ArcjetWarnin
         message = err.message if isinstance(err.message, str) else "Unknown warning"
         warnings.append(ArcjetWarning(code=code, message=message))
     return tuple(warnings)
+
+
+def local_warnings_to_proto(
+    warnings: Iterable[LocalWarning],
+) -> list[pb.Warning]:
+    """Convert client-side :class:`LocalWarning` entries into proto ``Warning``
+    messages for ``GuardRequest.local_warnings``.  The server bounds their count
+    and length and persists them as untrusted, SDK-sourced warnings."""
+    return [pb.Warning(code=w.code, message=w.message) for w in warnings]
+
+
+def local_warnings_to_sdk(
+    warnings: Iterable[LocalWarning],
+) -> tuple[ArcjetWarning, ...]:
+    """Convert client-side :class:`LocalWarning` entries into decision-level
+    :class:`ArcjetWarning` entries.
+
+    The server never echoes ``local_warnings`` back on the response — it only
+    persists them — so the SDK merges its own drops into ``decision.warnings``
+    to keep the guarantee that no dropped metadata key is silent.
+    """
+    return tuple(ArcjetWarning(code=w.code, message=w.message) for w in warnings)
 
 
 def decision_from_proto(

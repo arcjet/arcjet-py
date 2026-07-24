@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Optional
+
+from arcjet._metadata import Metadata
 
 from .._types import (
     Decision,
@@ -106,7 +108,7 @@ class TokenBucketWithInput:
     requested: int = 1
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     @property
     def key_hash(self) -> str:
@@ -165,7 +167,7 @@ class FixedWindowWithInput:
     requested: int = 1
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     @property
     def key_hash(self) -> str:
@@ -224,7 +226,7 @@ class SlidingWindowWithInput:
     requested: int = 1
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     @property
     def key_hash(self) -> str:
@@ -286,9 +288,10 @@ class TokenBucket:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
         label: Optional observability label. Validated server-side with
             the same slug rules as ``bucket``.
-        metadata: Config-level key-value metadata.  Merged with
-            per-input metadata on each call — input keys replace
-            config keys on conflict.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+            Merged with per-input metadata on each call: the merge is
+            shallow, so an input key replaces the config key's whole value.
 
     Example::
 
@@ -312,7 +315,7 @@ class TokenBucket:
         bucket: str = "default-token-bucket",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._config = TokenBucketConfig(
@@ -335,7 +338,7 @@ class TokenBucket:
         *,
         key: str,
         requested: int = 1,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> TokenBucketWithInput:
         return TokenBucketWithInput(
             _input_id=str(uuid.uuid4()),
@@ -391,9 +394,10 @@ class FixedWindow:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
         label: Optional observability label. Validated server-side with
             the same slug rules as ``bucket``.
-        metadata: Config-level key-value metadata.  Merged with
-            per-input metadata on each call — input keys replace
-            config keys on conflict.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+            Merged with per-input metadata on each call: the merge is
+            shallow, so an input key replaces the config key's whole value.
 
     Example::
 
@@ -411,7 +415,7 @@ class FixedWindow:
         bucket: str = "default-fixed-window",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._config = FixedWindowConfig(
@@ -433,7 +437,7 @@ class FixedWindow:
         *,
         key: str,
         requested: int = 1,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> FixedWindowWithInput:
         return FixedWindowWithInput(
             _input_id=str(uuid.uuid4()),
@@ -489,9 +493,10 @@ class SlidingWindow:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
         label: Optional observability label. Validated server-side with
             the same slug rules as ``bucket``.
-        metadata: Config-level key-value metadata.  Merged with
-            per-input metadata on each call — input keys replace
-            config keys on conflict.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+            Merged with per-input metadata on each call: the merge is
+            shallow, so an input key replaces the config key's whole value.
 
     Example::
 
@@ -509,7 +514,7 @@ class SlidingWindow:
         bucket: str = "default-sliding-window",
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._config = SlidingWindowConfig(
@@ -531,7 +536,7 @@ class SlidingWindow:
         *,
         key: str,
         requested: int = 1,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> SlidingWindowWithInput:
         return SlidingWindowWithInput(
             _input_id=str(uuid.uuid4()),

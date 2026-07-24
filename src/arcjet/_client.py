@@ -52,6 +52,7 @@ from ._local import (
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
+from ._metadata import LocalWarning, Metadata, encode_metadata
 from ._rules import (
     BotDetection,
     EmailValidation,
@@ -295,12 +296,34 @@ def _redact_report_details(
     return details
 
 
+def _apply_metadata(
+    request: decide_pb2.DecideRequest | decide_pb2.ReportRequest,
+    metadata_json: Mapping[str, str],
+    local_warnings: Sequence[LocalWarning],
+) -> None:
+    """Attach encoded ``metadata_json`` and client-side ``local_warnings`` to a
+    Decide or Report request.
+
+    Both RPCs carry the same fields so a decision and its report describe the
+    same metadata. The map is already JSON-encoded per top-level key by
+    :func:`~arcjet._metadata.encode_metadata` and is stored verbatim; the server
+    enforces the count/size/depth/key limits and warns on anything it drops.
+    """
+    for key, value in metadata_json.items():
+        request.metadata_json[key] = value
+    request.local_warnings.extend(
+        decide_pb2.Warning(code=w.code, message=w.message) for w in local_warnings
+    )
+
+
 def _build_local_deny_report(
     sdk_stack_val: str | None,
     sdk_version: str,
     ctx: RequestContext,
     local_decision: Decision,
     rules: tuple[RuleSpec, ...],
+    metadata_json: Mapping[str, str] | None = None,
+    local_warnings: Sequence[LocalWarning] | None = None,
 ) -> decide_pb2.ReportRequest:
     """Build a ReportRequest for a local DENY decision.
 
@@ -316,6 +339,7 @@ def _build_local_deny_report(
         decision=dec,
     )
     rep.rules.extend([r.to_proto() for r in rules])
+    _apply_metadata(rep, metadata_json or {}, local_warnings or ())
     return rep
 
 
@@ -451,6 +475,7 @@ class Arcjet:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        metadata: Metadata | None = None,
         filter_local: Mapping[str, str] | None = None,
         correlation_id: str | None = None,
         ip_src: str | None = None,
@@ -477,7 +502,19 @@ class Arcjet:
                 for prompt injection attacks. Required when a
                 ``detect_prompt_injection()`` rule is configured.
             extra: Additional key/value pairs forwarded verbatim to the Arcjet
-                Decide API. Useful for custom metadata or debugging.
+                Decide API. SDK-derived request context; prefer ``metadata`` for
+                your own application data.
+            metadata: Structured metadata for correlation and analytics — string
+                keys mapped to any JSON-serializable value, including nested
+                objects and arrays. Each top-level value is JSON-encoded by the
+                SDK and stored verbatim, so exact integers survive. Server-
+                enforced limits: 128 top-level keys, 4 KiB per serialized value,
+                10 levels of nesting, and key names limited to letters, digits,
+                dash, dot, and underscore. Anything over a limit drops that one
+                key with a warning — never a failed call, and never a changed
+                decision (metadata is excluded from fingerprinting and from the
+                decision cache key). Metadata is untrusted: do not put secrets
+                or PII in it.
             filter_local: Additional key/value pairs available as ``local.<key>``
                 in ``filter_request()`` expressions. Only used when a
                 ``filter_request()`` rule is configured.
@@ -587,6 +624,19 @@ class Arcjet:
 
         ctx = replace(ctx, extra=merged_extra or None)
 
+        # metadata is JSON-encoded once and attached to every request this call
+        # may send (Decide, or a Report on a cache hit or local deny). It is
+        # deliberately not part of the cache key: metadata never affects a
+        # decision.
+        metadata_json, metadata_warnings = encode_metadata(metadata)
+        if metadata_warnings:
+            logger.warning(
+                "arcjet metadata: %d key(s) dropped before sending: %s",
+                len(metadata_warnings),
+                "; ".join(w.message for w in metadata_warnings),
+                extra={"event": "arcjet_metadata_dropped"},
+            )
+
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
         cached = self._cache.get(cache_key) if cache_key is not None else None
@@ -603,6 +653,7 @@ class Arcjet:
                     decision=dec,
                 )
                 rep.rules.extend([r.to_proto() for r in self._rules])
+                _apply_metadata(rep, metadata_json, metadata_warnings)
 
                 async def _send_report():
                     try:
@@ -673,6 +724,8 @@ class Arcjet:
                     ctx,
                     local_decision,
                     self._rules,
+                    metadata_json,
+                    metadata_warnings,
                 )
 
                 async def _send_local_report():
@@ -716,6 +769,7 @@ class Arcjet:
             details=request_details_from_context(ctx),
         )
         req.rules.extend([r.to_proto() for r in self._rules])
+        _apply_metadata(req, metadata_json, metadata_warnings)
         # Do not set `req.characteristics` here; rule-level configuration controls
         # which characteristics are used. When none provided, server defaults to IP.
         t_prepare_end = time.perf_counter()
@@ -983,6 +1037,7 @@ class ArcjetSync:
         sensitive_info_value: str | None = None,
         detect_prompt_injection_message: str | None = None,
         extra: Mapping[str, str] | None = None,
+        metadata: Metadata | None = None,
         filter_local: Mapping[str, str] | None = None,
         correlation_id: str | None = None,
         ip_src: str | None = None,
@@ -1067,6 +1122,19 @@ class ArcjetSync:
 
         ctx = replace(ctx, extra=merged_extra or None)
 
+        # metadata is JSON-encoded once and attached to every request this call
+        # may send (Decide, or a Report on a cache hit or local deny). It is
+        # deliberately not part of the cache key: metadata never affects a
+        # decision.
+        metadata_json, metadata_warnings = encode_metadata(metadata)
+        if metadata_warnings:
+            logger.warning(
+                "arcjet metadata: %d key(s) dropped before sending: %s",
+                len(metadata_warnings),
+                "; ".join(w.message for w in metadata_warnings),
+                extra={"event": "arcjet_metadata_dropped"},
+            )
+
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
         cached = self._cache.get(cache_key) if cache_key is not None else None
@@ -1082,6 +1150,7 @@ class ArcjetSync:
                     decision=dec,
                 )
                 rep.rules.extend([r.to_proto() for r in self._rules])
+                _apply_metadata(rep, metadata_json, metadata_warnings)
 
                 def _send_report_sync():
                     try:
@@ -1151,6 +1220,8 @@ class ArcjetSync:
                     ctx,
                     local_decision,
                     self._rules,
+                    metadata_json,
+                    metadata_warnings,
                 )
 
                 def _send_local_report_sync():
@@ -1194,6 +1265,7 @@ class ArcjetSync:
             details=request_details_from_context(ctx),
         )
         req.rules.extend([r.to_proto() for r in self._rules])
+        _apply_metadata(req, metadata_json, metadata_warnings)
         t_prepare_end = time.perf_counter()
 
         t_api_start = time.perf_counter()

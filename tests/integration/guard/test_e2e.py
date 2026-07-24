@@ -573,4 +573,4 @@ class TestE2eSyncMultiRule:
 
         submissions = [rule_to_proto(inp)]
         assert submissions[0].label == "my-rule"
-        assert dict(submissions[0].metadata) == {"env": "staging"}
+        assert dict(submissions[0].metadata_json) == {"env": '"staging"'}

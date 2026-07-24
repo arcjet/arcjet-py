@@ -34,6 +34,8 @@ Public API
     ArcjetGuard, ArcjetGuardSync
 """
 
+from arcjet._metadata import Metadata, MetadataValue
+
 from ._client import (
     ArcjetGuard,
     ArcjetGuardSync,
@@ -91,6 +93,8 @@ __all__ = [
     "Conclusion",
     "CustomEvaluateResult",
     "Decision",
+    "Metadata",
+    "MetadataValue",
     "Mode",
     "Reason",
     "RuleResult",

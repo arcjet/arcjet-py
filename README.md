@@ -1119,7 +1119,51 @@ for result in decision.results:
 | ----------- | ------------------------- | ----------- |
 | `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
 | `label`     | `str`                     | Label identifying this guard call (required) |
-| `metadata`  | `dict[str, str] \| None`  | Optional key-value metadata |
+| `metadata`  | `Metadata \| None`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id` | `str \| None`       | Opaque id correlating this call with other `guard()`/`protect()` calls |
+
+### Metadata
+
+`guard()`, `protect()`, and every guard rule accept `metadata`: a mapping of
+string keys to **any JSON-serializable value**, including nested objects and
+arrays. It is attached to the decision for correlation and analytics, and is
+queryable in the Arcjet dashboard.
+
+```py
+decision = await aj.guard(
+    label="tools.weather",
+    rules=[user_limit(key=user_id)],
+    metadata={
+        "user": {"id": user_id, "plan": "pro"},
+        "tool_name": "get_weather",
+        "duration_ms": 160,
+        "success": True,
+    },
+)
+```
+
+Each top-level value is JSON-encoded by the SDK and stored verbatim, so exact
+integers and value formatting survive. Server-enforced limits:
+
+| Limit                    | Value    | Over the limit          |
+| ------------------------ | -------- | ----------------------- |
+| Top-level keys           | 128      | Extra keys dropped      |
+| Serialized bytes / value | 4 KiB    | That key dropped        |
+| Nesting depth / value    | 10       | That key dropped        |
+| Key names                | letters, digits, `-`, `.`, `_` | That key dropped |
+
+Nothing here can fail a call or change a decision — metadata is excluded from
+fingerprinting and from the decision cache key. Every dropped key is reported:
+server-side drops arrive on `decision.warnings`, and keys the SDK itself could
+not encode (a `datetime`, a set, `NaN`, a circular reference) are added to
+`decision.warnings` too and reported to the server. For `protect()`, which has
+no warnings channel on its `Decision`, SDK-side drops are logged at `WARNING`.
+
+Metadata is untrusted and is not redacted — do not put secrets or PII in it.
+
+Rule-level metadata is merged with `guard()`-level metadata shallowly: a
+duplicate key's whole value is replaced, never deep-merged.
+
 
 ### DRY_RUN mode
 
@@ -1227,6 +1271,8 @@ All parameters are optional keyword arguments passed alongside the `request`:
 | `sensitive_info_value`             | `str`             | Sensitive info detection |
 | `email`                            | `str`             | Email validation         |
 | `filter_local`                     | `dict[str, str]`  | Request filters (`local.*` fields) |
+| `metadata`                         | `Metadata`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id`                   | `str`             | Opaque id correlating this call with other `protect()`/`guard()` calls |
 | `ip_src`                           | `str`             | Manual IP override (advanced) |
 
 ### Decision response

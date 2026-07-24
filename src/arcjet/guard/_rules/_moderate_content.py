@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Optional
+
+from arcjet._metadata import Metadata
 
 from .._types import Decision, Mode, RuleResultError, RuleResultModerateContent
 from ._base import (
@@ -29,7 +31,7 @@ class ModerateContentWithInput:
     text: str
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     def results(self, decision: Decision) -> list[RuleResultModerateContent]:
         """Get this input's results as a list (empty or single-element)."""
@@ -82,9 +84,10 @@ class ModerateContent:
     Args:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
         label: Optional observability label.
-        metadata: Config-level key-value metadata.  Merged with
-            per-input metadata on each call — input keys replace
-            config keys on conflict.
+        metadata: Config-level metadata — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+            Merged with per-input metadata on each call: the merge is
+            shallow, so an input key replaces the config key's whole value.
 
     Example::
 
@@ -102,7 +105,7 @@ class ModerateContent:
         *,
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> None:
         self._config_id = str(uuid.uuid4())
         self._mode: Mode = mode
@@ -118,7 +121,7 @@ class ModerateContent:
         self,
         text: str,
         *,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> ModerateContentWithInput:
         return ModerateContentWithInput(
             _input_id=str(uuid.uuid4()),
