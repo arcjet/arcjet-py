@@ -1,0 +1,52 @@
+[project]
+name = "arcjet-sensitive-info-rampart"
+version = "0.9.0"
+description = "On-device Rampart NER model backend for Arcjet sensitive information detection."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
+license = { text = "Apache-2.0" }
+dependencies = [
+  # Imports private modules (`arcjet._sensitive_info_backend`, `arcjet._analyze`),
+  # so it is coupled to the core version — release the two in lockstep. The
+  # upper bound keeps an older backend from resolving against a newer core whose
+  # private internals it may not match; bump both together each minor release.
+  "arcjet>=0.9.0,<0.10.0",
+  "numpy>=1.24",
+  # 1.23+ dropped CPython 3.10 wheels; the SDK still supports 3.10.
+  "onnxruntime>=1.17,<1.23",
+  "tokenizers>=0.20",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries",
+]
+keywords = [
+  "arcjet",
+  "ner",
+  "onnx",
+  "pii",
+  "rampart",
+  "sensitive-data",
+]
+
+[project.urls]
+"homepage" = "https://arcjet.com"
+"source" = "https://github.com/arcjet/arcjet-py"
+"documentation" = "https://docs.arcjet.com"
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+arcjet = { workspace = true }
+
+[tool.uv.build-backend]
+# Ship the bundled model artifacts (ONNX weights, tokenizer, vocab) in the wheel
+# and sdist alongside the Python modules.
+source-include = ["src/arcjet_sensitive_info_rampart/models/**"]

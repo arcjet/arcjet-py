@@ -92,7 +92,7 @@ class TestRuleToProto:
         )
         rule = LocalDetectSensitiveInfo(allow=["EMAIL"])
         inp = rule("my email is foo@bar.com")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -644,7 +644,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("my email is test@example.com")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -665,7 +665,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("no sensitive data")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -695,7 +695,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("test@example.com and more")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -714,7 +714,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         mock_component.detect_sensitive_info.side_effect = RuntimeError("wasm crash")
         rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -722,15 +722,18 @@ class TestRuleToProtoLocalSensitiveInfo:
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
-        assert si.result_error.code == "WASM_ERROR"
-        assert "wasm crash" in si.result_error.message
+        assert si.result_error.code == "SENSITIVE_INFO_ERROR"
+        # The message carries only the exception type, not str(exc) ("wasm
+        # crash"), so scanned PII cannot leak into the upstream proto.
+        assert "RuntimeError" in si.result_error.message
+        assert "wasm crash" not in si.result_error.message
 
     def test_attaches_not_run_when_wasm_unavailable(self) -> None:
         from arcjet.guard._local import evaluate_sensitive_info_locally
 
         rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
-        with patch("arcjet.guard._local._get_component", return_value=None):
+        with patch("arcjet._local._get_component", return_value=None):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )

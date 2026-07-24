@@ -1,8 +1,9 @@
-"""Local WASM-based rule evaluation for ``arcjet.guard``.
+"""Local rule evaluation for ``arcjet.guard``.
 
-Evaluates sensitive info detection rules via the arcjet-analyze WASM
-component.  The raw text never leaves the SDK — only a SHA-256 hash is sent
-to the server alongside the locally-computed result.
+Evaluates sensitive info detection rules locally, using the bundled
+arcjet-analyze WASM backend by default or an alternative ``backend`` when one
+is configured.  The raw text never leaves the SDK — only a SHA-256 hash is
+sent to the server alongside the locally-computed result.
 """
 
 from __future__ import annotations
@@ -10,8 +11,18 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 from arcjet._logging import logger
+from arcjet._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
+    default_backend,
+)
+
+if TYPE_CHECKING:
+    from arcjet._analyze import DetectedSensitiveInfoEntity
 
 
 def _get_component():  # noqa: ANN202
@@ -29,11 +40,27 @@ def _to_wasm_entity(specifier: str):  # noqa: ANN202
     return _to_wasm_entity(specifier)
 
 
-def _detected_entity_type_str(entity: object) -> str:
+def _detected_entity_type_str(entity: DetectedSensitiveInfoEntity) -> str:
     """Extract a string type name from a ``DetectedSensitiveInfoEntity``."""
     from arcjet._local import _detected_entity_type_str
 
-    return _detected_entity_type_str(entity)  # type: ignore[arg-type]
+    return _detected_entity_type_str(entity)
+
+
+def _accepted_types(allow: tuple[str, ...], deny: tuple[str, ...]) -> frozenset[str]:
+    """Types a third-party backend result may report (shared with the core path)."""
+    from arcjet._local import accepted_sensitive_info_types
+
+    return accepted_sensitive_info_types(allow, deny)
+
+
+def _filter_recognized(
+    entities: list[DetectedSensitiveInfoEntity], accepted: frozenset[str]
+) -> list[DetectedSensitiveInfoEntity]:
+    """Drop detected entities whose type is not accepted (shared with core)."""
+    from arcjet._local import filter_recognized_entities
+
+    return filter_recognized_entities(entities, accepted)
 
 
 def hash_text(text: str) -> str:
@@ -43,7 +70,7 @@ def hash_text(text: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class LocalSensitiveInfoResult:
-    """Result of running sensitive info detection locally via WASM."""
+    """Result of running sensitive info detection locally."""
 
     conclusion: str
     detected_entity_types: list[str]
@@ -63,50 +90,86 @@ def evaluate_sensitive_info_locally(
     *,
     allow: tuple[str, ...] = (),
     deny: tuple[str, ...] = (),
+    backend: Optional[SensitiveInfoBackend] = None,
 ) -> LocalSensitiveInfoResult | LocalSensitiveInfoError | None:
-    """Run sensitive info detection via WASM.
+    """Run sensitive info detection via the configured backend.
 
-    Returns a :class:`LocalSensitiveInfoResult` on success,
-    a :class:`LocalSensitiveInfoError` on failure, or ``None`` if the
-    WASM component is unavailable.
+    Uses ``backend`` when provided, otherwise the bundled WASM engine. Returns a
+    :class:`LocalSensitiveInfoResult` on success, a
+    :class:`LocalSensitiveInfoError` on failure, or ``None`` if the default WASM
+    component is unavailable (so the caller falls through to the server) or when
+    ``text`` is empty.
     """
     from arcjet._analyze import (
-        SensitiveInfoConfig,
         SensitiveInfoEntitiesAllow,
         SensitiveInfoEntitiesDeny,
     )
 
-    component = _get_component()
-    if component is None:
-        return None
-
     if not text:
         return None
 
+    # Remember whether the caller supplied a third-party backend; only its
+    # output needs validating (the default WASM path returns built-ins only).
+    provided_backend = backend
+    if backend is None:
+        # Gate the default path on WASM availability so an unavailable component
+        # falls through to the server rather than producing a local decision.
+        if _get_component() is None:
+            return None
+        backend = default_backend()
+
     if allow:
         wasm_entities = [_to_wasm_entity(e) for e in allow]
-        entities_cfg = SensitiveInfoEntitiesAllow(entities=wasm_entities)
+        entities_cfg: SensitiveInfoEntitiesAllow | SensitiveInfoEntitiesDeny = (
+            SensitiveInfoEntitiesAllow(entities=wasm_entities)
+        )
     elif deny:
         wasm_entities = [_to_wasm_entity(e) for e in deny]
         entities_cfg = SensitiveInfoEntitiesDeny(entities=wasm_entities)
     else:
         entities_cfg = SensitiveInfoEntitiesDeny(entities=[])
 
-    wasm_config = SensitiveInfoConfig(
-        entities=entities_cfg,
-        context_window_size=None,
-        skip_custom_detect=True,
-    )
+    options = SensitiveInfoBackendOptions(context_window_size=None, detect=None)
 
     start = time.monotonic()
     try:
-        result = component.detect_sensitive_info(text, wasm_config)
+        result = backend.detect(
+            SensitiveInfoBackendContext(log=logger),
+            text,
+            entities_cfg,
+            options,
+        )
+        # Read and process the result shape inside the exception boundary too: a
+        # malformed backend return (e.g. not a SensitiveInfoResult, or malformed
+        # entities) makes this access raise, which should fail closed to a
+        # LocalSensitiveInfoError rather than crash request handling.
+        denied = result.denied
+        if provided_backend is not None:
+            # Validate the types a third-party backend returned rather than
+            # trusting them; drop anything outside the recognized built-ins and
+            # the types this rule configured, reusing the same helper as the core
+            # evaluator in ``arcjet._local``. The default WASM path returns
+            # built-ins only, so it is left untouched.
+            denied = _filter_recognized(denied, _accepted_types(allow, deny))
+        denied_types = [_detected_entity_type_str(e) for e in denied]
     except Exception as exc:
-        logger.debug("guard: local sensitive info detection error: %s", exc)
-        return LocalSensitiveInfoError(message=str(exc), code="WASM_ERROR")
+        # A user-provided backend that raises would otherwise fail silently, so
+        # surface it at error level in addition to returning the error result.
+        # The default WASM path logs at debug, aligning with the other guard
+        # local evaluators, since it falls through to the server. Log only the
+        # exception type — its message can embed the scanned value (PII), so the
+        # full string is kept out of application logs.
+        log = logger.error if provided_backend is not None else logger.debug
+        log("guard: local sensitive info detection error: %s", type(exc).__name__)
+        # Report only the exception type, not str(exc): this message is
+        # serialized into the guard proto and sent upstream, and a backend's
+        # exception can embed the scanned value (PII).
+        return LocalSensitiveInfoError(
+            message=f"sensitive info backend error: {type(exc).__name__}",
+            code="SENSITIVE_INFO_ERROR",
+        )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
-    denied_types = [_detected_entity_type_str(e) for e in result.denied]
     has_deny = len(denied_types) > 0
     conclusion = "DENY" if has_deny else "ALLOW"
 

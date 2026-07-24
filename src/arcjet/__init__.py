@@ -26,6 +26,11 @@ from ._rules import (
     token_bucket,
     validate_email,
 )
+from ._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
+)
 
 __all__ = [
     "arcjet_sync",
@@ -39,6 +44,9 @@ __all__ = [
     "detect_sensitive_info",
     "EmailType",
     "SensitiveInfoEntityType",
+    "SensitiveInfoBackend",
+    "SensitiveInfoBackendContext",
+    "SensitiveInfoBackendOptions",
     "filter_request",
     "fixed_window",
     "IpInfo",

@@ -12,7 +12,7 @@ from __future__ import annotations
 import importlib.resources as _res
 import json
 import threading
-from typing import Callable
+from typing import Callable, Iterable
 
 from arcjet._analyze import (
     AllowedBotConfig,
@@ -33,6 +33,7 @@ from arcjet._analyze import (
     SensitiveInfoEntityEmail,
     SensitiveInfoEntityIpAddress,
     SensitiveInfoEntityPhoneNumber,
+    SensitiveInfoResult,
 )
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -45,6 +46,12 @@ from ._rules import (
     Filter,
     SensitiveInfoDetection,
     SensitiveInfoEntityType,
+)
+from ._sensitive_info_backend import (
+    BACKEND_ONLY_SENSITIVE_INFO_TYPES,
+    NATIVE_SENSITIVE_INFO_TYPES,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
 )
 
 # Shared mapping from WASM blocked-reason strings to proto EmailType values
@@ -340,15 +347,26 @@ def _to_wasm_entity(
     return SensitiveInfoEntityCustom(value=specifier)
 
 
-def _detected_entity_type_str(entity: DetectedSensitiveInfoEntity) -> str:
-    """Extract a string type name from a DetectedSensitiveInfoEntity."""
-    ident = entity.identified_type
-    type_str = _WASM_ENTITY_TYPE_TO_STR.get(type(ident))
+def _entity_type_str(entity: SensitiveInfoEntity) -> str:
+    """Map a ``SensitiveInfoEntity`` to its Arcjet type string.
+
+    Handles both a configured entity and a detected entity's
+    ``identified_type``. The native variants are looked up in the
+    auto-derived ``_WASM_ENTITY_TYPE_TO_STR`` map (so this stays the single
+    source of truth for the reverse mapping); custom types carry their own
+    value; anything else is reported as ``"UNKNOWN"``.
+    """
+    type_str = _WASM_ENTITY_TYPE_TO_STR.get(type(entity))
     if type_str is not None:
         return type_str
-    if isinstance(ident, SensitiveInfoEntityCustom):
-        return ident.value
+    if isinstance(entity, SensitiveInfoEntityCustom):
+        return entity.value
     return "UNKNOWN"
+
+
+def _detected_entity_type_str(entity: DetectedSensitiveInfoEntity) -> str:
+    """Extract a string type name from a DetectedSensitiveInfoEntity."""
+    return _entity_type_str(entity.identified_type)
 
 
 def _to_proto_entities(
@@ -365,24 +383,106 @@ def _to_proto_entities(
     ]
 
 
+class WasmSensitiveInfoBackend:
+    """Default sensitive-info backend backed by the arcjet-analyze WASM engine.
+
+    Used when a ``SensitiveInfoDetection`` rule does not configure a ``backend``.
+    Preserves the existing behavior — local detection of email addresses, phone
+    numbers, IP addresses, and credit card numbers.
+    """
+
+    def detect(
+        self,
+        context: SensitiveInfoBackendContext,
+        value: str,
+        entities: SensitiveInfoEntitiesAllow | SensitiveInfoEntitiesDeny,
+        options: SensitiveInfoBackendOptions | None = None,
+    ) -> SensitiveInfoResult:
+        """Detect sensitive info via the WASM component."""
+        component = _get_component()
+        if component is None:
+            raise RuntimeError("arcjet-analyze WASM component is unavailable")
+
+        user_detect = options.detect if options is not None else None
+        config = SensitiveInfoConfig(
+            entities=entities,
+            context_window_size=(
+                options.context_window_size if options is not None else None
+            ),
+            skip_custom_detect=user_detect is None,
+        )
+
+        # Wrap the user's detect callback (str → SensitiveInfoEntity conversion).
+        wasm_detect: Callable[[list[str]], list[SensitiveInfoEntity | None]] | None = (
+            None
+        )
+        if user_detect is not None:
+
+            def _wrapped_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
+                results = user_detect(tokens)
+                out: list[SensitiveInfoEntity | None] = []
+                for r in results:
+                    if r is None:
+                        out.append(None)
+                    else:
+                        out.append(_to_wasm_entity(r))
+                return out
+
+            wasm_detect = _wrapped_detect
+
+        return component.detect_sensitive_info(value, config, detect=wasm_detect)
+
+
+# Module-level default backend instance, reused across evaluations.
+_WASM_SENSITIVE_INFO_BACKEND = WasmSensitiveInfoBackend()
+
+# All recognized built-in sensitive-info types, used to validate the output of a
+# third-party backend.
+_RECOGNIZED_SENSITIVE_INFO_TYPES: frozenset[str] = (
+    NATIVE_SENSITIVE_INFO_TYPES | BACKEND_ONLY_SENSITIVE_INFO_TYPES
+)
+
+
+def accepted_sensitive_info_types(
+    allow: Iterable[SensitiveInfoEntityType | str],
+    deny: Iterable[SensitiveInfoEntityType | str],
+) -> frozenset[str]:
+    """Types a backend result is allowed to report for a given rule.
+
+    The recognized built-ins plus whatever the rule explicitly configured, so a
+    backend can surface a custom specifier the caller opted into but not an
+    arbitrary type it never asked for. Shared by the core and guard local
+    evaluators so both validate backend output identically.
+    """
+    return _RECOGNIZED_SENSITIVE_INFO_TYPES | frozenset(
+        e.value if isinstance(e, SensitiveInfoEntityType) else e
+        for e in (*allow, *deny)
+    )
+
+
+def filter_recognized_entities(
+    entities: list[DetectedSensitiveInfoEntity],
+    accepted: frozenset[str],
+) -> list[DetectedSensitiveInfoEntity]:
+    """Drop detected entities whose type is not in ``accepted``."""
+    return [e for e in entities if _detected_entity_type_str(e) in accepted]
+
+
 def evaluate_sensitive_info_locally(
     ctx: RequestContext,
     rule: SensitiveInfoDetection,
 ) -> decide_pb2.RuleResult | None:
-    """Evaluate a SensitiveInfoDetection rule locally via WASM.
+    """Evaluate a SensitiveInfoDetection rule locally.
 
-    Returns a proto RuleResult, or None if WASM is unavailable or no value
-    was provided.
+    Runs the rule's configured ``backend`` (or the default WASM engine) and
+    returns a proto RuleResult, or None if the backend is unavailable, no value
+    was provided, or detection errored.
     """
-    component = _get_component()
-    if component is None:
-        return None
-
     value = ctx.sensitive_info_value
     if not value:
         return None
 
-    # Build the WASM config from the rule's allow/deny lists.
+    # Build the entities config from the rule's allow/deny lists.
     # Use .value for enum members; str() on 3.10 str enums returns
     # "ClassName.MEMBER" rather than the value.
     # allow takes precedence over deny (matches JS SDK and decide API).
@@ -391,7 +491,9 @@ def evaluate_sensitive_info_locally(
             _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
             for e in rule.allow
         ]
-        entities_config = SensitiveInfoEntitiesAllow(entities=wasm_entities)
+        entities_config: SensitiveInfoEntitiesAllow | SensitiveInfoEntitiesDeny = (
+            SensitiveInfoEntitiesAllow(entities=wasm_entities)
+        )
     else:
         wasm_entities = [
             _to_wasm_entity(e.value if isinstance(e, SensitiveInfoEntityType) else e)
@@ -399,38 +501,55 @@ def evaluate_sensitive_info_locally(
         ]
         entities_config = SensitiveInfoEntitiesDeny(entities=wasm_entities)
 
-    config = SensitiveInfoConfig(
-        entities=entities_config,
+    backend = rule.backend
+    if backend is None:
+        # Gate the default path on WASM availability so an unavailable component
+        # falls through to the remote Decide API rather than producing a local
+        # allow decision.
+        if _get_component() is None:
+            return None
+        backend = _WASM_SENSITIVE_INFO_BACKEND
+
+    options = SensitiveInfoBackendOptions(
         context_window_size=rule.context_window_size,
-        skip_custom_detect=rule.detect is None,
+        detect=rule.detect,
     )
 
-    # Wrap the user's detect callback (str → SensitiveInfoEntity conversion)
-    wasm_detect: Callable[[list[str]], list[SensitiveInfoEntity | None]] | None = None
-    if rule.detect is not None:
-        user_detect = rule.detect
-
-        def _wrapped_detect(tokens: list[str]) -> list[SensitiveInfoEntity | None]:
-            results = user_detect(tokens)
-            out: list[SensitiveInfoEntity | None] = []
-            for r in results:
-                if r is None:
-                    out.append(None)
-                else:
-                    out.append(_to_wasm_entity(r))
-            return out
-
-        wasm_detect = _wrapped_detect
-
     try:
-        result = component.detect_sensitive_info(value, config, detect=wasm_detect)
+        result = backend.detect(
+            SensitiveInfoBackendContext(log=logger),
+            value,
+            entities_config,
+            options,
+        )
+        # Read the result shape inside the exception boundary too: a malformed
+        # backend return (e.g. not a SensitiveInfoResult) makes this access raise,
+        # which should fail closed to the remote Decide API rather than crash
+        # local evaluation.
+        allowed, denied = result.allowed, result.denied
     except Exception as exc:
-        logger.debug("local sensitive info detection error: %s", exc)
+        # A user-provided backend that raises would otherwise fail silently and
+        # fall through with no local detection, so surface it at error level. The
+        # default WASM path logs at debug like the other local evaluators
+        # (bot/email/filter), since transient component failures fall through to
+        # the remote Decide API. Log only the exception type — the message can
+        # embed the scanned value, and this evaluator handles sensitive input, so
+        # the full string is not logged to avoid leaking PII.
+        log = logger.error if rule.backend is not None else logger.debug
+        log("local sensitive info detection error: %s", type(exc).__name__)
         return None
 
-    # detect_sensitive_info returns SensitiveInfoResult directly (not Result)
-    allowed_entities = _to_proto_entities(result.allowed)
-    denied_entities = _to_proto_entities(result.denied)
+    if rule.backend is not None:
+        # Validate the types a third-party backend returned rather than trusting
+        # them: keep recognized built-ins and the types this rule configured, and
+        # drop anything else. The default WASM path and custom `detect` callback
+        # (backend is None) are left untouched to preserve their behavior.
+        accepted = accepted_sensitive_info_types(rule.allow, rule.deny)
+        allowed = filter_recognized_entities(allowed, accepted)
+        denied = filter_recognized_entities(denied, accepted)
+
+    allowed_entities = _to_proto_entities(allowed)
+    denied_entities = _to_proto_entities(denied)
 
     has_deny = len(denied_entities) > 0
     conclusion = decide_pb2.CONCLUSION_DENY if has_deny else decide_pb2.CONCLUSION_ALLOW
