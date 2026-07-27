@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Mapping
 
 from arcjet._metadata import (
     METADATA_ENCODE_FAILED_CODE,
@@ -101,7 +102,30 @@ class TestEncodeMetadata:
         # a newline must not be able to forge a log entry.
         _, warnings = encode_metadata({"ev\nil INFO forged": object()})  # type: ignore[misc]
         assert "\n" not in warnings[0].message
-        assert "ev\\nil INFO forged" in warnings[0].message
+        assert "ev\\x0ail INFO forged" in warnings[0].message
+
+    def test_separators_and_c1_controls_are_escaped_but_not_plain_non_ascii(
+        self,
+    ) -> None:
+        # Same escape set and format as arcjet-js, so both SDKs render the same
+        # warning for the same key.
+        _, warnings = encode_metadata({"a\u2028b\u0085c\u00fcd": object()})  # type: ignore[misc]
+        assert '"a\\u2028b\\x85c\u00fcd"' in warnings[0].message
+
+    def test_unreadable_mapping_is_ignored(self) -> None:
+        # A custom Mapping whose iteration raises costs the metadata, not the
+        # call — matching the Object.entries() guard in arcjet-js.
+        class Hostile(Mapping[str, object]):
+            def __iter__(self):
+                raise RuntimeError("nope")
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, key: str) -> object:
+                raise RuntimeError("nope")
+
+        assert encode_metadata(Hostile()) == ({}, [])  # type: ignore[arg-type]
 
     def test_long_dropped_key_names_are_truncated(self) -> None:
         _, warnings = encode_metadata({"x" * 200: object()})  # type: ignore[misc]
@@ -111,10 +135,13 @@ class TestEncodeMetadata:
         # A wrong type costs the metadata, never the call.
         assert encode_metadata(["not", "a", "mapping"]) == ({}, [])  # type: ignore[arg-type]
 
-    def test_nan_and_infinity_are_dropped(self) -> None:
+    def test_non_finite_numbers_are_dropped_nested_or_not(self) -> None:
         # NaN/Infinity are not valid JSON, so they must not reach the server.
-        encoded, warnings = encode_metadata({"nan": float("nan"), "inf": float("inf")})
-        assert encoded == {}
+        # arcjet-js drops them too, via a JSON.stringify replacer.
+        encoded, warnings = encode_metadata(
+            {"nan": float("nan"), "deep": {"inner": float("inf")}, "ok": 1}
+        )
+        assert encoded == {"ok": "1"}
         assert [w.code for w in warnings] == [METADATA_ENCODE_FAILED_CODE]
         assert "2 key(s)" in warnings[0].message
 

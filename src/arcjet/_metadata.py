@@ -68,6 +68,19 @@ class LocalWarning:
     never the values, and only after sanitizing them."""
 
 
+def _needs_escape(code: int) -> bool:
+    """Whether a code point must be escaped before it goes in a warning message.
+
+    C0 controls, DEL, the C1 range, and the Unicode line/paragraph separators are
+    the characters that can break a log line or a JSON-ish log record.  Everything
+    else, including ordinary non-ASCII text, is echoed as-is.
+
+    Kept identical to ``needsEscape`` in arcjet-js so both SDKs render the same
+    warning for the same key.
+    """
+    return code < 0x20 or 0x7F <= code <= 0x9F or code in (0x2028, 0x2029)
+
+
 def _sanitize_key(key: object) -> str:
     """Render a metadata key for inclusion in a warning message.
 
@@ -76,9 +89,16 @@ def _sanitize_key(key: object) -> str:
     could otherwise forge a log entry) and the result is length-bounded.
     """
     text = key if isinstance(key, str) else str(key)
-    escaped = "".join(
-        ch if ch.isprintable() else repr(ch)[1:-1].replace("\\'", "'") for ch in text
-    )
+    parts: list[str] = []
+    for ch in text:
+        code = ord(ch)
+        if not _needs_escape(code):
+            parts.append(ch)
+        elif code <= 0xFF:
+            parts.append(f"\\x{code:02x}")
+        else:
+            parts.append(f"\\u{code:04x}")
+    escaped = "".join(parts)
     if len(escaped) > _MAX_REPORTED_KEY_LENGTH:
         return escaped[:_MAX_REPORTED_KEY_LENGTH] + "..."
     return escaped
@@ -109,7 +129,14 @@ def encode_metadata(
     encoded: dict[str, str] = {}
     dropped: list[str] = []
 
-    for key, value in metadata.items():
+    try:
+        # Reading the mapping can fail for a custom Mapping whose __iter__ or
+        # __getitem__ raises. Metadata must never fail a call.
+        items = list(metadata.items())
+    except Exception:
+        return {}, []
+
+    for key, value in items:
         if not isinstance(key, str):
             dropped.append(_sanitize_key(key))
             continue

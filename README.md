@@ -1161,6 +1161,11 @@ that warning is logged at `WARNING` instead.
 
 Metadata is untrusted and is not redacted — do not put secrets or PII in it.
 
+Python integers are arbitrary-precision and are sent verbatim, so a value past
+2^53 survives exactly. The JavaScript SDK cannot do this (its numbers are
+IEEE-754 doubles before they reach the wire), so if you correlate metadata across
+both SDKs, send such values as strings.
+
 Rule-level metadata is merged with `guard()`-level metadata shallowly: a
 duplicate key's whole value is replaced, never deep-merged.
 
