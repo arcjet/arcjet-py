@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence, overload
+from typing import Optional, Sequence, overload
 
 from arcjet._errors import ArcjetError
+from arcjet._metadata import Metadata
 from arcjet._sensitive_info_backend import (
     SensitiveInfoBackend,
     backend_only_error_message,
@@ -62,7 +63,7 @@ class SensitiveInfoWithInput:
     text: str
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     def results(self, decision: Decision) -> list[RuleResultSensitiveInfo]:
         """Get this input's results as a list (empty or single-element)."""
@@ -119,7 +120,8 @@ class LocalDetectSensitiveInfo:
             Validated server-side as a slug: lowercase letters, digits,
             dash (``-``), and dot (``.``) only; must start and end with a
             lowercase letter or digit; max 256 bytes.
-        metadata: Optional key-value metadata for analytics.
+        metadata: Optional metadata for analytics — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
         backend: Alternative detection backend (default: the bundled WASM
             engine).
 
@@ -144,7 +146,7 @@ class LocalDetectSensitiveInfo:
         allow: Sequence[str],
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
         backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
@@ -155,7 +157,7 @@ class LocalDetectSensitiveInfo:
         deny: Sequence[str],
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
         backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
@@ -165,7 +167,7 @@ class LocalDetectSensitiveInfo:
         *,
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
         backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
@@ -176,7 +178,7 @@ class LocalDetectSensitiveInfo:
         deny: Sequence[str] = (),
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         backend: Optional[SensitiveInfoBackend] = None,
     ) -> None:
         if allow and deny:
@@ -223,7 +225,7 @@ class LocalDetectSensitiveInfo:
         self,
         text: str,
         *,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> SensitiveInfoWithInput:
         return SensitiveInfoWithInput(
             _input_id=str(uuid.uuid4()),

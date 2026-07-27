@@ -200,19 +200,28 @@ class GuardRuleSubmission(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     CONFIG_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_ID_FIELD_NUMBER: _ClassVar[int]
     LABEL_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     RULE_FIELD_NUMBER: _ClassVar[int]
     MODE_FIELD_NUMBER: _ClassVar[int]
     config_id: str
     input_id: str
     label: str
     metadata: _containers.ScalarMap[str, str]
+    metadata_json: _containers.ScalarMap[str, str]
     rule: GuardRule
     mode: GuardRuleMode
-    def __init__(self, config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule: _Optional[_Union[GuardRule, _Mapping]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ...) -> None: ...
+    def __init__(self, config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., rule: _Optional[_Union[GuardRule, _Mapping]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ...) -> None: ...
 
 class ResultTokenBucket(_message.Message):
     __slots__ = ()
@@ -311,6 +320,14 @@ class ResultError(_message.Message):
     code: str
     def __init__(self, message: _Optional[str] = ..., code: _Optional[str] = ...) -> None: ...
 
+class Warning(_message.Message):
+    __slots__ = ()
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    message: str
+    def __init__(self, code: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
+
 class GuardRuleResult(_message.Message):
     __slots__ = ()
     RESULT_ID_FIELD_NUMBER: _ClassVar[int]
@@ -362,6 +379,13 @@ class GuardRequest(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     USER_AGENT_FIELD_NUMBER: _ClassVar[int]
     LOCAL_EVAL_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     SENT_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
@@ -369,6 +393,8 @@ class GuardRequest(_message.Message):
     METADATA_FIELD_NUMBER: _ClassVar[int]
     RULE_SUBMISSIONS_FIELD_NUMBER: _ClassVar[int]
     CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     user_agent: str
     local_eval_duration_ms: int
     sent_at_unix_ms: int
@@ -376,7 +402,9 @@ class GuardRequest(_message.Message):
     metadata: _containers.ScalarMap[str, str]
     rule_submissions: _containers.RepeatedCompositeFieldContainer[GuardRuleSubmission]
     correlation_id: str
-    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class GuardResponse(_message.Message):
     __slots__ = ()
@@ -395,17 +423,28 @@ class CaptureEvent(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     OCCURRED_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
     CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
     DECISION_ID_FIELD_NUMBER: _ClassVar[int]
     ACTION_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     occurred_at_unix_ms: int
     correlation_id: str
     decision_id: str
     action: str
     metadata: _containers.ScalarMap[str, str]
-    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class CaptureRequest(_message.Message):
     __slots__ = ()

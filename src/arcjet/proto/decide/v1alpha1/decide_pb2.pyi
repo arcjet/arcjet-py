@@ -513,6 +513,14 @@ class RuleResult(_message.Message):
     fingerprint: str
     def __init__(self, rule_id: _Optional[str] = ..., state: _Optional[_Union[RuleState, str]] = ..., conclusion: _Optional[_Union[Conclusion, str]] = ..., reason: _Optional[_Union[Reason, _Mapping]] = ..., ttl: _Optional[int] = ..., fingerprint: _Optional[str] = ...) -> None: ...
 
+class Warning(_message.Message):
+    __slots__ = ()
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    message: str
+    def __init__(self, code: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
+
 class RequestDetails(_message.Message):
     __slots__ = ()
     class HeadersEntry(_message.Message):
@@ -573,17 +581,28 @@ class Decision(_message.Message):
 
 class DecideRequest(_message.Message):
     __slots__ = ()
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     SDK_STACK_FIELD_NUMBER: _ClassVar[int]
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     RULES_FIELD_NUMBER: _ClassVar[int]
     CHARACTERISTICS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     sdk_stack: SDKStack
     sdk_version: str
     details: RequestDetails
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class DecideResponse(_message.Message):
     __slots__ = ()
@@ -602,19 +621,30 @@ class DecideResponse(_message.Message):
 
 class ReportRequest(_message.Message):
     __slots__ = ()
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     SDK_STACK_FIELD_NUMBER: _ClassVar[int]
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     DECISION_FIELD_NUMBER: _ClassVar[int]
     RULES_FIELD_NUMBER: _ClassVar[int]
     CHARACTERISTICS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     sdk_stack: SDKStack
     sdk_version: str
     details: RequestDetails
     decision: Decision
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., decision: _Optional[_Union[Decision, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., decision: _Optional[_Union[Decision, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class ReportResponse(_message.Message):
     __slots__ = ()

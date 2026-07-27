@@ -1119,7 +1119,69 @@ for result in decision.results:
 | ----------- | ------------------------- | ----------- |
 | `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
 | `label`     | `str`                     | Label identifying this guard call (required) |
-| `metadata`  | `dict[str, str] \| None`  | Optional key-value metadata |
+| `metadata`  | `Metadata \| None`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id` | `str \| None`       | Opaque id correlating this call with other `guard()`/`protect()` calls |
+
+### Metadata
+
+`guard()`, `protect()`, and every guard rule accept `metadata`: a mapping of
+string keys to **any JSON-serializable value**, including nested objects and
+arrays. It is attached to the decision for correlation and analytics.
+
+```py
+decision = await aj.guard(
+    label="tools.weather",
+    rules=[user_limit(key=user_id)],
+    metadata={
+        "user": {"id": user_id, "plan": "pro"},
+        "tool_name": "get_weather",
+        "duration_ms": 160,
+        "success": True,
+    },
+)
+```
+
+Each top-level value is JSON-encoded by the SDK and stored verbatim, so exact
+integers and value formatting survive. Server-enforced limits:
+
+| Limit                    | Value    | Over the limit          |
+| ------------------------ | -------- | ----------------------- |
+| Top-level keys           | 128      | Extra keys dropped      |
+| Serialized bytes / value | 4 KiB    | That key dropped        |
+| Nesting depth / value    | 10       | That key dropped        |
+| Key names                | letters, digits, `-`, `.`, `_` | That key dropped |
+
+Nothing here can fail a call or change a decision — metadata is excluded from
+fingerprinting and from the decision cache key. Every dropped key is reported:
+server-side drops arrive on `decision.warnings`, one per key. Keys the SDK itself
+could not encode (a `datetime`, a set, `NaN`, a circular reference) are collected
+into a single warning naming them all, added to `decision.warnings` and reported
+to the server. For `protect()`, which has no warnings channel on its `Decision`,
+that warning is logged at `WARNING` instead.
+
+Metadata is untrusted and is not redacted — do not put secrets or PII in it.
+
+Some limits are the SDK's own, not the server's. The SDK drops keys once one
+request's metadata exceeds 768 KiB in total (keys plus JSON-encoded values,
+counted before compression). That ceiling sits well above anything the server
+would accept — its own caps allow roughly 512 KiB in a single map — and exists
+only so oversized metadata cannot push a request past the 1 MiB protocol limit,
+where it would be rejected outright and fail open.
+
+Two behaviours differ between the Python and JavaScript SDKs:
+
+- **Integer precision.** Python integers are arbitrary-precision and are sent
+  verbatim, so a value past 2^53 survives exactly. The JavaScript SDK cannot do
+  this — its numbers are IEEE-754 doubles before they reach the wire — so send
+  such values as strings if both SDKs must agree.
+- **Objects with a `toJSON()` method**, including JavaScript `Date`, are
+  serialized by that method in the JS SDK. Python has no equivalent protocol, so
+  a `datetime` (or any other non-JSON type) is dropped with a warning. Convert
+  explicitly — `datetime.isoformat()` — if both SDKs must agree.
+
+Rule-level metadata is merged with `guard()`-level metadata shallowly: a
+duplicate key's whole value is replaced, never deep-merged.
+
 
 ### DRY_RUN mode
 
@@ -1227,6 +1289,8 @@ All parameters are optional keyword arguments passed alongside the `request`:
 | `sensitive_info_value`             | `str`             | Sensitive info detection |
 | `email`                            | `str`             | Email validation         |
 | `filter_local`                     | `dict[str, str]`  | Request filters (`local.*` fields) |
+| `metadata`                         | `Metadata`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id`                   | `str`             | Opaque id correlating this call with other `protect()`/`guard()` calls |
 | `ip_src`                           | `str`             | Manual IP override (advanced) |
 
 ### Decision response

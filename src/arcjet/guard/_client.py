@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import platform
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import Protocol, Sequence, Union
@@ -19,8 +19,19 @@ import pyqwest
 
 from arcjet._errors import ArcjetError, ArcjetMisconfiguration
 from arcjet._logging import logger
+from arcjet._metadata import (
+    LocalWarning,
+    Metadata,
+    encode_metadata,
+    enforce_metadata_budget,
+)
 
-from ._convert import decision_from_proto, rule_to_proto
+from ._convert import (
+    decision_from_proto,
+    local_warnings_to_proto,
+    local_warnings_to_sdk,
+    rule_to_proto,
+)
 from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
@@ -55,9 +66,10 @@ def _build_request(
     *,
     user_agent: str,
     label: str,
-    metadata: dict[str, str] | None,
+    metadata: Metadata | None,
     local_eval_duration_ms: int,
     correlation_id: str | None = None,
+    local_warnings: list[LocalWarning] | None = None,
 ) -> pb.GuardRequest:
     req = pb.GuardRequest(
         user_agent=user_agent,
@@ -65,13 +77,41 @@ def _build_request(
         sent_at_unix_ms=int(time.time() * 1000),
         label=label,
     )
-    if metadata:
-        for k, v in metadata.items():
-            req.metadata[k] = v
+    metadata_json, metadata_warnings = encode_metadata(metadata)
+    if metadata_json:
+        for k, v in metadata_json.items():
+            req.metadata_json[k] = v
     if correlation_id:
         req.correlation_id = correlation_id
     req.rule_submissions.extend(submissions)
+    # Trim to the SDK ceiling across every metadata map on the request — the
+    # envelope plus one per rule — so an oversized blob cannot push the request
+    # past the 1 MiB protocol limit and get it rejected. A rejected request is a
+    # fail open, which would let metadata affect the decision.
+    budget_warnings = enforce_metadata_budget(
+        [req.metadata_json, *(sub.metadata_json for sub in req.rule_submissions)]
+    )
+    warnings = [*(local_warnings or []), *metadata_warnings, *budget_warnings]
+    if warnings:
+        req.local_warnings.extend(local_warnings_to_proto(warnings))
     return req
+
+
+def _with_local_warnings(decision: Decision, request: pb.GuardRequest) -> Decision:
+    """Merge the request's client-side ``local_warnings`` into
+    ``decision.warnings``.
+
+    The server persists ``local_warnings`` but never echoes them back on the
+    response, so without this a metadata key the SDK dropped would be invisible
+    to the caller. Reading them back off the built request keeps the encode in
+    one place.
+    """
+    if not request.local_warnings:
+        return decision
+    local = local_warnings_to_sdk(
+        LocalWarning(code=w.code, message=w.message) for w in request.local_warnings
+    )
+    return replace(decision, warnings=(*decision.warnings, *local))
 
 
 def _make_error_decision(message: str) -> Decision:
@@ -114,7 +154,7 @@ def _prepare_guard(
     *,
     user_agent: str,
     label: str,
-    metadata: dict[str, str] | None,
+    metadata: Metadata | None,
     correlation_id: str | None = None,
 ) -> Decision | pb.GuardRequest:
     """Validate rules, run local evaluations, and build the proto request.
@@ -139,8 +179,14 @@ def _prepare_guard(
 
     t0 = time.perf_counter()
     local_results = _run_local_evaluations(rule_list)
+    # Per-rule metadata keys the SDK could not encode ride on the request
+    # envelope's local_warnings — GuardRuleSubmission has no warning field.
+    rule_warnings: list[LocalWarning] = []
     try:
-        submissions = [rule_to_proto(r, local_results) for r in rule_list]
+        submissions = [
+            rule_to_proto(r, local_results, rule_index=i, warnings_out=rule_warnings)
+            for i, r in enumerate(rule_list)
+        ]
     except ArcjetError:
         raise
     except Exception as e:
@@ -154,6 +200,7 @@ def _prepare_guard(
         metadata=metadata,
         local_eval_duration_ms=local_eval_duration_ms,
         correlation_id=correlation_id,
+        local_warnings=rule_warnings,
     )
 
 
@@ -191,7 +238,7 @@ class ArcjetGuard:
         rules: Sequence[RuleWithInput],
         *,
         label: str,
-        metadata: dict[str, str] | None = None,
+        metadata: Metadata | None = None,
         correlation_id: str | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (async).
@@ -202,7 +249,17 @@ class ArcjetGuard:
                 Validated server-side as a slug: lowercase letters, digits,
                 dash (``-``), and dot (``.``) only; must start and end with
                 a lowercase letter or digit; max 256 bytes.
-            metadata: Optional key/value metadata.
+            metadata: Optional metadata for correlation and analytics —
+                string keys mapped to any JSON-serializable value, including
+                nested objects and arrays. Each top-level value is JSON-encoded
+                by the SDK and stored verbatim, so exact integers survive.
+                Server-enforced limits: 128 top-level keys, 4 KiB per
+                serialized value, 10 levels of nesting, and key names limited
+                to letters, digits, dash, dot, and underscore. Anything over a
+                limit drops that one key and reports it on
+                ``decision.warnings`` — never a failed call, and never a
+                changed decision (metadata is excluded from fingerprinting).
+                Metadata is untrusted: do not put secrets or PII in it.
             correlation_id: Optional opaque identifier used to correlate this
                 guard call with other ``guard()``/``protect()`` calls in the
                 same workflow or agent run. A dedicated, indexable field (unlike
@@ -234,9 +291,9 @@ class ArcjetGuard:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
-            return _make_error_decision(str(e))
+            return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return decision_from_proto(resp)
+        return _with_local_warnings(decision_from_proto(resp), result)
 
 
 @dataclass(slots=True)
@@ -253,7 +310,7 @@ class ArcjetGuardSync:
         rules: Sequence[RuleWithInput],
         *,
         label: str,
-        metadata: dict[str, str] | None = None,
+        metadata: Metadata | None = None,
         correlation_id: str | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (sync).
@@ -264,7 +321,17 @@ class ArcjetGuardSync:
                 Validated server-side as a slug: lowercase letters, digits,
                 dash (``-``), and dot (``.``) only; must start and end with
                 a lowercase letter or digit; max 256 bytes.
-            metadata: Optional key/value metadata.
+            metadata: Optional metadata for correlation and analytics —
+                string keys mapped to any JSON-serializable value, including
+                nested objects and arrays. Each top-level value is JSON-encoded
+                by the SDK and stored verbatim, so exact integers survive.
+                Server-enforced limits: 128 top-level keys, 4 KiB per
+                serialized value, 10 levels of nesting, and key names limited
+                to letters, digits, dash, dot, and underscore. Anything over a
+                limit drops that one key and reports it on
+                ``decision.warnings`` — never a failed call, and never a
+                changed decision (metadata is excluded from fingerprinting).
+                Metadata is untrusted: do not put secrets or PII in it.
             correlation_id: Optional opaque identifier used to correlate this
                 guard call with other ``guard()``/``protect()`` calls in the
                 same workflow or agent run. A dedicated, indexable field (unlike
@@ -296,9 +363,9 @@ class ArcjetGuardSync:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
-            return _make_error_decision(str(e))
+            return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return decision_from_proto(resp)
+        return _with_local_warnings(decision_from_proto(resp), result)
 
 
 def launch_arcjet(
