@@ -100,7 +100,9 @@ def _needs_escape(code: int) -> bool:
         code < 0x20
         or 0x7F <= code <= 0x9F
         or 0xD800 <= code <= 0xDFFF
-        or code in (0x2028, 0x2029)
+        # The key list wraps each name in double quotes, so an unescaped quote or
+        # backslash could forge the appearance of extra keys.
+        or code in (0x22, 0x5C, 0x2028, 0x2029)
     )
 
 

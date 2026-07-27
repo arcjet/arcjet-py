@@ -106,6 +106,19 @@ class TestEncodeMetadata:
         assert "\n" not in warnings[0].message
         assert "ev\\x0ail INFO forged" in warnings[0].message
 
+    def test_quotes_and_backslashes_cannot_forge_extra_keys(self) -> None:
+        # The key list wraps each name in double quotes, so a key containing one
+        # could otherwise look like several keys.
+        forging = 'ev"il", "other'
+        _, warnings = encode_metadata({forging: object()})  # type: ignore[misc]
+        assert "1 key(s)" in warnings[0].message
+        # Only the two quotes the formatter itself added remain.
+        assert warnings[0].message.count('"') == 2
+        assert "ev\\x22il\\x22, \\x22other" in warnings[0].message
+
+        _, warnings = encode_metadata({"back\\slash": object()})  # type: ignore[misc]
+        assert "back\\x5cslash" in warnings[0].message
+
     def test_separators_and_c1_controls_are_escaped_but_not_plain_non_ascii(
         self,
     ) -> None:
