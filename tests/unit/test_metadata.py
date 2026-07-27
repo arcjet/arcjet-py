@@ -86,11 +86,37 @@ class TestEncodeMetadata:
         assert '"when"' in warnings[0].message
         assert "dropped" in warnings[0].message
 
+    def test_many_dropped_keys_produce_a_single_warning(self) -> None:
+        # One encode call must never flood the warning channel, which the
+        # server bounds and persists.
+        encoded, warnings = encode_metadata({f"k{i}": object() for i in range(15)})  # type: ignore[misc]
+        assert encoded == {}
+        assert len(warnings) == 1
+        assert "15 key(s)" in warnings[0].message
+        # Only the first few names are listed, then the list is elided.
+        assert warnings[0].message.endswith('"k9", ...')
+
+    def test_dropped_key_names_are_escaped(self) -> None:
+        # Keys are user-controlled and warnings reach logs and server storage, so
+        # a newline must not be able to forge a log entry.
+        _, warnings = encode_metadata({"ev\nil INFO forged": object()})  # type: ignore[misc]
+        assert "\n" not in warnings[0].message
+        assert "ev\\nil INFO forged" in warnings[0].message
+
+    def test_long_dropped_key_names_are_truncated(self) -> None:
+        _, warnings = encode_metadata({"x" * 200: object()})  # type: ignore[misc]
+        assert len(warnings[0].message) < 160
+
+    def test_non_mapping_metadata_is_ignored(self) -> None:
+        # A wrong type costs the metadata, never the call.
+        assert encode_metadata(["not", "a", "mapping"]) == ({}, [])  # type: ignore[arg-type]
+
     def test_nan_and_infinity_are_dropped(self) -> None:
         # NaN/Infinity are not valid JSON, so they must not reach the server.
         encoded, warnings = encode_metadata({"nan": float("nan"), "inf": float("inf")})
         assert encoded == {}
-        assert [w.code for w in warnings] == [METADATA_ENCODE_FAILED_CODE] * 2
+        assert [w.code for w in warnings] == [METADATA_ENCODE_FAILED_CODE]
+        assert "2 key(s)" in warnings[0].message
 
     def test_circular_reference_is_dropped(self) -> None:
         cycle: dict[str, object] = {}
@@ -105,7 +131,7 @@ class TestEncodeMetadata:
         assert encoded == {"ok": '"yes"'}
         assert len(warnings) == 1
         assert warnings[0].code == METADATA_ENCODE_FAILED_CODE
-        assert "int" in warnings[0].message
+        assert '"1"' in warnings[0].message
 
     def test_warning_message_never_contains_the_value(self) -> None:
         # Warnings are persisted server-side and are a potential PII sink, so
@@ -121,7 +147,7 @@ class TestEncodeMetadata:
             {"bad": {"set"}},  # type: ignore[invalid-argument-type]
             message_prefix="rules[2].",
         )
-        assert warnings[0].message.startswith("rules[2].metadata value")
+        assert warnings[0].message.startswith("rules[2].metadata:")
 
     def test_insertion_order_is_preserved(self) -> None:
         # The server keeps the first 128 keys, so ordering is the SDK's only

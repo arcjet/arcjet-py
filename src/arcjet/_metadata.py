@@ -48,6 +48,12 @@ string keys mapped to arbitrary JSON-serializable values."""
 METADATA_ENCODE_FAILED_CODE = "AJ1017"
 """Warning code for a metadata key the SDK dropped before sending."""
 
+_MAX_REPORTED_KEY_LENGTH = 64
+"""Longest key name echoed into a warning, matching the server's key cap."""
+
+_MAX_REPORTED_KEYS = 10
+"""Most key names listed in a single warning before the list is elided."""
+
 
 @dataclass(frozen=True, slots=True)
 class LocalWarning:
@@ -58,8 +64,24 @@ class LocalWarning:
     """Machine-readable code (e.g. ``"AJ1017"``)."""
 
     message: str
-    """Human-readable description.  References only the offending key name,
-    never the value."""
+    """Human-readable description.  References only the offending key names,
+    never the values, and only after sanitizing them."""
+
+
+def _sanitize_key(key: object) -> str:
+    """Render a metadata key for inclusion in a warning message.
+
+    Keys are user-controlled, and warnings end up in application logs and in
+    server-side storage, so control characters are escaped (a newline in a key
+    could otherwise forge a log entry) and the result is length-bounded.
+    """
+    text = key if isinstance(key, str) else str(key)
+    escaped = "".join(
+        ch if ch.isprintable() else repr(ch)[1:-1].replace("\\'", "'") for ch in text
+    )
+    if len(escaped) > _MAX_REPORTED_KEY_LENGTH:
+        return escaped[:_MAX_REPORTED_KEY_LENGTH] + "..."
+    return escaped
 
 
 def encode_metadata(
@@ -77,26 +99,19 @@ def encode_metadata(
     Returns:
         ``(encoded, warnings)`` — *encoded* maps each surviving key to its
         JSON-encoded value, ready for the proto ``metadata_json`` field.
-        *warnings* has one entry per key dropped because it could not be
-        encoded.  Both are empty when *metadata* is ``None`` or empty.
+        *warnings* holds **at most one** entry, naming every key that had to be
+        dropped, so one call can never flood the warning channel.  Both are
+        empty when *metadata* is ``None``, empty, or not a mapping.
     """
-    if not metadata:
+    if not metadata or not isinstance(metadata, Mapping):
         return {}, []
 
     encoded: dict[str, str] = {}
-    warnings: list[LocalWarning] = []
+    dropped: list[str] = []
 
     for key, value in metadata.items():
         if not isinstance(key, str):
-            warnings.append(
-                LocalWarning(
-                    code=METADATA_ENCODE_FAILED_CODE,
-                    message=(
-                        f"{message_prefix}metadata key of type "
-                        f"{type(key).__name__} is not a string; key dropped"
-                    ),
-                )
-            )
+            dropped.append(_sanitize_key(key))
             continue
         try:
             # allow_nan=False so NaN/Infinity are dropped here rather than
@@ -109,15 +124,21 @@ def encode_metadata(
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-        except (TypeError, ValueError, RecursionError) as exc:
-            warnings.append(
-                LocalWarning(
-                    code=METADATA_ENCODE_FAILED_CODE,
-                    message=(
-                        f'{message_prefix}metadata value for key "{key}" could '
-                        f"not be JSON-encoded ({type(exc).__name__}); key dropped"
-                    ),
-                )
-            )
+        except (TypeError, ValueError, RecursionError):
+            dropped.append(_sanitize_key(key))
 
-    return encoded, warnings
+    if not dropped:
+        return encoded, []
+
+    listed = ", ".join(f'"{k}"' for k in dropped[:_MAX_REPORTED_KEYS])
+    if len(dropped) > _MAX_REPORTED_KEYS:
+        listed += ", ..."
+    return encoded, [
+        LocalWarning(
+            code=METADATA_ENCODE_FAILED_CODE,
+            message=(
+                f"{message_prefix}metadata: {len(dropped)} key(s) could not be "
+                f"JSON-encoded and were dropped: {listed}"
+            ),
+        )
+    ]

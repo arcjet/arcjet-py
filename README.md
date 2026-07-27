@@ -1126,8 +1126,7 @@ for result in decision.results:
 
 `guard()`, `protect()`, and every guard rule accept `metadata`: a mapping of
 string keys to **any JSON-serializable value**, including nested objects and
-arrays. It is attached to the decision for correlation and analytics, and is
-queryable in the Arcjet dashboard.
+arrays. It is attached to the decision for correlation and analytics.
 
 ```py
 decision = await aj.guard(
@@ -1154,10 +1153,11 @@ integers and value formatting survive. Server-enforced limits:
 
 Nothing here can fail a call or change a decision — metadata is excluded from
 fingerprinting and from the decision cache key. Every dropped key is reported:
-server-side drops arrive on `decision.warnings`, and keys the SDK itself could
-not encode (a `datetime`, a set, `NaN`, a circular reference) are added to
-`decision.warnings` too and reported to the server. For `protect()`, which has
-no warnings channel on its `Decision`, SDK-side drops are logged at `WARNING`.
+server-side drops arrive on `decision.warnings`, one per key. Keys the SDK itself
+could not encode (a `datetime`, a set, `NaN`, a circular reference) are collected
+into a single warning naming them all, added to `decision.warnings` and reported
+to the server. For `protect()`, which has no warnings channel on its `Decision`,
+that warning is logged at `WARNING` instead.
 
 Metadata is untrusted and is not redacted — do not put secrets or PII in it.
 

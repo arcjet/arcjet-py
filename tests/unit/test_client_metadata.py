@@ -133,8 +133,93 @@ def test_unencodable_metadata_is_dropped_and_reported(
     # Reported to the server as an untrusted client-side warning...
     assert [w.code for w in captured[0].local_warnings] == ["AJ1017"]
     assert '"bad"' in captured[0].local_warnings[0].message
-    # ...and locally, since protect()'s Decision has no warnings channel.
-    assert "1 key(s) dropped" in caplog.text
+    # ...and locally, since protect()'s Decision has no warnings channel. The
+    # logged message names only the offending key, escaped and bounded.
+    assert "1 key(s) could not be JSON-encoded" in caplog.text
+    assert '"bad"' in caplog.text
+
+
+def test_metadata_is_attached_to_the_cache_hit_report(
+    mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch
+):
+    # A cached decision still reports to the server so it shows in the
+    # dashboard; that report must describe the same metadata as the decision.
+    from fixtures.protobuf_stubs import (
+        CONCLUSION_DENY,
+        StubDecideResponse,
+        StubDecision,
+    )
+
+    from arcjet import arcjet_sync
+    from arcjet._rules import token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
+
+    reports: list[Any] = []
+
+    def decide(request: Any):
+        return StubDecideResponse(
+            StubDecision(id="d1", conclusion=CONCLUSION_DENY, ttl=60)
+        )
+
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", decide, raising=False
+    )
+    monkeypatch.setattr(
+        DecideServiceClientSync,
+        "report",
+        lambda self, request, **kwargs: reports.append(request),
+        raising=False,
+    )
+
+    aj = arcjet_sync(
+        key="ajkey_x", rules=[token_bucket(refill_rate=1, interval=1, capacity=1)]
+    )
+    scope = {**_SCOPE, "client": ("1.2.3.4", 1234)}
+    aj.protect(scope, metadata={"attempt": 1})
+    aj.protect(scope, metadata={"user": {"id": "u_1"}, "bad": object()})  # type: ignore[invalid-argument-type]
+
+    # Only the second call was a cache hit, so only it sent a report.
+    assert len(reports) == 1
+    assert reports[0].metadata_json == {"user": '{"id":"u_1"}'}
+    assert [w.code for w in reports[0].local_warnings] == ["AJ1017"]
+
+
+def test_metadata_is_attached_to_the_local_deny_report(mock_protobuf_modules):
+    # A locally-decided DENY never reaches Decide, but its report must still
+    # carry the metadata. Exercised at the builder because local WASM evaluation
+    # needs the real protobuf module.
+    from unittest.mock import MagicMock
+
+    from arcjet._client import _build_local_deny_report
+    from arcjet._context import RequestContext
+    from arcjet._metadata import LocalWarning
+
+    ctx = RequestContext(
+        ip="1.2.3.4",
+        method="GET",
+        protocol="http",
+        host="example.com",
+        path="/",
+        headers={},
+        cookies="",
+        query="",
+        extra={},
+    )
+    decision = MagicMock()
+    decision.to_proto.return_value = MagicMock()
+
+    report = _build_local_deny_report(
+        None,
+        "0.0.0",
+        ctx,
+        decision,
+        (),
+        {"user": '{"id":"u_1"}'},
+        [LocalWarning(code="AJ1017", message="dropped")],
+    )
+
+    assert report.metadata_json == {"user": '{"id":"u_1"}'}
+    assert [w.code for w in report.local_warnings] == ["AJ1017"]
 
 
 def test_metadata_is_not_part_of_the_cache_key(

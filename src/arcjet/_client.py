@@ -629,12 +629,17 @@ class Arcjet:
         # deliberately not part of the cache key: metadata never affects a
         # decision.
         metadata_json, metadata_warnings = encode_metadata(metadata)
-        if metadata_warnings:
+        for warning in metadata_warnings:
+            # The message names only the offending keys, escaped and
+            # length-bounded by `encode_metadata`, so a key containing control
+            # characters cannot forge a log entry.
             logger.warning(
-                "arcjet metadata: %d key(s) dropped before sending: %s",
-                len(metadata_warnings),
-                "; ".join(w.message for w in metadata_warnings),
-                extra={"event": "arcjet_metadata_dropped"},
+                "arcjet %s",
+                warning.message,
+                extra={
+                    "event": "arcjet_metadata_dropped",
+                    "code": warning.code,
+                },
             )
 
         # Cache lookup before hitting Decide API
@@ -1127,12 +1132,17 @@ class ArcjetSync:
         # deliberately not part of the cache key: metadata never affects a
         # decision.
         metadata_json, metadata_warnings = encode_metadata(metadata)
-        if metadata_warnings:
+        for warning in metadata_warnings:
+            # The message names only the offending keys, escaped and
+            # length-bounded by `encode_metadata`, so a key containing control
+            # characters cannot forge a log entry.
             logger.warning(
-                "arcjet metadata: %d key(s) dropped before sending: %s",
-                len(metadata_warnings),
-                "; ".join(w.message for w in metadata_warnings),
-                extra={"event": "arcjet_metadata_dropped"},
+                "arcjet %s",
+                warning.message,
+                extra={
+                    "event": "arcjet_metadata_dropped",
+                    "code": warning.code,
+                },
             )
 
         # Cache lookup before hitting Decide API
