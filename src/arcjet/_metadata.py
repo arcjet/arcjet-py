@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Mapping, Union
+from typing import Any, Mapping, MutableMapping, Sequence, Union
 
 MetadataValue = Union[
     None,
@@ -54,6 +54,22 @@ _MAX_REPORTED_KEY_LENGTH = 64
 _MAX_REPORTED_KEYS = 10
 """Most key names listed in a single warning before the list is elided."""
 
+MAX_METADATA_BYTES = 768 * 1024
+"""SDK-side ceiling on the total metadata bytes in one request.
+
+This is a **protocol** backstop, not a copy of the server's policy limits, and it
+is deliberately well above them: the server caps a metadata map at 128 keys of
+4 KiB (~512 KiB) and those caps are per-account and can be raised, so the SDK
+must never pre-empt them.
+
+What it protects against is the one immutable limit: a request over 1 MiB is
+rejected outright, before any per-key validation runs.  A rejected request means
+no decision, which means a fail open — so without this ceiling, oversized
+attacker-derived metadata could change the security outcome, contrary to the
+guarantee that metadata never affects a decision.  Counted as UTF-8 bytes of keys
+plus JSON-encoded values before compression, so the estimate is conservative.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class LocalWarning:
@@ -72,13 +88,20 @@ def _needs_escape(code: int) -> bool:
     """Whether a code point must be escaped before it goes in a warning message.
 
     C0 controls, DEL, the C1 range, and the Unicode line/paragraph separators are
-    the characters that can break a log line or a JSON-ish log record.  Everything
-    else, including ordinary non-ASCII text, is echoed as-is.
+    the characters that can break a log line or a JSON-ish log record.  Surrogates
+    are escaped because a lone one cannot be encoded as UTF-8 at all, and a warning
+    is itself sent over the wire.  Everything else, including ordinary non-ASCII
+    text, is echoed as-is.
 
     Kept identical to ``needsEscape`` in arcjet-js so both SDKs render the same
     warning for the same key.
     """
-    return code < 0x20 or 0x7F <= code <= 0x9F or code in (0x2028, 0x2029)
+    return (
+        code < 0x20
+        or 0x7F <= code <= 0x9F
+        or 0xD800 <= code <= 0xDFFF
+        or code in (0x2028, 0x2029)
+    )
 
 
 def _sanitize_key(key: object) -> str:
@@ -88,20 +111,32 @@ def _sanitize_key(key: object) -> str:
     server-side storage, so control characters are escaped (a newline in a key
     could otherwise forge a log entry) and the result is length-bounded.
     """
-    text = key if isinstance(key, str) else str(key)
+    if isinstance(key, str):
+        text = key
+    else:
+        try:
+            text = str(key)
+        except Exception:
+            # A hostile __str__ must not escape the encoder.
+            return f"<unprintable {type(key).__name__}>"
+
     parts: list[str] = []
+    length = 0
     for ch in text:
         code = ord(ch)
         if not _needs_escape(code):
-            parts.append(ch)
+            token = ch
         elif code <= 0xFF:
-            parts.append(f"\\x{code:02x}")
+            token = f"\\x{code:02x}"
         else:
-            parts.append(f"\\u{code:04x}")
-    escaped = "".join(parts)
-    if len(escaped) > _MAX_REPORTED_KEY_LENGTH:
-        return escaped[:_MAX_REPORTED_KEY_LENGTH] + "..."
-    return escaped
+            token = f"\\u{code:04x}"
+        # Truncate on a whole token so the result is never a half escape
+        # sequence or a split surrogate pair.
+        if length + len(token) > _MAX_REPORTED_KEY_LENGTH:
+            return "".join(parts) + "..."
+        parts.append(token)
+        length += len(token)
+    return "".join(parts)
 
 
 def encode_metadata(
@@ -123,7 +158,13 @@ def encode_metadata(
         dropped, so one call can never flood the warning channel.  Both are
         empty when *metadata* is ``None``, empty, or not a mapping.
     """
-    if not metadata or not isinstance(metadata, Mapping):
+    if not isinstance(metadata, Mapping):
+        return {}, []
+    try:
+        # `len()`/`__bool__` are user code on a custom Mapping and can raise.
+        if not metadata:
+            return {}, []
+    except Exception:
         return {}, []
 
     encoded: dict[str, str] = {}
@@ -145,27 +186,91 @@ def encode_metadata(
             # sent as JSON the server will reject (they are not valid JSON).
             # separators/ensure_ascii keep the encoding compact and UTF-8,
             # which is what the per-value byte cap is measured against.
-            encoded[key] = json.dumps(
+            serialized = json.dumps(
                 value,
                 allow_nan=False,
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
+            # A str may hold lone surrogates, which protobuf cannot encode: it
+            # raises UnicodeEncodeError and takes the whole request with it.
+            # Encoding here turns that into a dropped key. UnicodeEncodeError is
+            # a ValueError, so the existing handler catches it.
+            key.encode("utf-8")
+            serialized.encode("utf-8")
+            encoded[key] = serialized
         except (TypeError, ValueError, RecursionError):
             dropped.append(_sanitize_key(key))
 
     if not dropped:
         return encoded, []
 
-    listed = ", ".join(f'"{k}"' for k in dropped[:_MAX_REPORTED_KEYS])
-    if len(dropped) > _MAX_REPORTED_KEYS:
-        listed += ", ..."
     return encoded, [
         LocalWarning(
             code=METADATA_ENCODE_FAILED_CODE,
-            message=(
-                f"{message_prefix}metadata: {len(dropped)} key(s) could not be "
-                f"JSON-encoded and were dropped: {listed}"
+            message=_format_dropped(
+                message_prefix, "could not be JSON-encoded and were dropped", dropped
+            ),
+        )
+    ]
+
+
+def _format_dropped(prefix: str, reason: str, keys: list[str]) -> str:
+    """Render the key list for a warning, eliding once it gets long."""
+    listed = ", ".join(f'"{k}"' for k in keys[:_MAX_REPORTED_KEYS])
+    if len(keys) > _MAX_REPORTED_KEYS:
+        listed += ", ..."
+    return f"{prefix}metadata: {len(keys)} key(s) {reason}: {listed}"
+
+
+def enforce_metadata_budget(
+    maps: Sequence[MutableMapping[str, str]],
+) -> list[LocalWarning]:
+    """Trim already-encoded metadata maps to :data:`MAX_METADATA_BYTES` in total.
+
+    *maps* are trimmed **in place**, in the order given, and within each map in
+    insertion order: keys are kept until the running total would exceed the
+    budget, and every key after that is dropped.  Pass the request envelope's map
+    first and each rule's map after it, so the order is stable across calls.
+
+    One request can carry several metadata maps (a guard request has one per rule
+    plus the envelope), so the ceiling has to be enforced across all of them
+    rather than per map.  See :data:`MAX_METADATA_BYTES` for why this exists at
+    all.
+
+    Returns at most one warning, naming the keys that were dropped.
+    """
+    total = 0
+    dropped: list[str] = []
+
+    for m in maps:
+        over: list[str] = []
+        for key, value in m.items():
+            if total > MAX_METADATA_BYTES:
+                over.append(key)
+                continue
+            size = len(key.encode("utf-8")) + len(value.encode("utf-8"))
+            if total + size > MAX_METADATA_BYTES:
+                over.append(key)
+                # Nothing further fits either; keep scanning so every dropped
+                # key is reported.
+                total = MAX_METADATA_BYTES + 1
+                continue
+            total += size
+        for key in over:
+            del m[key]
+            dropped.append(_sanitize_key(key))
+
+    if not dropped:
+        return []
+    return [
+        LocalWarning(
+            code=METADATA_ENCODE_FAILED_CODE,
+            message=_format_dropped(
+                "",
+                f"exceeded the {MAX_METADATA_BYTES}-byte request metadata budget "
+                "and were dropped",
+                dropped,
             ),
         )
     ]

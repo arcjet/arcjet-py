@@ -52,7 +52,12 @@ from ._local import (
     evaluate_sensitive_info_locally,
 )
 from ._logging import logger
-from ._metadata import LocalWarning, Metadata, encode_metadata
+from ._metadata import (
+    LocalWarning,
+    Metadata,
+    encode_metadata,
+    enforce_metadata_budget,
+)
 from ._rules import (
     BotDetection,
     EmailValidation,
@@ -309,10 +314,15 @@ def _apply_metadata(
     :func:`~arcjet._metadata.encode_metadata` and is stored verbatim; the server
     enforces the count/size/depth/key limits and warns on anything it drops.
     """
+    warnings = list(local_warnings)
     for key, value in metadata_json.items():
         request.metadata_json[key] = value
+    # Trim to the SDK ceiling after the map is on the request, so an oversized
+    # blob cannot push the request past the 1 MiB protocol limit and get it
+    # rejected — a rejected request is a fail open.
+    warnings.extend(enforce_metadata_budget([request.metadata_json]))
     request.local_warnings.extend(
-        decide_pb2.Warning(code=w.code, message=w.message) for w in local_warnings
+        decide_pb2.Warning(code=w.code, message=w.message) for w in warnings
     )
 
 

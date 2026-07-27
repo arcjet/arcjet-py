@@ -1161,10 +1161,28 @@ that warning is logged at `WARNING` instead.
 
 Metadata is untrusted and is not redacted — do not put secrets or PII in it.
 
-Python integers are arbitrary-precision and are sent verbatim, so a value past
-2^53 survives exactly. The JavaScript SDK cannot do this (its numbers are
-IEEE-754 doubles before they reach the wire), so if you correlate metadata across
-both SDKs, send such values as strings.
+Some limits are the SDK's own, not the server's. The SDK drops keys once one
+request's metadata exceeds 768 KiB in total (keys plus JSON-encoded values,
+counted before compression). That ceiling sits well above anything the server
+would accept — its own caps allow roughly 512 KiB in a single map — and exists
+only so oversized metadata cannot push a request past the 1 MiB protocol limit,
+where it would be rejected outright and fail open.
+
+Three behaviours differ between the Python and JavaScript SDKs and are not worth
+relying on:
+
+- **Integer precision.** Python integers are arbitrary-precision and are sent
+  verbatim, so a value past 2^53 survives exactly. The JavaScript SDK cannot do
+  this (its numbers are IEEE-754 doubles before they reach the wire).
+- **Number formatting.** Values are stored as verbatim JSON, and the two runtimes
+  format some finite floats differently (`1.0` vs `1`, `1e-06` vs `0.000001`,
+  `-0.0` vs `-0`). Integers within the safe range are identical. Do not rely on
+  byte-equality when matching numeric metadata across SDKs — compare parsed
+  values, or send the value as a string.
+- **Objects with a `toJSON()` method**, including JavaScript `Date`, are
+  serialized by that method in the JS SDK. Python has no equivalent protocol, so
+  a `datetime` (or any other non-JSON type) is dropped with a warning. Convert
+  explicitly — `datetime.isoformat()` — if both SDKs must agree.
 
 Rule-level metadata is merged with `guard()`-level metadata shallowly: a
 duplicate key's whole value is replaced, never deep-merged.

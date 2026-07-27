@@ -19,7 +19,12 @@ import pyqwest
 
 from arcjet._errors import ArcjetError, ArcjetMisconfiguration
 from arcjet._logging import logger
-from arcjet._metadata import LocalWarning, Metadata, encode_metadata
+from arcjet._metadata import (
+    LocalWarning,
+    Metadata,
+    encode_metadata,
+    enforce_metadata_budget,
+)
 
 from ._convert import (
     decision_from_proto,
@@ -78,10 +83,17 @@ def _build_request(
             req.metadata_json[k] = v
     if correlation_id:
         req.correlation_id = correlation_id
-    warnings = [*(local_warnings or []), *metadata_warnings]
+    req.rule_submissions.extend(submissions)
+    # Trim to the SDK ceiling across every metadata map on the request — the
+    # envelope plus one per rule — so an oversized blob cannot push the request
+    # past the 1 MiB protocol limit and get it rejected. A rejected request is a
+    # fail open, which would let metadata affect the decision.
+    budget_warnings = enforce_metadata_budget(
+        [req.metadata_json, *(sub.metadata_json for sub in req.rule_submissions)]
+    )
+    warnings = [*(local_warnings or []), *metadata_warnings, *budget_warnings]
     if warnings:
         req.local_warnings.extend(local_warnings_to_proto(warnings))
-    req.rule_submissions.extend(submissions)
     return req
 
 

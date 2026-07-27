@@ -7,9 +7,11 @@ from datetime import datetime
 from typing import Mapping
 
 from arcjet._metadata import (
+    MAX_METADATA_BYTES,
     METADATA_ENCODE_FAILED_CODE,
     LocalWarning,
     encode_metadata,
+    enforce_metadata_budget,
 )
 
 
@@ -145,6 +147,50 @@ class TestEncodeMetadata:
         assert [w.code for w in warnings] == [METADATA_ENCODE_FAILED_CODE]
         assert "2 key(s)" in warnings[0].message
 
+    def test_lone_surrogates_are_dropped_nested_or_in_a_key(self) -> None:
+        # Not encodable as UTF-8; protobuf raises on them and would take the whole
+        # request down. arcjet-js drops them too, via its stringify replacer.
+        for value in (
+            {"bad": "\ud800", "ok": 1},
+            {"bad": {"nested": "\udfff"}, "ok": 1},
+            {"\ud800key": 1, "ok": 1},
+        ):
+            encoded, warnings = encode_metadata(value)
+            assert encoded == {"ok": "1"}
+            assert len(warnings) == 1
+        # A valid astral character is fine.
+        assert encode_metadata({"emoji": "\U0001f600"})[0] == {"emoji": '"\U0001f600"'}
+
+    def test_encoded_values_are_always_utf8_encodable(self) -> None:
+        # The guarantee that matters: whatever survives can go on the wire.
+        encoded, _ = encode_metadata({"a": "\ud800", "b": "ok", "c": {"d": "\udc00"}})
+        for key, value in encoded.items():
+            key.encode("utf-8")
+            value.encode("utf-8")
+
+    def test_hostile_truthiness_is_ignored(self) -> None:
+        class Hostile:
+            def __bool__(self) -> bool:
+                raise RuntimeError("nope")
+
+        assert encode_metadata(Hostile()) == ({}, [])  # type: ignore[arg-type]
+
+    def test_hostile_key_str_is_ignored(self) -> None:
+        class BadKey:
+            def __str__(self) -> str:
+                raise RuntimeError("nope")
+
+            def __hash__(self) -> int:
+                return 1
+
+        encoded, warnings = encode_metadata({BadKey(): 1})  # type: ignore[dict-item]
+        assert encoded == {}
+        assert "unprintable" in warnings[0].message
+
+    def test_truncation_never_splits_a_character(self) -> None:
+        _, warnings = encode_metadata({"a" * 63 + "\U0001f600": object()})  # type: ignore[misc]
+        warnings[0].message.encode("utf-8")
+
     def test_circular_reference_is_dropped(self) -> None:
         cycle: dict[str, object] = {}
         cycle["self"] = cycle
@@ -198,3 +244,35 @@ class TestLocalWarning:
     def test_is_immutable(self) -> None:
         w = LocalWarning(code="AJ1017", message="dropped")
         assert (w.code, w.message) == ("AJ1017", "dropped")
+
+
+class TestEnforceMetadataBudget:
+    def test_does_not_trim_what_fits(self) -> None:
+        m = {"a": '"x"', "b": '"y"'}
+        assert enforce_metadata_budget([m]) == []
+        assert m == {"a": '"x"', "b": '"y"'}
+
+    def test_sits_above_what_the_server_would_accept(self) -> None:
+        # The SDK ceiling is a protocol backstop, not a copy of server policy: the
+        # server can accept ~512 KiB in one map, so the SDK must not trim that.
+        assert MAX_METADATA_BYTES > 128 * 4096
+        assert MAX_METADATA_BYTES < 1024 * 1024
+
+    def test_trims_across_every_map_in_order_with_one_warning(self) -> None:
+        envelope = {"big": "x" * 500_000, "keep": "1"}
+        rule = {"also_big": "y" * 500_000, "tail": "2"}
+        warnings = enforce_metadata_budget([envelope, rule])
+
+        # The envelope is served first; the rule map is starved.
+        assert list(envelope) == ["big", "keep"]
+        assert list(rule) == []
+        assert len(warnings) == 1
+        assert "2 key(s)" in warnings[0].message
+        assert "request metadata budget" in warnings[0].message
+        assert warnings[0].code == METADATA_ENCODE_FAILED_CODE
+
+    def test_drops_a_single_value_larger_than_the_budget(self) -> None:
+        m: dict[str, str] = {"huge": "x" * (MAX_METADATA_BYTES + 1)}
+        warnings = enforce_metadata_budget([m])
+        assert m == {}
+        assert len(warnings) == 1
