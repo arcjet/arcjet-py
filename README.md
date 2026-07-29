@@ -13,12 +13,16 @@
   </picture>
 </p>
 
-[Arcjet](https://arcjet.com) is the runtime security platform that ships with your AI code. Stop bots and automated attacks from burning your AI budget, leaking data, or misusing tools with Arcjet's AI security building blocks.
+[Arcjet](https://arcjet.com) is the runtime security platform that ships in your AI code. Detect prompt injection, authorize agent tool calls, redact sensitive data, and block bots and abuse. Real-time security building blocks you call inside your app, before an action happens.
 
 This is the Python SDK for [Arcjet](https://arcjet.com) — use `arcjet` /
 `arcjet_sync` for **request protection** (FastAPI, Flask, Django route handlers)
 and `arcjet.guard` for **guard protection** (AI agent tool calls, MCP servers,
 background jobs).
+
+## Why Arcjet?
+
+Your app's AI features and agents take real actions, calling tools, reading data, hitting APIs. Arcjet runs inside that code and lets you enforce security on each action in real time, then audit what happened.
 
 ## Getting started
 
