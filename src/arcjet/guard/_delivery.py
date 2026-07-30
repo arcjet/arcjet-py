@@ -204,11 +204,28 @@ class SyncCaptureDelivery:
             )
             self._worker.start()
 
+    def _drain_available(self, limit: int) -> list[pb.CaptureEvent]:
+        """Take up to *limit* events that are already queued, without waiting."""
+        taken: list[pb.CaptureEvent] = []
+        while len(taken) < limit:
+            try:
+                taken.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        return taken
+
     def _collect(self) -> list[pb.CaptureEvent]:
         """Block for one event, then fill the batch until size or delay.
 
         Returns an empty list if nothing arrived while idling, which ends the
         worker.
+
+        "Do not wait" and "do not batch" are different things, and conflating
+        them is a mistake worth naming: when a flush is pending, or when
+        batching is disabled, this still sweeps up everything already queued. It
+        just does not wait for more. Sending one request per event on the flush
+        path would break batching precisely on the shutdown path where a backlog
+        is most likely.
         """
         try:
             first = self._queue.get(timeout=_IDLE_WAIT_SECONDS)
@@ -216,13 +233,15 @@ class SyncCaptureDelivery:
             return []
 
         batch = [first]
-        if self._batch_delay <= 0:
+        if self._batch_delay <= 0 or self._flush_now.is_set():
+            batch.extend(self._drain_available(self._batch_size - len(batch)))
             return batch
 
         deadline = time.monotonic() + self._batch_delay
         while len(batch) < self._batch_size:
             if self._flush_now.is_set():
-                # Someone is waiting on flush(); take what is here and go.
+                # A flush is waiting: stop waiting, but still take the backlog.
+                batch.extend(self._drain_available(self._batch_size - len(batch)))
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:

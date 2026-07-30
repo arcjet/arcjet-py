@@ -85,6 +85,46 @@ class TestSyncDelivery:
         assert sum(len(b) for b in sent) == 5
         assert len(sent) < 5
 
+    def test_flush_still_batches_the_backlog(self) -> None:
+        """A pending flush must not turn a backlog into one request per event.
+
+        Regression test. Live against the API, a five-event burst followed by
+        `flush()` produced five separate requests: the worker saw the flush flag
+        and sent only the event it already held, abandoning the queue. In-process
+        sends are instant, so the looser "fewer requests than events" assertion
+        above passed anyway — this test blocks the first send to build a real
+        backlog, which is what made the bug visible in production.
+        """
+        sent: list[int] = []
+        blocked = threading.Event()
+        in_send = threading.Event()
+
+        def send(events: list[pb.CaptureEvent]) -> None:
+            sent.append(len(events))
+            if not in_send.is_set():
+                in_send.set()
+                blocked.wait(TIMEOUT)
+
+        delivery = SyncCaptureDelivery(
+            send=send, diagnose=Diagnostics(), batch_size=10, batch_delay_ms=50
+        )
+
+        try:
+            delivery.capture(event("first"))
+            # The worker is now inside send(), holding nothing else.
+            assert in_send.wait(TIMEOUT)
+            for i in range(5):
+                delivery.capture(event(f"backlog.{i}"))
+        finally:
+            blocked.set()
+
+        delivery.flush(TIMEOUT_MS)
+
+        assert sum(sent) == 6, f"all six events should be sent, got {sent}"
+        assert sent == [1, 5], (
+            f"the five queued events should go as one batch, got {sent}"
+        )
+
     def test_drops_when_the_queue_is_full(self) -> None:
         """The ceiling covers in-flight events, so a stuck send applies it."""
         blocked = threading.Event()
