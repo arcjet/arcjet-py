@@ -25,6 +25,7 @@ from arcjet._metadata import (
     encode_metadata,
     enforce_metadata_budget,
 )
+from arcjet._transport import build_async_transport, build_sync_transport
 
 from ._convert import (
     decision_from_proto,
@@ -392,7 +393,7 @@ def launch_arcjet(
 
     from arcjet.guard.proto.decide.v2.decide_connect import DecideServiceClient
 
-    transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    transport = build_async_transport()
     client = DecideServiceClient(
         base_url.rstrip("/"), http_client=pyqwest.Client(transport)
     )
@@ -428,7 +429,7 @@ def launch_arcjet_sync(
 
     from arcjet.guard.proto.decide.v2.decide_connect import DecideServiceClientSync
 
-    transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    transport = build_sync_transport()
     client = DecideServiceClientSync(
         base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
     )

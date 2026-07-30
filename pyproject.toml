@@ -8,7 +8,7 @@ authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = { text = "Apache-2.0" }
 dependencies = [
   "connect-python>=0.8.1",
-  "pyqwest>=0.3.3",
+  "pyqwest>=0.7.0,<0.8.0",
   "wasmtime>=42.0.0,<42.1.0",
 ]
 classifiers = [

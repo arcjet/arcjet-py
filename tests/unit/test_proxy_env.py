@@ -26,6 +26,8 @@ from contextlib import closing
 import pyqwest
 import pytest
 
+from arcjet._transport import build_sync_transport
+
 # A reserved TLD (RFC 6761) that never resolves, so a *direct* (non-proxied)
 # request fails fast at DNS resolution and our fake proxy is the only way the
 # request could ever produce a CONNECT line.
@@ -97,10 +99,9 @@ def _make_transport() -> pyqwest.SyncHTTPTransport:
     # and the guard client), so we exercise the same proxy/CONNECT-tunnel code
     # path the real client uses. connect_timeout is a test-only addition to keep
     # the bypass cases fast; the SDK does not set it.
-    return pyqwest.SyncHTTPTransport(
-        http_version=pyqwest.HTTPVersion.HTTP2,
-        connect_timeout=3.0,
-    )
+    # Built through the SDK's own helper so this cannot drift from it again;
+    # connect_timeout is a test-only addition to keep the bypass cases fast.
+    return build_sync_transport(connect_timeout=3.0)
 
 
 def _attempt_request() -> None:

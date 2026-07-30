@@ -69,6 +69,7 @@ from ._rules import (
     SlidingWindow,
     TokenBucket,
 )
+from ._transport import build_async_transport, build_sync_transport
 
 
 def _fire_and_forget(coro: Any) -> None:
@@ -1563,8 +1564,7 @@ def arcjet(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
-    # Always enable HTTP/2 by default.
-    transport = pyqwest.HTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    transport = build_async_transport()
     client = DecideServiceClient(
         base_url.rstrip("/"), http_client=pyqwest.Client(transport)
     )
@@ -1702,8 +1702,7 @@ def arcjet_sync(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
-    # Always enable HTTP/2 by default.
-    transport = pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
+    transport = build_sync_transport()
     client = DecideServiceClientSync(
         base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
     )
