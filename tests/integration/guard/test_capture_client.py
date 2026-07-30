@@ -247,6 +247,53 @@ class TestCaptureSync:
             f"race.{i}" for i in range(threads)
         )
 
+    def test_flush_drains_coalesced_diagnostics(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """flush() must release counts the diagnostics channel held back.
+
+        Coalescing means a burst of drops reports only its first event until
+        something releases the rest. flush() is that something — without this
+        wiring the fix in `_diagnostics` would never be reached in practice.
+        """
+        drained: list[bool] = []
+
+        class Spy:
+            def __call__(self, code: str, count: int = 1) -> None:
+                pass
+
+            def drain(self) -> None:
+                drained.append(True)
+
+        monkeypatch.setattr(guard_client, "_diagnose", Spy())
+
+        client = FakeCaptureSyncClient()
+        guard = _make_guard_sync(client)
+        guard.capture(action="drain.me")
+        guard.flush(TIMEOUT_MS)
+
+        assert drained == [True], "flush() should drain held-back diagnostics"
+
+    def test_flush_without_capture_does_not_drain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing was captured, so there is no delivery and nothing to drain."""
+        drained: list[bool] = []
+
+        class Spy:
+            def __call__(self, code: str, count: int = 1) -> None:
+                pass
+
+            def drain(self) -> None:
+                drained.append(True)
+
+        monkeypatch.setattr(guard_client, "_diagnose", Spy())
+
+        guard = _make_guard_sync(FakeCaptureSyncClient())
+        guard.flush(TIMEOUT_MS)
+
+        assert drained == []
+
     def test_guard_still_works_alongside_capture(self) -> None:
         """Capture must not disturb the decision path."""
         client = FakeCaptureSyncClient()

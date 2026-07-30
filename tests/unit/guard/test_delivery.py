@@ -315,6 +315,50 @@ class TestSyncDelivery:
         assert workers, "expected a worker thread"
         assert all(t.daemon for t in workers)
 
+    def test_worker_releases_its_slot_when_it_exits(self) -> None:
+        """The exiting worker must clear the slot, not just die.
+
+        `Thread.is_alive()` stays True until the thread function returns, so
+        `_ensure_worker` gating on it alone left a window where an event enqueued
+        just after the idle timeout got no worker at all — queued, unsent, and
+        undiagnosed. The fix makes the exit decision atomic with releasing the
+        slot, so the observable invariant is that a dead worker is never left
+        recorded as the current one.
+
+        Asserted on the invariant rather than by racing it: the window is real
+        but too narrow to hit reliably, and forcing it open by holding
+        `_worker_lock` deadlocks, since `capture()` takes that same lock.
+        """
+        sent: list[str] = []
+        diag = Diagnostics()
+        delivery = SyncCaptureDelivery(
+            send=lambda events: sent.extend(e.action for e in events),
+            diagnose=diag,
+            batch_delay_ms=0,
+        )
+
+        delivery.capture(event("first"))
+        delivery.flush(TIMEOUT_MS)
+        assert sent == ["first"]
+
+        # Wait out the idle window so the worker exits on its own.
+        deadline = time.monotonic() + TIMEOUT
+        while time.monotonic() < deadline:
+            if delivery._worker is None:
+                break
+            time.sleep(0.05)
+
+        assert delivery._worker is None, (
+            "the exiting worker left itself recorded as current; a capture() "
+            "arriving now would find is_alive() True and start no replacement"
+        )
+
+        # And the next capture is picked up by a fresh worker.
+        delivery.capture(event("second"))
+        delivery.flush(TIMEOUT_MS)
+        assert sent == ["first", "second"]
+        assert diag.total(CAPTURE_FLUSH_EXPIRED) == 0
+
     def test_no_worker_thread_before_first_capture(self) -> None:
         before = len([t for t in threading.enumerate() if t.name == "arcjet-capture"])
         SyncCaptureDelivery(send=lambda events: None, diagnose=Diagnostics())
@@ -470,6 +514,79 @@ class TestAsyncDelivery:
         asyncio.run(scenario())
 
         # Two: the queued event, dropped, plus the in-flight one, abandoned.
+        assert diag.total(CAPTURE_FLUSH_EXPIRED) == 2
+
+    def test_flush_does_not_drop_events_captured_after_it_started(self) -> None:
+        """Async counterpart of the sync test with the same name.
+
+        Both drivers had the bug and both were fixed; only the sync one was
+        covered, so this driver's fix was unverified.
+        """
+        sent: list[str] = []
+        diag = Diagnostics()
+
+        async def scenario() -> None:
+            blocked = asyncio.Event()
+            in_send = asyncio.Event()
+
+            async def send(events: list[pb.CaptureEvent]) -> None:
+                sent.extend(e.action for e in events)
+                if not in_send.is_set():
+                    in_send.set()
+                    await blocked.wait()
+
+            delivery = AsyncCaptureDelivery(
+                send=send, diagnose=diag, batch_size=1, batch_delay_ms=0
+            )
+            try:
+                delivery.capture(event("early"))
+                await asyncio.wait_for(in_send.wait(), TIMEOUT)
+
+                async def capture_late() -> None:
+                    await asyncio.sleep(0.02)
+                    delivery.capture(event("late-1"))
+                    delivery.capture(event("late-2"))
+
+                task = asyncio.create_task(capture_late())
+                await delivery.flush(100)  # cannot drain: the send is stuck
+
+                assert len(delivery._queue) == 2, "late events must still be queued"
+                await task
+            finally:
+                blocked.set()
+            await delivery.flush(TIMEOUT_MS)
+
+        asyncio.run(scenario())
+
+        assert sorted(sent) == ["early", "late-1", "late-2"]
+
+    def test_flush_expiry_counts_in_flight_events(self) -> None:
+        """Async counterpart: an abandoned in-flight send is still reported."""
+        diag = Diagnostics()
+
+        async def scenario() -> None:
+            blocked = asyncio.Event()
+            in_send = asyncio.Event()
+
+            async def send(events: list[pb.CaptureEvent]) -> None:
+                in_send.set()
+                await blocked.wait()
+
+            delivery = AsyncCaptureDelivery(
+                send=send, diagnose=diag, batch_size=1, batch_delay_ms=0
+            )
+            try:
+                delivery.capture(event("in-flight"))
+                await asyncio.wait_for(in_send.wait(), TIMEOUT)
+                delivery.capture(event("queued"))
+
+                await delivery.flush(50)
+            finally:
+                blocked.set()
+
+        asyncio.run(scenario())
+
+        # One dropped from the queue, one abandoned on the wire.
         assert diag.total(CAPTURE_FLUSH_EXPIRED) == 2
 
     def test_survives_a_new_event_loop(self) -> None:

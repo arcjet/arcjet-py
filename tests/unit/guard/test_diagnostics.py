@@ -106,6 +106,63 @@ class TestDiagnostics:
         assert len(caplog.records) == 1
         assert "AJ9999" in caplog.records[0].getMessage()
 
+    def test_drain_reports_counts_held_back_by_coalescing(self, caplog) -> None:
+        """Coalescing alone under-reports a burst that stops.
+
+        This is the defect drain() exists for: 1000 drops inside one quiet window
+        logged a single line reading "1 event(s)" and held the other 999 for a
+        successor that never arrived — 0.1% of the real total.
+        """
+        clock = FakeClock()
+        diagnose = create_diagnose(monotonic=clock, coalesce_seconds=60)
+
+        with caplog.at_level(logging.WARNING, logger="arcjet"):
+            for _ in range(1000):
+                diagnose(CAPTURE_QUEUE_FULL, 1)
+            # Before draining, only the first event has been reported.
+            assert sum(r.count for r in caplog.records) == 1
+
+            diagnose.drain()
+
+        assert sum(r.count for r in caplog.records) == 1000, (
+            "drain() must release the suppressed remainder"
+        )
+
+    def test_drain_with_nothing_held_back_is_silent(self, caplog) -> None:
+        diagnose = create_diagnose(monotonic=FakeClock(), coalesce_seconds=60)
+
+        with caplog.at_level(logging.WARNING, logger="arcjet"):
+            diagnose(CAPTURE_QUEUE_FULL, 1)
+            before = len(caplog.records)
+            diagnose.drain()
+            diagnose.drain()
+
+        assert len(caplog.records) == before
+
+    def test_drain_covers_every_code_independently(self, caplog) -> None:
+        clock = FakeClock()
+        diagnose = create_diagnose(monotonic=clock, coalesce_seconds=60)
+
+        with caplog.at_level(logging.WARNING, logger="arcjet"):
+            for _ in range(3):
+                diagnose(CAPTURE_QUEUE_FULL, 1)
+                diagnose(CAPTURE_SEND_FAILED, 2)
+            diagnose.drain()
+
+        totals: dict[str, int] = {}
+        for record in caplog.records:
+            totals[record.code] = totals.get(record.code, 0) + record.count
+        assert totals == {CAPTURE_QUEUE_FULL: 3, CAPTURE_SEND_FAILED: 6}
+
+    def test_drain_never_raises(self) -> None:
+        def exploding_monotonic() -> float:
+            raise RuntimeError("boom")
+
+        diagnose = create_diagnose(monotonic=exploding_monotonic)
+
+        diagnose(CAPTURE_QUEUE_FULL, 1)
+        diagnose.drain()  # must not raise
+
     def test_never_raises_when_the_handler_fails(self) -> None:
         """A diagnostics sink is observational; it must not break delivery."""
 
