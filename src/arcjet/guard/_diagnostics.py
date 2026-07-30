@@ -17,10 +17,11 @@ length-bounded key names that :mod:`arcjet._metadata` already sanitizes.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable, Protocol
 
-from arcjet._logging import logger
+from arcjet._logging import logger as _default_logger
 
 CAPTURE_INPUT_INVALID = "AJ3000"
 """A capture call's input could not be normalized; the event was dropped."""
@@ -85,6 +86,7 @@ class CoalescingDiagnose(Diagnose, Protocol):
 
 def create_diagnose(
     *,
+    logger: logging.Logger | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     coalesce_seconds: float = _COALESCE_SECONDS,
 ) -> CoalescingDiagnose:
@@ -105,6 +107,7 @@ def create_diagnose(
     why the reported figure is a count of events, not a guarantee of the total.
 
     Args:
+        logger: Where to report.  Defaults to the ``arcjet`` logger.
         monotonic: Clock used for the coalescing window.  Injectable so tests
             do not have to sleep.
         coalesce_seconds: Quiet period per code.  ``0`` logs every diagnostic.
@@ -121,8 +124,10 @@ def create_diagnose(
     suppressed: dict[str, int] = {}
     last_logged: dict[str, float] = {}
 
+    sink = logger if logger is not None else _default_logger
+
     def emit(code: str, count: int) -> None:
-        logger.warning(
+        sink.warning(
             "arcjet %s: %s (%d event(s))",
             code,
             _MESSAGES.get(code, "Capture diagnostic"),
@@ -163,5 +168,3 @@ def create_diagnose(
 
     diagnose.drain = drain  # type: ignore[attr-defined]  # matches the Diagnose protocol
     return diagnose  # type: ignore[return-value]  # drain attached above
-
-    return diagnose

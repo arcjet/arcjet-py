@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 import arcjet.guard._client as guard_client
-from arcjet.guard import ArcjetGuard, ArcjetGuardSync
+from arcjet.guard import ArcjetGuard, ArcjetGuardSync, launch_arcjet_sync
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 TIMEOUT_MS = 5000
@@ -90,12 +90,22 @@ def _make_guard(client: Any) -> ArcjetGuard:
     )
 
 
-def _make_guard_sync(client: Any) -> ArcjetGuardSync:
+def _make_guard_sync(client: Any, diagnose: Any = None) -> ArcjetGuardSync:
+    # `client` and `diagnose` are `Any` because the fakes implement only the
+    # methods a given test needs, not the whole transport protocol.
+    if diagnose is None:
+        return ArcjetGuardSync(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+        )
     return ArcjetGuardSync(
         _key="test_key_123",
         _client=client,
         _timeout_ms=1000,
         _user_agent="arcjet-py/test",
+        _diagnose=diagnose,
     )
 
 
@@ -247,9 +257,7 @@ class TestCaptureSync:
             f"race.{i}" for i in range(threads)
         )
 
-    def test_flush_drains_coalesced_diagnostics(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_flush_drains_coalesced_diagnostics(self) -> None:
         """flush() must release counts the diagnostics channel held back.
 
         Coalescing means a burst of drops reports only its first event until
@@ -265,18 +273,13 @@ class TestCaptureSync:
             def drain(self) -> None:
                 drained.append(True)
 
-        monkeypatch.setattr(guard_client, "_diagnose", Spy())
-
-        client = FakeCaptureSyncClient()
-        guard = _make_guard_sync(client)
+        guard = _make_guard_sync(FakeCaptureSyncClient(), Spy())
         guard.capture(action="drain.me")
         guard.flush(TIMEOUT_MS)
 
         assert drained == [True], "flush() should drain held-back diagnostics"
 
-    def test_flush_without_capture_does_not_drain(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_flush_without_capture_does_not_drain(self) -> None:
         """Nothing was captured, so there is no delivery and nothing to drain."""
         drained: list[bool] = []
 
@@ -287,12 +290,51 @@ class TestCaptureSync:
             def drain(self) -> None:
                 drained.append(True)
 
-        monkeypatch.setattr(guard_client, "_diagnose", Spy())
-
-        guard = _make_guard_sync(FakeCaptureSyncClient())
+        guard = _make_guard_sync(FakeCaptureSyncClient(), Spy())
         guard.flush(TIMEOUT_MS)
 
         assert drained == []
+
+    def test_a_failed_send_reports_aj3002_at_the_client(self) -> None:
+        """A client-level failed send must be observable.
+
+        This could not be asserted before: diagnostics went to a process-global
+        coalescing sink whose state no test could reset, so the existing failure
+        test could only count requests. A per-client sink makes the report itself
+        checkable, which is the whole point of being able to pass one in.
+        """
+        codes: list[tuple[str, int]] = []
+        client = FakeCaptureSyncClient(fail=True)
+        guard = _make_guard_sync(
+            client, lambda code, count=1: codes.append((code, count))
+        )
+
+        guard.capture(action="doomed")
+        guard.flush(TIMEOUT_MS)
+
+        assert ("AJ3002", 1) in codes, f"expected a send-failure report, got {codes}"
+        assert len(client.requests) == 1, "and still no retry"
+
+    def test_a_supplied_logger_receives_every_diagnostic(self, caplog) -> None:
+        """A caller-supplied logger is not coalesced.
+
+        The default sink deliberately reports each code once a minute to bound log
+        volume. A caller who passes a logger is the one deciding what to filter,
+        and needs all of them — anything keeping a count of dropped events cannot
+        work from the coalesced stream.
+        """
+        import logging
+
+        supplied = logging.getLogger("test.arcjet.capture.supplied")
+        guard = launch_arcjet_sync(key="ajkey_test", logger=supplied)
+
+        with caplog.at_level(logging.WARNING, logger=supplied.name):
+            # Three invalid events: three reports, not one.
+            for _ in range(3):
+                guard.capture(action="")
+
+        codes = [getattr(r, "code", None) for r in caplog.records]
+        assert codes == ["AJ3000", "AJ3000", "AJ3000"], codes
 
     def test_guard_still_works_alongside_capture(self) -> None:
         """Capture must not disturb the decision path."""

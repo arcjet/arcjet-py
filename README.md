@@ -1240,6 +1240,16 @@ It is **best-effort and never affects a decision**:
   burst that ends without either will under-report its total — the figure is a
   count of events seen, not a guaranteed total.
 
+  Pass your own logger to receive **every** diagnostic uncoalesced, which is what
+  you need to keep a metric of dropped events:
+
+  ```py
+  aj = launch_arcjet_sync(key=arcjet_key, logger=my_logger)
+  ```
+
+  Each record carries `code` and `count` attributes alongside the message, so a
+  handler can route or count on them without parsing text.
+
 Do not put secrets or PII in `metadata`; it is stored as untrusted data.
 
 #### Delivering events before shutdown

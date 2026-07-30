@@ -8,6 +8,7 @@ v2 Guard RPC, and returns a typed :class:`~arcjet.guard._types.Decision`.
 
 from __future__ import annotations
 
+import logging
 import platform
 import threading
 import time
@@ -37,7 +38,7 @@ from ._convert import (
     rule_to_proto,
 )
 from ._delivery import AsyncCaptureDelivery, SyncCaptureDelivery
-from ._diagnostics import create_diagnose
+from ._diagnostics import Diagnose, create_diagnose
 from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
@@ -62,16 +63,32 @@ def _build_user_agent() -> str:
 _DEFAULT_BASE_URL = "https://decide.arcjet.com"
 _DEFAULT_TIMEOUT_MS = 1000
 
-# Shared by every client in the process, on purpose: this exists to keep a
-# repeated best-effort drop from flooding the log, and the log is per-process.
-# Two clients hitting the same problem should produce one line, not two.
-_diagnose = create_diagnose()
+# The fallback sink, shared by every client that was not given a logger. Shared
+# on purpose: it exists to keep a repeated best-effort drop from flooding the
+# log, and the log is per-process, so two clients hitting the same problem should
+# produce one line rather than two.
+#
+# A client built with `logger=` gets its own uncoalesced sink instead — see
+# `launch_arcjet`. That is what makes a caller able to count drops, and what
+# makes client-level diagnostics observable in a test.
+_default_diagnose = create_diagnose()
 
 # Guards first-capture delivery construction. Module-level rather than
 # per-client because it is held only while building one delivery object, so
 # cross-client contention is not measurable, and a per-instance lock would mean
 # another dataclass field for callers that construct clients directly.
 _delivery_init_lock = threading.Lock()
+
+
+def _drain(diagnose: Diagnose) -> None:
+    """Release any counts a coalescing sink is holding back.
+
+    Only coalescing sinks have anything to drain, and an injected one may not, so
+    this is duck-typed rather than required by the `Diagnose` protocol.
+    """
+    drain = getattr(diagnose, "drain", None)
+    if callable(drain):
+        drain()
 
 
 def _auth_headers(key: str) -> dict[str, str]:
@@ -268,6 +285,9 @@ class ArcjetGuard:
     # Built on the first capture() call, so a client that never captures never
     # starts a worker task. Not a constructor argument.
     _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False, init=False)
+    # Where this client reports drops. Defaults to the shared coalescing
+    # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
+    _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
 
     def capture(
         self,
@@ -315,7 +335,7 @@ class ArcjetGuard:
             decision_id=decision_id,
             occurred_at=occurred_at,
             metadata=metadata,
-            diagnose=_diagnose,
+            diagnose=self._diagnose,
         )
         if event is None:
             return
@@ -337,7 +357,7 @@ class ArcjetGuard:
         await self._delivery.flush(timeout_ms)
         # Report counts the diagnostics channel held back while coalescing.
         # Without this a burst that stops reports only its first event.
-        _diagnose.drain()
+        _drain(self._diagnose)
 
     def _ensure_delivery(self) -> AsyncCaptureDelivery:
         if self._delivery is not None:
@@ -350,7 +370,7 @@ class ArcjetGuard:
                 timeout_ms=self._timeout_ms,
             )
 
-        self._delivery = AsyncCaptureDelivery(send=send, diagnose=_diagnose)
+        self._delivery = AsyncCaptureDelivery(send=send, diagnose=self._diagnose)
         return self._delivery
 
     async def guard(
@@ -427,6 +447,9 @@ class ArcjetGuardSync:
     # Built on the first capture() call, so a client that never captures never
     # starts a worker thread. Not a constructor argument.
     _delivery: SyncCaptureDelivery | None = field(default=None, repr=False, init=False)
+    # Where this client reports drops. Defaults to the shared coalescing
+    # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
+    _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
 
     def capture(
         self,
@@ -474,7 +497,7 @@ class ArcjetGuardSync:
             decision_id=decision_id,
             occurred_at=occurred_at,
             metadata=metadata,
-            diagnose=_diagnose,
+            diagnose=self._diagnose,
         )
         if event is None:
             return
@@ -496,7 +519,7 @@ class ArcjetGuardSync:
         self._delivery.flush(timeout_ms)
         # Report counts the diagnostics channel held back while coalescing.
         # Without this a burst that stops reports only its first event.
-        _diagnose.drain()
+        _drain(self._diagnose)
 
     def _ensure_delivery(self) -> SyncCaptureDelivery:
         # Double-checked locking. Two threads calling capture() for the first
@@ -520,7 +543,7 @@ class ArcjetGuardSync:
                     timeout_ms=self._timeout_ms,
                 )
 
-            delivery = SyncCaptureDelivery(send=send, diagnose=_diagnose)
+            delivery = SyncCaptureDelivery(send=send, diagnose=self._diagnose)
             self._delivery = delivery
             return delivery
 
@@ -592,6 +615,7 @@ def launch_arcjet(
     key: str,
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
+    logger: logging.Logger | None = None,
 ) -> ArcjetGuard:
     """Create an async Arcjet Guard client.
 
@@ -599,6 +623,15 @@ def launch_arcjet(
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 1000).
+        logger: Where to report capture diagnostics — dropped events, failed
+            sends, expired flushes. Defaults to the ``arcjet`` logger with
+            repeats of the same code coalesced for a minute, which keeps a drop
+            storm from flooding your logs.
+
+            Pass your own and you receive **every** diagnostic, uncoalesced,
+            because you are then the one deciding what to filter or count. That
+            is what makes it possible to keep a metric of dropped events; the
+            coalesced default cannot be counted from.
 
     Returns:
         An :class:`ArcjetGuard` async client.
@@ -620,6 +653,13 @@ def launch_arcjet(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        # A caller-supplied logger sees every diagnostic: they control filtering,
+        # so coalescing would only hide detail they asked for.
+        _diagnose=(
+            _default_diagnose
+            if logger is None
+            else create_diagnose(logger=logger, coalesce_seconds=0)
+        ),
     )
 
 
@@ -628,6 +668,7 @@ def launch_arcjet_sync(
     key: str,
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
+    logger: logging.Logger | None = None,
 ) -> ArcjetGuardSync:
     """Create a sync Arcjet Guard client.
 
@@ -635,6 +676,15 @@ def launch_arcjet_sync(
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 1000).
+        logger: Where to report capture diagnostics — dropped events, failed
+            sends, expired flushes. Defaults to the ``arcjet`` logger with
+            repeats of the same code coalesced for a minute, which keeps a drop
+            storm from flooding your logs.
+
+            Pass your own and you receive **every** diagnostic, uncoalesced,
+            because you are then the one deciding what to filter or count. That
+            is what makes it possible to keep a metric of dropped events; the
+            coalesced default cannot be counted from.
 
     Returns:
         An :class:`ArcjetGuardSync` sync client.
@@ -656,4 +706,11 @@ def launch_arcjet_sync(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        # A caller-supplied logger sees every diagnostic: they control filtering,
+        # so coalescing would only hide detail they asked for.
+        _diagnose=(
+            _default_diagnose
+            if logger is None
+            else create_diagnose(logger=logger, coalesce_seconds=0)
+        ),
     )
