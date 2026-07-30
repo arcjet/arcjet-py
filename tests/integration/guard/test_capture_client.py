@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+import pytest
+
+import arcjet.guard._client as guard_client
 from arcjet.guard import ArcjetGuard, ArcjetGuardSync
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
@@ -182,6 +186,66 @@ class TestCaptureSync:
 
         assert len(client.events) == 5
         assert len(client.requests) < 5, "a burst should not be one request each"
+
+    def test_concurrent_first_capture_builds_one_delivery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two threads racing the first capture() must not each build a delivery.
+
+        Without double-checked locking in `_ensure_delivery`, both threads see
+        `_delivery is None`, each construct a `SyncCaptureDelivery` and start a
+        worker thread, and one is overwritten — orphaning its thread along with
+        any events already queued on it. Those events are then invisible to
+        `flush()`, which only knows about the surviving delivery.
+
+        The construction window is widened artificially. Written the obvious way
+        — threads on a barrier, then assert one delivery — this test passed 20/20
+        against the *unlocked* code: construction is fast enough that the GIL
+        hands it over before a second thread can enter. Sleeping inside the
+        constructor is what makes the race deterministic instead of hoping the
+        scheduler cooperates.
+        """
+        client = FakeCaptureSyncClient()
+        guard = _make_guard_sync(client)
+
+        built = []
+        built_lock = threading.Lock()
+        real_delivery = guard_client.SyncCaptureDelivery
+
+        def slow_delivery(**kwargs: Any) -> Any:
+            with built_lock:
+                built.append(1)
+            # Hold the window open so every waiting thread would also enter an
+            # unlocked check-then-construct.
+            time.sleep(0.05)
+            return real_delivery(**kwargs)
+
+        monkeypatch.setattr(guard_client, "SyncCaptureDelivery", slow_delivery)
+
+        threads = 8
+        start = threading.Barrier(threads)
+
+        def worker(index: int) -> None:
+            start.wait(TIMEOUT_MS / 1000)
+            guard.capture(action=f"race.{index}")
+
+        workers = [threading.Thread(target=worker, args=(i,)) for i in range(threads)]
+        for t in workers:
+            t.start()
+        for t in workers:
+            t.join(TIMEOUT_MS / 1000)
+
+        assert len(built) == 1, (
+            f"{len(built)} deliveries were constructed; each extra one orphans a "
+            "worker thread and any events queued on it"
+        )
+
+        guard.flush(TIMEOUT_MS)
+
+        # No event was orphaned on a discarded delivery.
+        assert sorted(e.action for e in client.events) == sorted(
+            f"race.{i}" for i in range(threads)
+        )
 
     def test_guard_still_works_alongside_capture(self) -> None:
         """Capture must not disturb the decision path."""

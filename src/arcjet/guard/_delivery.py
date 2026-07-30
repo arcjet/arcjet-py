@@ -136,6 +136,13 @@ class SyncCaptureDelivery:
             # Reserved before the put so two concurrent callers cannot both pass
             # the check and overshoot the ceiling.
             self._outstanding += 1
+        # The put happens outside the condition, deliberately: reserve → put →
+        # send. For a brief window `_outstanding` counts an event that is not yet
+        # in the queue, which is the safe direction to be wrong — flush() waits
+        # for `_outstanding == 0`, so it conservatively waits for an event that is
+        # still on its way in. Reversing the order, or holding the lock across
+        # the put, would either undercount for flush() or put lock traffic on the
+        # caller's request path.
         try:
             self._queue.put_nowait(event)
         except queue.Full:  # pragma: no cover - _outstanding bounds this first
@@ -368,6 +375,19 @@ class AsyncCaptureDelivery:
 
         # asyncio primitives belong to the loop that created them, so a new loop
         # needs a fresh Event pair and task.
+        #
+        # This rebinds rather than cancelling the previous task, which is safe
+        # for the supported case — loops used one after another, as successive
+        # asyncio.run() calls or a per-test loop, where the old loop is closed
+        # and its task is already gone. It is NOT safe to drive one client from
+        # two loops running concurrently in different threads: two workers would
+        # pop from the same deque with `_in_flight` split between them, so
+        # flush() could return early. Cancelling the old task cannot fix that
+        # from here either, because cancelling a task belonging to another
+        # running loop is itself not thread-safe.
+        #
+        # A client is documented as belonging to one loop at a time. Sharing one
+        # across concurrent loops is unsupported; build a client per loop.
         self._loop = loop
         self._wake = asyncio.Event()
         self._idle = asyncio.Event()
@@ -388,6 +408,9 @@ class AsyncCaptureDelivery:
                 try:
                     await asyncio.wait_for(wake.wait(), timeout=_IDLE_WAIT_SECONDS)
                 except (asyncio.TimeoutError, TimeoutError):
+                    # Expected: nothing arrived within the idle window. The
+                    # timeout is the signal to re-check the queue and stop, not
+                    # an error, so there is nothing to handle or report.
                     pass
                 if not self._queue:
                     # Nothing arrived while idling. Ending the task frees the

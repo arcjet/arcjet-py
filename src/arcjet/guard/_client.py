@@ -9,6 +9,7 @@ v2 Guard RPC, and returns a typed :class:`~arcjet.guard._types.Decision`.
 from __future__ import annotations
 
 import platform
+import threading
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -65,6 +66,12 @@ _DEFAULT_TIMEOUT_MS = 1000
 # repeated best-effort drop from flooding the log, and the log is per-process.
 # Two clients hitting the same problem should produce one line, not two.
 _diagnose = create_diagnose()
+
+# Guards first-capture delivery construction. Module-level rather than
+# per-client because it is held only while building one delivery object, so
+# cross-client contention is not measurable, and a per-instance lock would mean
+# another dataclass field for callers that construct clients directly.
+_delivery_init_lock = threading.Lock()
 
 
 def _auth_headers(key: str) -> dict[str, str]:
@@ -294,8 +301,10 @@ class ArcjetGuard:
                 ``decision.id`` from an earlier ``guard()`` call.
             occurred_at: When it happened. Defaults to now. A naive datetime is
                 read as local time, matching
-                :meth:`datetime.datetime.timestamp`. Pre-epoch values are
-                dropped, because the wire field is unsigned.
+                :meth:`datetime.datetime.timestamp`. A pre-epoch value
+                cannot be represented — the wire field is unsigned — so the
+                field falls back to the current time and is reported as a
+                dropped field rather than dropping the whole event.
             metadata: Optional metadata — string keys mapped to any
                 JSON-serializable value, including nested objects and arrays.
                 Untrusted: do not put secrets or PII in it.
@@ -448,8 +457,10 @@ class ArcjetGuardSync:
                 ``decision.id`` from an earlier ``guard()`` call.
             occurred_at: When it happened. Defaults to now. A naive datetime is
                 read as local time, matching
-                :meth:`datetime.datetime.timestamp`. Pre-epoch values are
-                dropped, because the wire field is unsigned.
+                :meth:`datetime.datetime.timestamp`. A pre-epoch value
+                cannot be represented — the wire field is unsigned — so the
+                field falls back to the current time and is reported as a
+                dropped field rather than dropping the whole event.
             metadata: Optional metadata — string keys mapped to any
                 JSON-serializable value, including nested objects and arrays.
                 Untrusted: do not put secrets or PII in it.
@@ -482,18 +493,30 @@ class ArcjetGuardSync:
         self._delivery.flush(timeout_ms)
 
     def _ensure_delivery(self) -> SyncCaptureDelivery:
-        if self._delivery is not None:
-            return self._delivery
+        # Double-checked locking. Two threads calling capture() for the first
+        # time can otherwise both see None, each build a SyncCaptureDelivery and
+        # start a worker thread, and one gets overwritten — orphaning its thread
+        # along with any events already queued on it. The unlocked fast path
+        # keeps the steady state free of lock traffic on the request path.
+        delivery = self._delivery
+        if delivery is not None:
+            return delivery
 
-        def send(events: list[pb.CaptureEvent]) -> None:
-            self._client.capture(
-                build_capture_request(events, user_agent=self._user_agent),
-                headers=_auth_headers(self._key),
-                timeout_ms=self._timeout_ms,
-            )
+        with _delivery_init_lock:
+            delivery = self._delivery
+            if delivery is not None:
+                return delivery
 
-        self._delivery = SyncCaptureDelivery(send=send, diagnose=_diagnose)
-        return self._delivery
+            def send(events: list[pb.CaptureEvent]) -> None:
+                self._client.capture(
+                    build_capture_request(events, user_agent=self._user_agent),
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
+
+            delivery = SyncCaptureDelivery(send=send, diagnose=_diagnose)
+            self._delivery = delivery
+            return delivery
 
     def guard(
         self,

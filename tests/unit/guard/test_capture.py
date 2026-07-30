@@ -236,13 +236,21 @@ class TestHostileInput:
         assert diag.just_codes == [CAPTURE_OPTION_DROPPED_CODE]
 
     def test_action_with_lone_surrogate_does_not_raise(self) -> None:
-        """protobuf cannot encode a lone surrogate; it must not escape."""
+        """protobuf cannot encode a lone surrogate; it must not escape.
+
+        Either outcome is acceptable — dropped with a diagnostic, or carried
+        through — so this asserts each branch is internally consistent rather
+        than picking one. `event.action` is checked for truthiness, not for
+        `is not None`: a protobuf string field defaults to `""`, so the
+        not-None form was always true and asserted nothing.
+        """
         event, diag = _normalize(action="refund\ud800.issued")
 
-        # Either dropped cleanly or carried; the requirement is no exception.
-        assert event is None or event.action is not None
         if event is None:
             assert diag.just_codes == [CAPTURE_INPUT_INVALID]
+        else:
+            assert event.action, "a surviving event must carry its action"
+            assert event.source == CAPTURE_SOURCE_SDK
 
 
 class TestCaptureRequest:

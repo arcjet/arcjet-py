@@ -23,7 +23,7 @@ from arcjet._metadata import (
 )
 
 from ._convert import local_warnings_to_proto
-from ._diagnostics import CAPTURE_INPUT_INVALID, Diagnose
+from ._diagnostics import CAPTURE_INPUT_INVALID, OPTION_DROPPED, Diagnose
 from .proto.decide.v2 import decide_pb2 as pb
 
 CAPTURE_SOURCE_SDK = "sdk"
@@ -36,8 +36,11 @@ unknown — so sending nothing would leave the origin unknown rather than merely
 unstated.
 """
 
-CAPTURE_OPTION_DROPPED_CODE = "AJ1001"
+CAPTURE_OPTION_DROPPED_CODE = OPTION_DROPPED
 """Warning code for a capture field that was dropped during normalization.
+
+Re-exported from :mod:`arcjet.guard._diagnostics`, which owns the code, so the
+two cannot drift if it is ever renumbered.
 
 Shared with arcjet-js, which reports the same condition under the same code, so
 a support answer about ``AJ1001`` holds for either SDK.  Note this is an
@@ -89,6 +92,11 @@ def normalize_capture_event(
     Returns:
         The proto event, or ``None`` when it could not be built.
     """
+    # The try deliberately spans everything, including the isinstance check
+    # below. A caller can pass an object whose metaclass makes isinstance raise,
+    # and capture() must not propagate that into application code. Anything this
+    # boundary catches means the event could not be built, which is the same
+    # outcome as invalid input.
     try:
         if not isinstance(action, str) or not action:
             diagnose(CAPTURE_INPUT_INVALID)
