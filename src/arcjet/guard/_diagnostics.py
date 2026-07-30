@@ -61,29 +61,48 @@ _COALESCE_SECONDS = 60.0
 
 Capture is called on a request path, so a persistent problem — a full queue
 under sustained load, an unreachable API — would otherwise emit one log line per
-event and turn a best-effort telemetry drop into a logging incident.  Counts are
-accumulated while a code is quiet and reported with the next line, so the
-volume is bounded without losing the total.
+event and turn a best-effort telemetry drop into a logging incident.
 """
 
 
 class Diagnose(Protocol):
-    """Reports one local diagnostic.  Never raises."""
+    """Reports one local diagnostic.  Never raises.
+
+    Deliberately call-only: the delivery drivers report drops and nothing more,
+    so a bare function or a recording test double satisfies this. Draining is a
+    separate capability — see :class:`CoalescingDiagnose`.
+    """
 
     def __call__(self, code: str, count: int = 1) -> None: ...
+
+
+class CoalescingDiagnose(Diagnose, Protocol):
+    """A :class:`Diagnose` that holds counts back and can be asked to release."""
+
+    def drain(self) -> None:
+        """Emit any counts held back by coalescing.  Never raises."""
 
 
 def create_diagnose(
     *,
     monotonic: Callable[[], float] = time.monotonic,
     coalesce_seconds: float = _COALESCE_SECONDS,
-) -> Diagnose:
+) -> CoalescingDiagnose:
     """Build a coalescing diagnostics reporter.
 
-    Each code is logged at most once per *coalesce_seconds*.  Events dropped
-    while a code is quiet are counted and included in the next line for that
-    code, so the reported total is never short even though the line count is
-    bounded.
+    Each code is logged at most once per *coalesce_seconds*.  Counts arriving
+    while a code is quiet accumulate and are reported by whichever comes first:
+    the next line for that code, or :meth:`drain`, which ``flush()`` calls.
+
+    That pairing matters. Coalescing alone under-reports a burst that stops:
+    a thousand drops inside one window would log ``1`` and hold the rest for a
+    successor that never comes. ``flush()`` draining the remainder is what makes
+    the total honest for the shape the capture ADR recommends — capture during a
+    request, flush at the end of it.
+
+    A burst that ends with neither a later drop nor a ``flush()`` still
+    under-reports. That is the residual cost of bounding log volume, and it is
+    why the reported figure is a count of events, not a guarantee of the total.
 
     Args:
         monotonic: Clock used for the coalescing window.  Injectable so tests
@@ -91,9 +110,9 @@ def create_diagnose(
         coalesce_seconds: Quiet period per code.  ``0`` logs every diagnostic.
 
     Returns:
-        A callable taking ``(code, count)``.  It never raises: a diagnostics
-        sink is observational and must not break application control flow or
-        the background delivery worker.
+        A callable taking ``(code, count)``, with a ``drain()`` attribute.
+        Neither raises: a diagnostics sink is observational and must not break
+        application control flow or the background delivery worker.
     """
     # Not lock-guarded. Concurrent reports can race to emit an extra line or
     # briefly double-count, which costs a duplicate log entry; taking a lock on
@@ -102,9 +121,17 @@ def create_diagnose(
     suppressed: dict[str, int] = {}
     last_logged: dict[str, float] = {}
 
+    def emit(code: str, count: int) -> None:
+        logger.warning(
+            "arcjet %s: %s (%d event(s))",
+            code,
+            _MESSAGES.get(code, "Capture diagnostic"),
+            count,
+            extra={"event": "capture_diagnostic", "code": code, "count": count},
+        )
+
     def diagnose(code: str, count: int = 1) -> None:
         try:
-            message = _MESSAGES.get(code, "Capture diagnostic")
             pending = suppressed.pop(code, 0) + count
 
             now = monotonic()
@@ -118,15 +145,23 @@ def create_diagnose(
                 return
 
             last_logged[code] = now
-            logger.warning(
-                "arcjet %s: %s (%d event(s))",
-                code,
-                message,
-                pending,
-                extra={"event": "capture_diagnostic", "code": code, "count": pending},
-            )
+            emit(code, pending)
         except Exception:
             # Including a logging handler that raises.
             pass
+
+    def drain() -> None:
+        """Report every count still held back, ignoring the quiet period."""
+        try:
+            while suppressed:
+                code, count = suppressed.popitem()
+                if count:
+                    last_logged[code] = monotonic()
+                    emit(code, count)
+        except Exception:
+            pass
+
+    diagnose.drain = drain  # type: ignore[attr-defined]  # matches the Diagnose protocol
+    return diagnose  # type: ignore[return-value]  # drain attached above
 
     return diagnose

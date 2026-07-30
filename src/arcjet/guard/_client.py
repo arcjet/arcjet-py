@@ -267,7 +267,7 @@ class ArcjetGuard:
     _user_agent: str
     # Built on the first capture() call, so a client that never captures never
     # starts a worker task. Not a constructor argument.
-    _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False)
+    _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False, init=False)
 
     def capture(
         self,
@@ -335,6 +335,9 @@ class ArcjetGuard:
         if self._delivery is None:
             return
         await self._delivery.flush(timeout_ms)
+        # Report counts the diagnostics channel held back while coalescing.
+        # Without this a burst that stops reports only its first event.
+        _diagnose.drain()
 
     def _ensure_delivery(self) -> AsyncCaptureDelivery:
         if self._delivery is not None:
@@ -423,7 +426,7 @@ class ArcjetGuardSync:
     _user_agent: str
     # Built on the first capture() call, so a client that never captures never
     # starts a worker thread. Not a constructor argument.
-    _delivery: SyncCaptureDelivery | None = field(default=None, repr=False)
+    _delivery: SyncCaptureDelivery | None = field(default=None, repr=False, init=False)
 
     def capture(
         self,
@@ -491,6 +494,9 @@ class ArcjetGuardSync:
         if self._delivery is None:
             return
         self._delivery.flush(timeout_ms)
+        # Report counts the diagnostics channel held back while coalescing.
+        # Without this a burst that stops reports only its first event.
+        _diagnose.drain()
 
     def _ensure_delivery(self) -> SyncCaptureDelivery:
         # Double-checked locking. Two threads calling capture() for the first

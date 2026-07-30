@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 
 from arcjet.guard._delivery import AsyncCaptureDelivery, SyncCaptureDelivery
 from arcjet.guard._diagnostics import (
@@ -222,7 +223,79 @@ class TestSyncDelivery:
 
             delivery.flush(50)  # cannot drain: the send is stuck
 
-            assert diag.total(CAPTURE_FLUSH_EXPIRED) == 1
+            # Two: the queued event, dropped, plus the in-flight one, abandoned.
+            # The in-flight event used to be omitted from this total entirely.
+            assert diag.total(CAPTURE_FLUSH_EXPIRED) == 2
+        finally:
+            blocked.set()
+
+    def test_flush_does_not_drop_events_captured_after_it_started(self) -> None:
+        """One caller's flush deadline must not discard another's telemetry.
+
+        The capture ADR recommends calling flush() at the end of a handler, so in
+        a concurrent server several flushes overlap with ongoing captures. Both
+        drivers previously drained the whole queue on expiry, so request A's
+        deadline deleted request B's queued events.
+        """
+        sent: list[str] = []
+        blocked = threading.Event()
+        in_send = threading.Event()
+        diag = Diagnostics()
+
+        def send(events: list[pb.CaptureEvent]) -> None:
+            sent.extend(e.action for e in events)
+            if not in_send.is_set():
+                in_send.set()
+                blocked.wait(TIMEOUT)
+
+        delivery = SyncCaptureDelivery(
+            send=send, diagnose=diag, batch_size=1, batch_delay_ms=0
+        )
+        try:
+            delivery.capture(event("early"))
+            assert in_send.wait(TIMEOUT)
+
+            def capture_late() -> None:
+                time.sleep(0.02)
+                delivery.capture(event("late-1"))
+                delivery.capture(event("late-2"))
+
+            threading.Thread(target=capture_late, daemon=True).start()
+            delivery.flush(100)  # cannot drain: the first send is stuck
+
+            assert delivery._queue.qsize() == 2, "late events must still be queued"
+        finally:
+            blocked.set()
+
+        delivery.flush(TIMEOUT_MS)
+        assert sorted(sent) == ["early", "late-1", "late-2"]
+
+    def test_flush_expiry_counts_in_flight_events(self) -> None:
+        """An abandoned in-flight send must still be reported.
+
+        It is deliberately not cancelled — the sync transport has no handle — but
+        leaving it out of the AJ3003 total would under-report the loss.
+        """
+        blocked = threading.Event()
+        in_send = threading.Event()
+        diag = Diagnostics()
+
+        def send(events: list[pb.CaptureEvent]) -> None:
+            in_send.set()
+            blocked.wait(TIMEOUT)
+
+        delivery = SyncCaptureDelivery(
+            send=send, diagnose=diag, batch_size=2, batch_delay_ms=0
+        )
+        try:
+            delivery.capture(event("in-flight"))
+            assert in_send.wait(TIMEOUT)
+            delivery.capture(event("queued"))
+
+            delivery.flush(50)
+
+            # One dropped from the queue, one abandoned on the wire.
+            assert diag.total(CAPTURE_FLUSH_EXPIRED) == 2
         finally:
             blocked.set()
 
@@ -396,7 +469,8 @@ class TestAsyncDelivery:
 
         asyncio.run(scenario())
 
-        assert diag.total(CAPTURE_FLUSH_EXPIRED) == 1
+        # Two: the queued event, dropped, plus the in-flight one, abandoned.
+        assert diag.total(CAPTURE_FLUSH_EXPIRED) == 2
 
     def test_survives_a_new_event_loop(self) -> None:
         """A client outlives any one loop, so the worker must rebind."""

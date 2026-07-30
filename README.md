@@ -1232,8 +1232,13 @@ It is **best-effort and never affects a decision**:
   slowing your request down. A failed send is never retried.
 - Nothing is dropped silently. Drops are reported through the `arcjet` logger
   with a stable code — `AJ3001` (queue full), `AJ3002` (send failed), `AJ3003`
-  (flush deadline). Set `ARCJET_LOG_LEVEL=warn` and attach a handler to see
-  them.
+  (flush deadline). The `arcjet` logger is already at `WARNING`, so you only
+  need to attach a handler to see them.
+
+  Repeats of the same code are coalesced for a minute and the suppressed count
+  is reported with the next line for that code, or by the next `flush()`. A
+  burst that ends without either will under-report its total — the figure is a
+  count of events seen, not a guaranteed total.
 
 Do not put secrets or PII in `metadata`; it is stored as untrusted data.
 
@@ -1251,10 +1256,17 @@ await aj.flush()
 arcjet_sync_guard.flush()
 ```
 
-`flush()` waits up to `timeout_ms` (default 1000) for queued and in-flight
-events, then drops whatever is left and reports `AJ3003`. There is no `close()`:
-a client holds no connection of its own to release, so flushing is the only
-shutdown step that changes what gets delivered.
+`flush()` waits up to `timeout_ms` (default 1000) for the events outstanding
+when you called it. On expiry, queued events are dropped and a request already
+on the wire is abandoned — not cancelled, so it may still arrive, and nothing
+will tell you either way. Both are counted in the `AJ3003` report.
+
+Events captured *while* a flush is waiting are not its responsibility and
+survive its deadline, so calling `flush()` per request in a concurrent server
+cannot discard another request's telemetry.
+
+There is no `close()`: a client holds no connection of its own to release, so
+flushing is the only shutdown step that changes what gets delivered.
 
 ## Best practices
 

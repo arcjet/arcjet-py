@@ -152,20 +152,37 @@ class SyncCaptureDelivery:
         self._ensure_worker()
 
     def flush(self, timeout_ms: int | None = None) -> None:
-        """Drain queued and in-flight events, dropping whatever does not fit.
+        """Drain the events outstanding when this call started.
 
         Args:
-            timeout_ms: Deadline in milliseconds.  On expiry the queued
-                remainder is dropped and reported as ``AJ3003``.
+            timeout_ms: Deadline in milliseconds.  On expiry, whatever this call
+                was waiting for is abandoned and reported as ``AJ3003``.
 
-        A request already on the wire is not cancelled on expiry — the sync
-        transport exposes no cancellation handle — so this clears the queue and
-        leaves that request to finish or time out on its own.
+        Only events already outstanding when the flush began are its
+        responsibility. Anything captured while it is waiting belongs to whoever
+        captured it and survives an expiry — otherwise, in a concurrent server,
+        one request's flush deadline would discard another request's telemetry.
+        That matters because the capture ADR recommends calling ``flush()`` at
+        the end of a handler.
+
+        On expiry the queued remainder is dropped. A request already on the wire
+        is **not** cancelled — the sync transport exposes no cancellation
+        handle — so it is left to finish or time out on its own. It is still
+        counted in the ``AJ3003`` total, because from this call's point of view
+        the event was abandoned: it may or may not arrive, and nothing will
+        report which.
         """
         deadline = _nonnegative_int(timeout_ms, DEFAULT_FLUSH_TIMEOUT_MS) / 1000
         with self._idle:
             if self._outstanding == 0:
                 return
+            # Snapshot the two populations separately. Only queued events can be
+            # dropped, and only the ones queued *now* belong to this flush —
+            # bounding by `_outstanding` instead would count in-flight events,
+            # which are not in the queue, and so would consume that many later
+            # arrivals from the front instead.
+            queued_at_entry = self._queue.qsize()
+            in_flight_at_entry = max(self._outstanding - queued_at_entry, 0)
         self._ensure_worker()
         self._flush_now.set()
         try:
@@ -175,14 +192,19 @@ class SyncCaptureDelivery:
                 )
             if drained:
                 return
-            self._drop_queued()
+            self._abandon(queued_at_entry, in_flight_at_entry)
         finally:
             self._flush_now.clear()
 
-    def _drop_queued(self) -> None:
-        """Discard everything still queued and report it once."""
+    def _abandon(self, queued_at_entry: int, in_flight_at_entry: int) -> None:
+        """Give up on this flush's events and report them once.
+
+        The queue is FIFO, so the oldest *queued_at_entry* entries are the ones
+        this flush was waiting for. Anything captured while it waited sits behind
+        them and is left alone.
+        """
         dropped = 0
-        while True:
+        while dropped < queued_at_entry:
             try:
                 self._queue.get_nowait()
             except queue.Empty:
@@ -190,7 +212,16 @@ class SyncCaptureDelivery:
             dropped += 1
         if dropped:
             self._finish(dropped)
-            self._diagnose(CAPTURE_FLUSH_EXPIRED, dropped)
+
+        # Whatever is on the wire is not in the queue, not cancellable, and will
+        # never be confirmed to this caller. Count it so the total is not
+        # silently short, but leave `_outstanding` alone — the send decrements it
+        # when it finishes.
+        with self._idle:
+            still_in_flight = max(self._outstanding - self._queue.qsize(), 0)
+        abandoned = dropped + min(in_flight_at_entry, still_in_flight)
+        if abandoned:
+            self._diagnose(CAPTURE_FLUSH_EXPIRED, abandoned)
 
     def _finish(self, count: int) -> None:
         """Mark *count* events as no longer outstanding and wake any flush."""
@@ -263,7 +294,23 @@ class SyncCaptureDelivery:
         while True:
             batch = self._collect()
             if not batch:
-                return
+                # Exiting has to be atomic with releasing the worker slot.
+                # `Thread.is_alive()` stays True until this function actually
+                # returns, so `_ensure_worker` gating on it alone leaves a window
+                # where a `capture()` arriving just after the idle timeout gets
+                # no worker at all — queued, unsent, and undiagnosed.
+                #
+                # Holding the lock across "is the queue still empty?" and
+                # "release the slot" closes it. A concurrent `capture()` either
+                # enqueued before this check, in which case we keep going, or it
+                # calls `_ensure_worker` after the slot is cleared, which starts
+                # a replacement.
+                with self._worker_lock:
+                    if not self._queue.empty():
+                        continue
+                    if self._worker is threading.current_thread():
+                        self._worker = None
+                    return
             try:
                 self._send(batch)
             except Exception:
@@ -329,11 +376,21 @@ class AsyncCaptureDelivery:
             self._wake.set()
 
     async def flush(self, timeout_ms: int | None = None) -> None:
-        """Drain queued and in-flight events, dropping whatever does not fit.
+        """Drain the events outstanding when this call started.
 
         Args:
-            timeout_ms: Deadline in milliseconds.  On expiry the queued
-                remainder is dropped and reported as ``AJ3003``.
+            timeout_ms: Deadline in milliseconds.  On expiry, whatever this call
+                was waiting for is abandoned and reported as ``AJ3003``.
+
+        Only events already outstanding when the flush began are its
+        responsibility. Anything captured while it is waiting survives an
+        expiry — otherwise one request's flush deadline would discard another
+        request's telemetry in a concurrent server, and the capture ADR
+        recommends calling ``flush()`` at the end of a handler.
+
+        A send already awaiting a response is not cancelled, matching the sync
+        driver, but it is counted in the ``AJ3003`` total so the number is not
+        silently short.
         """
         deadline = _nonnegative_int(timeout_ms, DEFAULT_FLUSH_TIMEOUT_MS) / 1000
         if not self._queue and self._in_flight == 0:
@@ -346,16 +403,27 @@ class AsyncCaptureDelivery:
             # caller has no running loop, which cannot happen inside `await`.
             return
 
+        # Snapshot the two populations separately, for the reason spelled out in
+        # the sync driver: only queued events can be dropped, and bounding by the
+        # combined total would consume later arrivals from the front.
+        queued_at_entry = len(self._queue)
+        in_flight_at_entry = self._in_flight
         self._flush_now = True
         if self._wake is not None:
             self._wake.set()
         try:
             await asyncio.wait_for(idle.wait(), timeout=deadline)
         except (asyncio.TimeoutError, TimeoutError):
-            dropped = len(self._queue)
-            self._queue.clear()
-            if dropped:
-                self._diagnose(CAPTURE_FLUSH_EXPIRED, dropped)
+            # Take from the left: the queue is FIFO, so the oldest entries are
+            # the ones this flush was waiting for. Events captured during the
+            # wait sit behind them and survive.
+            dropped = 0
+            while dropped < queued_at_entry and self._queue:
+                self._queue.popleft()
+                dropped += 1
+            abandoned = dropped + min(in_flight_at_entry, self._in_flight)
+            if abandoned:
+                self._diagnose(CAPTURE_FLUSH_EXPIRED, abandoned)
         finally:
             self._flush_now = False
 
