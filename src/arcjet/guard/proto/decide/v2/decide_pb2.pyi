@@ -267,21 +267,33 @@ class ResultSlidingWindow(_message.Message):
     interval_seconds: int
     def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_at_unix_seconds: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
 
+class Billing(_message.Message):
+    __slots__ = ()
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    unit: str
+    count: int
+    def __init__(self, unit: _Optional[str] = ..., count: _Optional[int] = ...) -> None: ...
+
 class ResultPromptInjection(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
+    BILLING_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
+    billing: Billing
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
 
 class ResultModerateContent(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
+    BILLING_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
+    billing: Billing
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
 
 class ResultLocalSensitiveInfo(_message.Message):
     __slots__ = ()
@@ -437,6 +449,7 @@ class CaptureEvent(_message.Message):
     METADATA_FIELD_NUMBER: _ClassVar[int]
     METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
     occurred_at_unix_ms: int
     correlation_id: str
     decision_id: str
@@ -444,7 +457,8 @@ class CaptureEvent(_message.Message):
     metadata: _containers.ScalarMap[str, str]
     metadata_json: _containers.ScalarMap[str, str]
     local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
-    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
+    source: str
+    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ..., source: _Optional[str] = ...) -> None: ...
 
 class CaptureRequest(_message.Message):
     __slots__ = ()
