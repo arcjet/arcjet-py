@@ -196,6 +196,7 @@ async def chat(request: Request, body: ChatRequest):
 | Request Filters | ✅ | — |
 | IP Analysis | ✅ | — |
 | Custom Rules | — | ✅ |
+| Capture (visibility events) | — | ✅ |
 
 - 🔒 [Prompt Injection Detection](#prompt-injection-detection) — detect and block
   prompt injection attacks before they reach your LLM.
@@ -1200,6 +1201,82 @@ user_limit = TokenBucket(
     mode="DRY_RUN",
 )
 ```
+
+### Recording what happened with `capture()`
+
+`guard()` decides whether something is allowed. `capture()` records that it
+happened. Use it for the actions you want to see in a security trace but do not
+want to gate — a refund issued, a document exported, a tool call completed.
+
+```py
+decision = await aj.guard(label="refund", rules=[inp])
+if decision.conclusion == "ALLOW":
+    refund_id = issue_refund(...)
+
+    aj.capture(
+        action="refund.issued",
+        correlation_id=workflow_id,   # ties this to other calls in the workflow
+        decision_id=decision.id,      # ties it to the decision above
+        metadata={"amount_cents": 4999, "invoice": {"id": "inv_123"}},
+    )
+```
+
+`capture()` returns immediately and is not awaited, even on the async client.
+Events are queued and sent in the background, batched together.
+
+It is **best-effort and never affects a decision**:
+
+- It never raises. A bad field is dropped and the rest of the event is sent; an
+  event with no usable `action` is dropped entirely.
+- Under sustained load or a failing backend, events are dropped rather than
+  slowing your request down. A failed send is never retried.
+- Nothing is dropped silently. Drops are reported through the `arcjet` logger
+  with a stable code — `AJ3001` (queue full), `AJ3002` (send failed), `AJ3003`
+  (flush deadline). The `arcjet` logger is already at `WARNING`, so you only
+  need to attach a handler to see them.
+
+  Repeats of the same code are coalesced for a minute and the suppressed count
+  is reported with the next line for that code, or by the next `flush()`. A
+  burst that ends without either will under-report its total — the figure is a
+  count of events seen, not a guaranteed total.
+
+  Pass your own logger to receive **every** diagnostic uncoalesced, which is what
+  you need to keep a metric of dropped events:
+
+  ```py
+  aj = launch_arcjet_sync(key=arcjet_key, logger=my_logger)
+  ```
+
+  Each record carries `code` and `count` attributes alongside the message, so a
+  handler can route or count on them without parsing text.
+
+Do not put secrets or PII in `metadata`; it is stored as untrusted data.
+
+#### Delivering events before shutdown
+
+Delivery is asynchronous, so events queued as your process exits may never be
+sent — the sync worker is a daemon thread and will not hold the interpreter
+open. Call `flush()` at a shutdown point:
+
+```py
+# Async (FastAPI lifespan, or any async teardown)
+await aj.flush()
+
+# Sync (Flask teardown, atexit, or the end of a script)
+arcjet_sync_guard.flush()
+```
+
+`flush()` waits up to `timeout_ms` (default 1000) for the events outstanding
+when you called it. On expiry, queued events are dropped and a request already
+on the wire is abandoned — not cancelled, so it may still arrive, and nothing
+will tell you either way. Both are counted in the `AJ3003` report.
+
+Events captured *while* a flush is waiting are not its responsibility and
+survive its deadline, so calling `flush()` per request in a concurrent server
+cannot discard another request's telemetry.
+
+There is no `close()`: a client holds no connection of its own to release, so
+flushing is the only shutdown step that changes what gets delivered.
 
 ## Best practices
 
