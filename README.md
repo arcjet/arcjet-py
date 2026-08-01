@@ -912,6 +912,57 @@ async def handle_tool_call(user_id: str, message: str):
     # safe to proceed
 ```
 
+### Remotely configured policy inputs
+
+Map application values explicitly as server-visible or local. Server inputs are
+evaluated and retained as policy evidence. Local strings remain in SDK memory;
+only a correlation digest and local-rule attestation are sent.
+
+```py
+from arcjet.guard import local_input, server_input
+
+decision = await aj.guard(
+    label="email.sent",
+    actor=user_id,
+    inputs={
+        "recipient": server_input.string(to),
+        "subject": local_input.string(subject),
+        "content": server_input.string(body),
+    },
+)
+
+print(decision.policy_evaluation, decision.policy_results)
+```
+
+Rules are optional; omitting them still calls Guard so a remote policy can
+protect the action.
+
+### LangChain tool checkpoints
+
+Install the optional integration with `pip install "arcjet[langchain]"`, then
+wrap a tool immediately before execution:
+
+```py
+from arcjet.guard import local_input, server_input
+from arcjet.guard.langchain import guard_tool
+
+guarded_send_email = guard_tool(
+    guard=aj,
+    tool=send_email_tool,
+    action="email.sent",
+    actor=lambda config: config["configurable"]["user_id"],
+    inputs=lambda arguments, _config: {
+        "recipient": server_input.string(arguments["to"]),
+        "subject": local_input.string(arguments["subject"]),
+        "content": server_input.string(arguments["body"]),
+    },
+)
+```
+
+The wrapper preserves the tool schema and delegates through `invoke()` or
+`ainvoke()`. Denied or unavailable checks do not execute the wrapped tool;
+`on_guard_error="allow"` explicitly opts into fail-open execution.
+
 ### Sync usage
 
 For Flask, Django, or other sync frameworks, use `launch_arcjet_sync`:
