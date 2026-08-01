@@ -48,6 +48,7 @@ keywords = [
 # Pinned to the matching minor: the backend imports private core modules, so
 # the two are released in lockstep (see the reciprocal bound in that package).
 sensitive-info-rampart = ["arcjet-sensitive-info-rampart>=0.9.0,<0.10.0"]
+langchain = ["langchain-core>=1,<2"]
 
 [project.urls]
 "homepage" = "https://arcjet.com"
