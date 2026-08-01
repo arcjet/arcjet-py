@@ -67,6 +67,14 @@ Mode = Literal["LIVE", "DRY_RUN"]
 """Rule evaluation mode.  ``"LIVE"`` enforces the rule; ``"DRY_RUN"``
 evaluates without blocking."""
 
+PolicyStatus = Literal[
+    "NOT_CONFIGURED", "APPLIED", "INCOMPLETE", "UNAVAILABLE", "EXPIRED", "UNKNOWN"
+]
+PolicyExecution = Literal["SDK", "SERVER", "UNKNOWN"]
+InputConstraintType = Literal[
+    "ALLOWED_STRING_VALUES", "DENIED_STRING_VALUES", "STRING_LENGTH"
+]
+
 NATIVE_SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = _NATIVE_SENSITIVE_INFO_TYPES
 """Sensitive info entity types the default (WASM) backend detects natively.
 
@@ -376,6 +384,16 @@ class RuleResultUnknown:
     """Discriminant — always ``"UNKNOWN"``."""
 
     warnings: tuple[ArcjetWarning, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RuleResultInputConstraint:
+    """Result from a remotely configured typed input constraint."""
+
+    conclusion: Conclusion
+    reason: Literal["INPUT_CONSTRAINT"] = "INPUT_CONSTRAINT"
+    type: InputConstraintType = "STRING_LENGTH"
+    warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
@@ -392,8 +410,33 @@ RuleResult = Union[
     RuleResultCustom,
     RuleResultNotRun,
     RuleResultError,
+    RuleResultInputConstraint,
     RuleResultUnknown,
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyEvaluation:
+    """Remote-policy selection and completeness reported by Guard."""
+
+    revision: str
+    status: PolicyStatus
+    refresh_required: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyRuleResult:
+    """A keyed remote-policy result, separate from positional SDK results."""
+
+    policy_id: str
+    policy_revision: str
+    rule_id: str
+    mode: Mode
+    execution: PolicyExecution
+    result: RuleResult
+    source: Literal["REMOTE"] = "REMOTE"
+
+
 """Union of all possible rule result types."""
 
 
@@ -442,6 +485,11 @@ class Decision:
     _internal_results: tuple[InternalResult, ...] = field(
         default=(), repr=False, compare=False
     )
+    policy_evaluation: PolicyEvaluation | None = None
+    """Remote-policy status, or ``None`` for servers predating policy support."""
+
+    policy_results: tuple[PolicyRuleResult, ...] = ()
+    """Keyed remote-policy results; never mixed into positional ``results``."""
     _policy_errors: tuple[RuleResultError, ...] = field(
         default=(), repr=False, compare=False
     )

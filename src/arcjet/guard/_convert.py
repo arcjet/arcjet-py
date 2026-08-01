@@ -32,12 +32,18 @@ from ._types import (
     ArcjetWarning,
     Conclusion,
     Decision,
+    InputConstraintType,
     InternalResult,
+    PolicyEvaluation,
+    PolicyExecution,
+    PolicyRuleResult,
+    PolicyStatus,
     Reason,
     RuleResult,
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultInputConstraint,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
@@ -178,6 +184,50 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         return RuleResultNotRun()
 
     return RuleResultUnknown()
+
+
+def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
+    which = pr.WhichOneof("result")
+    if which == "prompt_injection":
+        result: RuleResult = RuleResultPromptInjection(
+            conclusion=_conclusion_from_proto(pr.prompt_injection.conclusion)
+        )
+    elif which == "local_sensitive_info":
+        result = RuleResultSensitiveInfo(
+            conclusion=_conclusion_from_proto(pr.local_sensitive_info.conclusion),
+            detected_entity_types=tuple(pr.local_sensitive_info.detected_entity_types),
+        )
+    elif which in ("allowed_string_values", "denied_string_values", "string_length"):
+        constraint_types: dict[str, InputConstraintType] = {
+            "allowed_string_values": "ALLOWED_STRING_VALUES",
+            "denied_string_values": "DENIED_STRING_VALUES",
+            "string_length": "STRING_LENGTH",
+        }
+        result = RuleResultInputConstraint(
+            conclusion=_conclusion_from_proto(getattr(pr, which).conclusion),
+            type=constraint_types[which],
+        )
+    elif which == "error":
+        result = RuleResultError(
+            message=pr.error.message or "Unknown error", code=pr.error.code or "UNKNOWN"
+        )
+    elif which == "not_run":
+        result = RuleResultNotRun()
+    else:
+        result = RuleResultUnknown()
+    executions: dict[int, PolicyExecution] = {
+        pb.GUARD_RULE_EXECUTION_SDK: "SDK",
+        pb.GUARD_RULE_EXECUTION_SERVER: "SERVER",
+    }
+    execution = executions.get(pr.execution, "UNKNOWN")
+    return PolicyRuleResult(
+        policy_id=pr.policy_id,
+        policy_revision=pr.policy_revision,
+        rule_id=pr.rule_id,
+        mode="DRY_RUN" if pr.mode == pb.GUARD_RULE_MODE_DRY_RUN else "LIVE",
+        execution=execution,
+        result=result,
+    )
 
 
 _MODE_MAP = {
@@ -456,6 +506,21 @@ def decision_from_proto(
 
     results = tuple(ir.result for ir in internal_results)
     policy_errors: tuple[RuleResultError, ...] = ()
+    policy_evaluation: PolicyEvaluation | None = None
+    if proto.HasField("policy_evaluation"):
+        statuses: dict[int, PolicyStatus] = {
+            pb.GUARD_POLICY_STATUS_NOT_CONFIGURED: "NOT_CONFIGURED",
+            pb.GUARD_POLICY_STATUS_APPLIED: "APPLIED",
+            pb.GUARD_POLICY_STATUS_INCOMPLETE: "INCOMPLETE",
+            pb.GUARD_POLICY_STATUS_UNAVAILABLE: "UNAVAILABLE",
+            pb.GUARD_POLICY_STATUS_EXPIRED: "EXPIRED",
+        }
+        status = statuses.get(proto.policy_evaluation.status, "UNKNOWN")
+        policy_evaluation = PolicyEvaluation(
+            revision=proto.policy_evaluation.revision,
+            status=status,
+            refresh_required=proto.policy_evaluation.refresh_required,
+        )
     if proto.HasField("policy_evaluation") and proto.policy_evaluation.status in (
         pb.GUARD_POLICY_STATUS_INCOMPLETE,
         pb.GUARD_POLICY_STATUS_UNAVAILABLE,
@@ -491,4 +556,8 @@ def decision_from_proto(
         warnings=warnings,
         _internal_results=tuple(internal_results),
         _policy_errors=policy_errors,
+        policy_evaluation=policy_evaluation,
+        policy_results=tuple(
+            _policy_result_from_proto(r) for r in proto.policy_rule_results
+        ),
     )

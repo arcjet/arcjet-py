@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from arcjet.guard import ArcjetGuardSync, local_input, server_input
+from arcjet.guard._convert import decision_from_proto
 from arcjet.guard._remote_policy import SyncRemotePolicyRuntime, local_string_digest
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
@@ -90,3 +91,36 @@ def test_direct_guard_sends_actor_and_typed_server_inputs_without_policy_fetch()
         == "person@example.com"
     )
     assert transport.request.policy_inputs["attempts"].server.integer_value == 2
+
+
+def test_remote_results_are_keyed_separately_from_sdk_results() -> None:
+    decision = decision_from_proto(
+        pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_policy",
+                conclusion=pb.GUARD_CONCLUSION_DENY,
+                policy_evaluation=pb.GuardPolicyEvaluation(
+                    revision="revision-1", status=pb.GUARD_POLICY_STATUS_APPLIED
+                ),
+                policy_rule_results=[
+                    pb.GuardPolicyRuleResult(
+                        policy_id="policy-1",
+                        policy_revision="revision-1",
+                        rule_id="allowed-recipient",
+                        mode=pb.GUARD_RULE_MODE_LIVE,
+                        execution=pb.GUARD_RULE_EXECUTION_SERVER,
+                        source=pb.GUARD_RULE_SOURCE_REMOTE,
+                        allowed_string_values=pb.ResultStringConstraint(
+                            conclusion=pb.GUARD_CONCLUSION_DENY
+                        ),
+                    )
+                ],
+            )
+        )
+    )
+
+    assert decision.results == ()
+    assert decision.policy_evaluation is not None
+    assert decision.policy_evaluation.status == "APPLIED"
+    assert decision.policy_results[0].rule_id == "allowed-recipient"
+    assert decision.policy_results[0].result.reason == "INPUT_CONSTRAINT"
