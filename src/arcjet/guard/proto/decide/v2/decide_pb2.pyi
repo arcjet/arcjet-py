@@ -23,6 +23,7 @@ class GuardReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_REASON_PROMPT_INJECTION: _ClassVar[GuardReason]
     GUARD_REASON_SENSITIVE_INFO: _ClassVar[GuardReason]
     GUARD_REASON_MODERATE_CONTENT: _ClassVar[GuardReason]
+    GUARD_REASON_INPUT_CONSTRAINT: _ClassVar[GuardReason]
 
 class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -32,6 +33,9 @@ class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_TYPE_SLIDING_WINDOW: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_PROMPT_INJECTION: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_MODERATE_CONTENT: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_ALLOWED_STRING_VALUES: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_DENIED_STRING_VALUES: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_STRING_LENGTH: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_CUSTOM: _ClassVar[GuardRuleType]
 
@@ -40,6 +44,44 @@ class GuardRuleMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_MODE_UNSPECIFIED: _ClassVar[GuardRuleMode]
     GUARD_RULE_MODE_LIVE: _ClassVar[GuardRuleMode]
     GUARD_RULE_MODE_DRY_RUN: _ClassVar[GuardRuleMode]
+
+class GuardRuleSource(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_RULE_SOURCE_UNSPECIFIED: _ClassVar[GuardRuleSource]
+    GUARD_RULE_SOURCE_SDK: _ClassVar[GuardRuleSource]
+    GUARD_RULE_SOURCE_REMOTE: _ClassVar[GuardRuleSource]
+
+class GuardRuleExecution(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_RULE_EXECUTION_UNSPECIFIED: _ClassVar[GuardRuleExecution]
+    GUARD_RULE_EXECUTION_SDK: _ClassVar[GuardRuleExecution]
+    GUARD_RULE_EXECUTION_SERVER: _ClassVar[GuardRuleExecution]
+
+class GuardPolicyInputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_POLICY_INPUT_KIND_UNSPECIFIED: _ClassVar[GuardPolicyInputKind]
+    GUARD_POLICY_INPUT_KIND_STRING: _ClassVar[GuardPolicyInputKind]
+    GUARD_POLICY_INPUT_KIND_BOOLEAN: _ClassVar[GuardPolicyInputKind]
+    GUARD_POLICY_INPUT_KIND_INTEGER: _ClassVar[GuardPolicyInputKind]
+    GUARD_POLICY_INPUT_KIND_NUMBER: _ClassVar[GuardPolicyInputKind]
+    GUARD_POLICY_INPUT_KIND_STRING_LIST: _ClassVar[GuardPolicyInputKind]
+
+class GuardPolicyStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_POLICY_STATUS_UNSPECIFIED: _ClassVar[GuardPolicyStatus]
+    GUARD_POLICY_STATUS_NOT_CONFIGURED: _ClassVar[GuardPolicyStatus]
+    GUARD_POLICY_STATUS_APPLIED: _ClassVar[GuardPolicyStatus]
+    GUARD_POLICY_STATUS_INCOMPLETE: _ClassVar[GuardPolicyStatus]
+    GUARD_POLICY_STATUS_UNAVAILABLE: _ClassVar[GuardPolicyStatus]
+    GUARD_POLICY_STATUS_EXPIRED: _ClassVar[GuardPolicyStatus]
+
+class GuardPolicyLookupStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_POLICY_LOOKUP_STATUS_UNSPECIFIED: _ClassVar[GuardPolicyLookupStatus]
+    GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED: _ClassVar[GuardPolicyLookupStatus]
+    GUARD_POLICY_LOOKUP_STATUS_AVAILABLE: _ClassVar[GuardPolicyLookupStatus]
+    GUARD_POLICY_LOOKUP_STATUS_UNAVAILABLE: _ClassVar[GuardPolicyLookupStatus]
+    GUARD_POLICY_LOOKUP_STATUS_EXPIRED: _ClassVar[GuardPolicyLookupStatus]
 GUARD_CONCLUSION_UNSPECIFIED: GuardConclusion
 GUARD_CONCLUSION_ALLOW: GuardConclusion
 GUARD_CONCLUSION_DENY: GuardConclusion
@@ -51,17 +93,44 @@ GUARD_REASON_RATE_LIMIT: GuardReason
 GUARD_REASON_PROMPT_INJECTION: GuardReason
 GUARD_REASON_SENSITIVE_INFO: GuardReason
 GUARD_REASON_MODERATE_CONTENT: GuardReason
+GUARD_REASON_INPUT_CONSTRAINT: GuardReason
 GUARD_RULE_TYPE_UNSPECIFIED: GuardRuleType
 GUARD_RULE_TYPE_TOKEN_BUCKET: GuardRuleType
 GUARD_RULE_TYPE_FIXED_WINDOW: GuardRuleType
 GUARD_RULE_TYPE_SLIDING_WINDOW: GuardRuleType
 GUARD_RULE_TYPE_PROMPT_INJECTION: GuardRuleType
 GUARD_RULE_TYPE_MODERATE_CONTENT: GuardRuleType
+GUARD_RULE_TYPE_ALLOWED_STRING_VALUES: GuardRuleType
+GUARD_RULE_TYPE_DENIED_STRING_VALUES: GuardRuleType
+GUARD_RULE_TYPE_STRING_LENGTH: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_CUSTOM: GuardRuleType
 GUARD_RULE_MODE_UNSPECIFIED: GuardRuleMode
 GUARD_RULE_MODE_LIVE: GuardRuleMode
 GUARD_RULE_MODE_DRY_RUN: GuardRuleMode
+GUARD_RULE_SOURCE_UNSPECIFIED: GuardRuleSource
+GUARD_RULE_SOURCE_SDK: GuardRuleSource
+GUARD_RULE_SOURCE_REMOTE: GuardRuleSource
+GUARD_RULE_EXECUTION_UNSPECIFIED: GuardRuleExecution
+GUARD_RULE_EXECUTION_SDK: GuardRuleExecution
+GUARD_RULE_EXECUTION_SERVER: GuardRuleExecution
+GUARD_POLICY_INPUT_KIND_UNSPECIFIED: GuardPolicyInputKind
+GUARD_POLICY_INPUT_KIND_STRING: GuardPolicyInputKind
+GUARD_POLICY_INPUT_KIND_BOOLEAN: GuardPolicyInputKind
+GUARD_POLICY_INPUT_KIND_INTEGER: GuardPolicyInputKind
+GUARD_POLICY_INPUT_KIND_NUMBER: GuardPolicyInputKind
+GUARD_POLICY_INPUT_KIND_STRING_LIST: GuardPolicyInputKind
+GUARD_POLICY_STATUS_UNSPECIFIED: GuardPolicyStatus
+GUARD_POLICY_STATUS_NOT_CONFIGURED: GuardPolicyStatus
+GUARD_POLICY_STATUS_APPLIED: GuardPolicyStatus
+GUARD_POLICY_STATUS_INCOMPLETE: GuardPolicyStatus
+GUARD_POLICY_STATUS_UNAVAILABLE: GuardPolicyStatus
+GUARD_POLICY_STATUS_EXPIRED: GuardPolicyStatus
+GUARD_POLICY_LOOKUP_STATUS_UNSPECIFIED: GuardPolicyLookupStatus
+GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED: GuardPolicyLookupStatus
+GUARD_POLICY_LOOKUP_STATUS_AVAILABLE: GuardPolicyLookupStatus
+GUARD_POLICY_LOOKUP_STATUS_UNAVAILABLE: GuardPolicyLookupStatus
+GUARD_POLICY_LOOKUP_STATUS_EXPIRED: GuardPolicyLookupStatus
 
 class RuleTokenBucket(_message.Message):
     __slots__ = ()
@@ -295,6 +364,12 @@ class ResultModerateContent(_message.Message):
     billing: Billing
     def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
 
+class ResultStringConstraint(_message.Message):
+    __slots__ = ()
+    CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    conclusion: GuardConclusion
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ...) -> None: ...
+
 class ResultLocalSensitiveInfo(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
@@ -346,6 +421,9 @@ class GuardRuleResult(_message.Message):
     CONFIG_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_ID_FIELD_NUMBER: _ClassVar[int]
     TYPE_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    EXECUTION_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
     TOKEN_BUCKET_FIELD_NUMBER: _ClassVar[int]
     FIXED_WINDOW_FIELD_NUMBER: _ClassVar[int]
     SLIDING_WINDOW_FIELD_NUMBER: _ClassVar[int]
@@ -359,6 +437,9 @@ class GuardRuleResult(_message.Message):
     config_id: str
     input_id: str
     type: GuardRuleType
+    source: GuardRuleSource
+    execution: GuardRuleExecution
+    mode: GuardRuleMode
     token_bucket: ResultTokenBucket
     fixed_window: ResultFixedWindow
     sliding_window: ResultSlidingWindow
@@ -368,7 +449,51 @@ class GuardRuleResult(_message.Message):
     local_custom: ResultLocalCustom
     error: ResultError
     not_run: ResultNotRun
-    def __init__(self, result_id: _Optional[str] = ..., config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., token_bucket: _Optional[_Union[ResultTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[ResultFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[ResultSlidingWindow, _Mapping]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., moderate_content: _Optional[_Union[ResultModerateContent, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[ResultLocalCustom, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
+    def __init__(self, result_id: _Optional[str] = ..., config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., token_bucket: _Optional[_Union[ResultTokenBucket, _Mapping]] = ..., fixed_window: _Optional[_Union[ResultFixedWindow, _Mapping]] = ..., sliding_window: _Optional[_Union[ResultSlidingWindow, _Mapping]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., moderate_content: _Optional[_Union[ResultModerateContent, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., local_custom: _Optional[_Union[ResultLocalCustom, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
+
+class GuardPolicyEvaluation(_message.Message):
+    __slots__ = ()
+    REVISION_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    REFRESH_REQUIRED_FIELD_NUMBER: _ClassVar[int]
+    revision: str
+    status: GuardPolicyStatus
+    refresh_required: bool
+    def __init__(self, revision: _Optional[str] = ..., status: _Optional[_Union[GuardPolicyStatus, str]] = ..., refresh_required: _Optional[bool] = ...) -> None: ...
+
+class GuardPolicyRuleResult(_message.Message):
+    __slots__ = ()
+    RESULT_ID_FIELD_NUMBER: _ClassVar[int]
+    POLICY_ID_FIELD_NUMBER: _ClassVar[int]
+    POLICY_REVISION_FIELD_NUMBER: _ClassVar[int]
+    RULE_ID_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    EXECUTION_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_INJECTION_FIELD_NUMBER: _ClassVar[int]
+    ALLOWED_STRING_VALUES_FIELD_NUMBER: _ClassVar[int]
+    DENIED_STRING_VALUES_FIELD_NUMBER: _ClassVar[int]
+    STRING_LENGTH_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    NOT_RUN_FIELD_NUMBER: _ClassVar[int]
+    result_id: str
+    policy_id: str
+    policy_revision: str
+    rule_id: str
+    type: GuardRuleType
+    mode: GuardRuleMode
+    execution: GuardRuleExecution
+    source: GuardRuleSource
+    prompt_injection: ResultPromptInjection
+    allowed_string_values: ResultStringConstraint
+    denied_string_values: ResultStringConstraint
+    string_length: ResultStringConstraint
+    local_sensitive_info: ResultLocalSensitiveInfo
+    error: ResultError
+    not_run: ResultNotRun
+    def __init__(self, result_id: _Optional[str] = ..., policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., allowed_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., denied_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_length: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
 
 class GuardDecision(_message.Message):
     __slots__ = ()
@@ -376,11 +501,75 @@ class GuardDecision(_message.Message):
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     REASON_FIELD_NUMBER: _ClassVar[int]
     RULE_RESULTS_FIELD_NUMBER: _ClassVar[int]
+    POLICY_EVALUATION_FIELD_NUMBER: _ClassVar[int]
+    POLICY_RULE_RESULTS_FIELD_NUMBER: _ClassVar[int]
     id: str
     conclusion: GuardConclusion
     reason: GuardReason
     rule_results: _containers.RepeatedCompositeFieldContainer[GuardRuleResult]
-    def __init__(self, id: _Optional[str] = ..., conclusion: _Optional[_Union[GuardConclusion, str]] = ..., reason: _Optional[_Union[GuardReason, str]] = ..., rule_results: _Optional[_Iterable[_Union[GuardRuleResult, _Mapping]]] = ...) -> None: ...
+    policy_evaluation: GuardPolicyEvaluation
+    policy_rule_results: _containers.RepeatedCompositeFieldContainer[GuardPolicyRuleResult]
+    def __init__(self, id: _Optional[str] = ..., conclusion: _Optional[_Union[GuardConclusion, str]] = ..., reason: _Optional[_Union[GuardReason, str]] = ..., rule_results: _Optional[_Iterable[_Union[GuardRuleResult, _Mapping]]] = ..., policy_evaluation: _Optional[_Union[GuardPolicyEvaluation, _Mapping]] = ..., policy_rule_results: _Optional[_Iterable[_Union[GuardPolicyRuleResult, _Mapping]]] = ...) -> None: ...
+
+class GuardStringList(_message.Message):
+    __slots__ = ()
+    VALUES_FIELD_NUMBER: _ClassVar[int]
+    values: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, values: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GuardPolicyServerInput(_message.Message):
+    __slots__ = ()
+    STRING_VALUE_FIELD_NUMBER: _ClassVar[int]
+    BOOLEAN_VALUE_FIELD_NUMBER: _ClassVar[int]
+    INTEGER_VALUE_FIELD_NUMBER: _ClassVar[int]
+    NUMBER_VALUE_FIELD_NUMBER: _ClassVar[int]
+    STRING_LIST_VALUE_FIELD_NUMBER: _ClassVar[int]
+    string_value: str
+    boolean_value: bool
+    integer_value: int
+    number_value: float
+    string_list_value: GuardStringList
+    def __init__(self, string_value: _Optional[str] = ..., boolean_value: _Optional[bool] = ..., integer_value: _Optional[int] = ..., number_value: _Optional[float] = ..., string_list_value: _Optional[_Union[GuardStringList, _Mapping]] = ...) -> None: ...
+
+class GuardPolicyLocalInput(_message.Message):
+    __slots__ = ()
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    VALUE_SHA256_FIELD_NUMBER: _ClassVar[int]
+    kind: GuardPolicyInputKind
+    value_sha256: bytes
+    def __init__(self, kind: _Optional[_Union[GuardPolicyInputKind, str]] = ..., value_sha256: _Optional[bytes] = ...) -> None: ...
+
+class GuardPolicyInput(_message.Message):
+    __slots__ = ()
+    SERVER_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_FIELD_NUMBER: _ClassVar[int]
+    server: GuardPolicyServerInput
+    local: GuardPolicyLocalInput
+    def __init__(self, server: _Optional[_Union[GuardPolicyServerInput, _Mapping]] = ..., local: _Optional[_Union[GuardPolicyLocalInput, _Mapping]] = ...) -> None: ...
+
+class GuardLocalPolicyResult(_message.Message):
+    __slots__ = ()
+    POLICY_ID_FIELD_NUMBER: _ClassVar[int]
+    POLICY_REVISION_FIELD_NUMBER: _ClassVar[int]
+    RULE_ID_FIELD_NUMBER: _ClassVar[int]
+    INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
+    VALUE_SHA256_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    DURATION_MS_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    NOT_RUN_FIELD_NUMBER: _ClassVar[int]
+    policy_id: str
+    policy_revision: str
+    rule_id: str
+    input_name: str
+    value_sha256: bytes
+    type: GuardRuleType
+    duration_ms: int
+    local_sensitive_info: ResultLocalSensitiveInfo
+    error: ResultError
+    not_run: ResultNotRun
+    def __init__(self, policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., input_name: _Optional[str] = ..., value_sha256: _Optional[bytes] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., duration_ms: _Optional[int] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
 
 class GuardRequest(_message.Message):
     __slots__ = ()
@@ -398,6 +587,13 @@ class GuardRequest(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class PolicyInputsEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: GuardPolicyInput
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[GuardPolicyInput, _Mapping]] = ...) -> None: ...
     USER_AGENT_FIELD_NUMBER: _ClassVar[int]
     LOCAL_EVAL_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     SENT_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
@@ -407,6 +603,11 @@ class GuardRequest(_message.Message):
     CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
     METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    POLICY_INPUTS_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_POLICY_REVISION_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_POLICY_RESULTS_FIELD_NUMBER: _ClassVar[int]
+    POLICY_CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
     user_agent: str
     local_eval_duration_ms: int
     sent_at_unix_ms: int
@@ -416,7 +617,12 @@ class GuardRequest(_message.Message):
     correlation_id: str
     metadata_json: _containers.ScalarMap[str, str]
     local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
-    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
+    actor: str
+    policy_inputs: _containers.MessageMap[str, GuardPolicyInput]
+    local_policy_revision: str
+    local_policy_results: _containers.RepeatedCompositeFieldContainer[GuardLocalPolicyResult]
+    policy_capabilities: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ..., actor: _Optional[str] = ..., policy_inputs: _Optional[_Mapping[str, GuardPolicyInput]] = ..., local_policy_revision: _Optional[str] = ..., local_policy_results: _Optional[_Iterable[_Union[GuardLocalPolicyResult, _Mapping]]] = ..., policy_capabilities: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class GuardResponse(_message.Message):
     __slots__ = ()
@@ -425,6 +631,70 @@ class GuardResponse(_message.Message):
     decision: GuardDecision
     errors: _containers.RepeatedCompositeFieldContainer[ResultError]
     def __init__(self, decision: _Optional[_Union[GuardDecision, _Mapping]] = ..., errors: _Optional[_Iterable[_Union[ResultError, _Mapping]]] = ...) -> None: ...
+
+class GetGuardPolicyRequest(_message.Message):
+    __slots__ = ()
+    USER_AGENT_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    POLICY_CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    user_agent: str
+    label: str
+    policy_capabilities: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, user_agent: _Optional[str] = ..., label: _Optional[str] = ..., policy_capabilities: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GuardLocalPolicyInputRequirement(_message.Message):
+    __slots__ = ()
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    REQUIRED_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    kind: GuardPolicyInputKind
+    required: bool
+    def __init__(self, name: _Optional[str] = ..., kind: _Optional[_Union[GuardPolicyInputKind, str]] = ..., required: _Optional[bool] = ...) -> None: ...
+
+class GuardLocalSensitiveInfoRule(_message.Message):
+    __slots__ = ()
+    RULE_ID_FIELD_NUMBER: _ClassVar[int]
+    INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    ENTITIES_ALLOW_FIELD_NUMBER: _ClassVar[int]
+    ENTITIES_DENY_FIELD_NUMBER: _ClassVar[int]
+    rule_id: str
+    input_name: str
+    mode: GuardRuleMode
+    entities_allow: EntityList
+    entities_deny: EntityList
+    def __init__(self, rule_id: _Optional[str] = ..., input_name: _Optional[str] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., entities_allow: _Optional[_Union[EntityList, _Mapping]] = ..., entities_deny: _Optional[_Union[EntityList, _Mapping]] = ...) -> None: ...
+
+class GuardLocalPolicyProjection(_message.Message):
+    __slots__ = ()
+    POLICY_ID_FIELD_NUMBER: _ClassVar[int]
+    REVISION_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    REQUIRES_ACTOR_FIELD_NUMBER: _ClassVar[int]
+    INPUTS_FIELD_NUMBER: _ClassVar[int]
+    SENSITIVE_INFO_RULES_FIELD_NUMBER: _ClassVar[int]
+    REFRESH_AFTER_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    VALID_UNTIL_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    policy_id: str
+    revision: str
+    label: str
+    requires_actor: bool
+    inputs: _containers.RepeatedCompositeFieldContainer[GuardLocalPolicyInputRequirement]
+    sensitive_info_rules: _containers.RepeatedCompositeFieldContainer[GuardLocalSensitiveInfoRule]
+    refresh_after_unix_ms: int
+    valid_until_unix_ms: int
+    def __init__(self, policy_id: _Optional[str] = ..., revision: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardLocalPolicyInputRequirement, _Mapping]]] = ..., sensitive_info_rules: _Optional[_Iterable[_Union[GuardLocalSensitiveInfoRule, _Mapping]]] = ..., refresh_after_unix_ms: _Optional[int] = ..., valid_until_unix_ms: _Optional[int] = ...) -> None: ...
+
+class GetGuardPolicyResponse(_message.Message):
+    __slots__ = ()
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    POLICY_FIELD_NUMBER: _ClassVar[int]
+    SERVER_TIME_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    status: GuardPolicyLookupStatus
+    policy: GuardLocalPolicyProjection
+    server_time_unix_ms: int
+    def __init__(self, status: _Optional[_Union[GuardPolicyLookupStatus, str]] = ..., policy: _Optional[_Union[GuardLocalPolicyProjection, _Mapping]] = ..., server_time_unix_ms: _Optional[int] = ...) -> None: ...
 
 class CaptureEvent(_message.Message):
     __slots__ = ()

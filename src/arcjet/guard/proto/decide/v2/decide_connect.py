@@ -19,6 +19,9 @@ class DecideService(Protocol):
     async def guard(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
+    async def get_guard_policy(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse:
+        raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
+
     async def capture(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
@@ -37,6 +40,16 @@ class DecideServiceASGIApplication(ConnectASGIApplication[DecideService]):
                         idempotency_level=IdempotencyLevel.UNKNOWN,
                     ),
                     function=svc.guard,
+                ),
+                "/proto.decide.v2.DecideService/GetGuardPolicy": Endpoint.unary(
+                    method=MethodInfo(
+                        name="GetGuardPolicy",
+                        service_name="proto.decide.v2.DecideService",
+                        input=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+                        output=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse,
+                        idempotency_level=IdempotencyLevel.UNKNOWN,
+                    ),
+                    function=svc.get_guard_policy,
                 ),
                 "/proto.decide.v2.DecideService/Capture": Endpoint.unary(
                     method=MethodInfo(
@@ -80,6 +93,26 @@ class DecideServiceClient(ConnectClient):
             timeout_ms=timeout_ms,
         )
 
+    async def get_guard_policy(
+        self,
+        request: proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+        *,
+        headers: Headers | Mapping[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse:
+        return await self.execute_unary(
+            request=request,
+            method=MethodInfo(
+                name="GetGuardPolicy",
+                service_name="proto.decide.v2.DecideService",
+                input=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+                output=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse,
+                idempotency_level=IdempotencyLevel.UNKNOWN,
+            ),
+            headers=headers,
+            timeout_ms=timeout_ms,
+        )
+
     async def capture(
         self,
         request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
@@ -104,6 +137,8 @@ class DecideServiceClient(ConnectClient):
 class DecideServiceSync(Protocol):
     def guard(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
+    def get_guard_policy(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse:
+        raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
     def capture(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
@@ -121,6 +156,16 @@ class DecideServiceWSGIApplication(ConnectWSGIApplication):
                         idempotency_level=IdempotencyLevel.UNKNOWN,
                     ),
                     function=service.guard,
+                ),
+                "/proto.decide.v2.DecideService/GetGuardPolicy": EndpointSync.unary(
+                    method=MethodInfo(
+                        name="GetGuardPolicy",
+                        service_name="proto.decide.v2.DecideService",
+                        input=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+                        output=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse,
+                        idempotency_level=IdempotencyLevel.UNKNOWN,
+                    ),
+                    function=service.get_guard_policy,
                 ),
                 "/proto.decide.v2.DecideService/Capture": EndpointSync.unary(
                     method=MethodInfo(
@@ -158,6 +203,26 @@ class DecideServiceClientSync(ConnectClientSync):
                 service_name="proto.decide.v2.DecideService",
                 input=proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest,
                 output=proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse,
+                idempotency_level=IdempotencyLevel.UNKNOWN,
+            ),
+            headers=headers,
+            timeout_ms=timeout_ms,
+        )
+
+    def get_guard_policy(
+        self,
+        request: proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+        *,
+        headers: Headers | Mapping[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse:
+        return self.execute_unary(
+            request=request,
+            method=MethodInfo(
+                name="GetGuardPolicy",
+                service_name="proto.decide.v2.DecideService",
+                input=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyRequest,
+                output=proto_dot_decide_dot_v2_dot_decide__pb2.GetGuardPolicyResponse,
                 idempotency_level=IdempotencyLevel.UNKNOWN,
             ),
             headers=headers,
