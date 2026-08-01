@@ -88,6 +88,7 @@ _REASON_MAP: dict[int, Reason] = {
     pb.GUARD_REASON_PROMPT_INJECTION: "PROMPT_INJECTION",
     pb.GUARD_REASON_MODERATE_CONTENT: "MODERATE_CONTENT",
     pb.GUARD_REASON_SENSITIVE_INFO: "SENSITIVE_INFO",
+    pb.GUARD_REASON_INPUT_CONSTRAINT: "INPUT_CONSTRAINT",
 }
 
 
@@ -454,6 +455,18 @@ def decision_from_proto(
         )
 
     results = tuple(ir.result for ir in internal_results)
+    policy_errors: tuple[RuleResultError, ...] = ()
+    if proto.HasField("policy_evaluation") and proto.policy_evaluation.status in (
+        pb.GUARD_POLICY_STATUS_INCOMPLETE,
+        pb.GUARD_POLICY_STATUS_UNAVAILABLE,
+        pb.GUARD_POLICY_STATUS_EXPIRED,
+    ):
+        policy_errors = (
+            RuleResultError(
+                message="Remote Guard policy could not be fully evaluated",
+                code="REMOTE_POLICY_UNAVAILABLE",
+            ),
+        )
     conclusion = _conclusion_from_proto(proto.conclusion)
 
     # Use the server-computed reason (priority-based).  Fall back to
@@ -477,4 +490,5 @@ def decision_from_proto(
         reason=reason,
         warnings=warnings,
         _internal_results=tuple(internal_results),
+        _policy_errors=policy_errors,
     )

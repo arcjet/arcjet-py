@@ -47,6 +47,7 @@ from ._client import (
     launch_arcjet,
     launch_arcjet_sync,
 )
+from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._rules import (
     DetectPromptInjection,
     FixedWindow,
@@ -101,6 +102,8 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Mode",
+    "PolicyInput",
+    "PolicyInputMap",
     "Reason",
     "RuleResult",
     "RuleResultCustom",
@@ -141,4 +144,6 @@ __all__ = [
     "ArcjetGuardSync",
     "launch_arcjet",
     "launch_arcjet_sync",
+    "local_input",
+    "server_input",
 ]

@@ -37,6 +37,7 @@ Reason = Literal[
     "PROMPT_INJECTION",
     "MODERATE_CONTENT",
     "SENSITIVE_INFO",
+    "INPUT_CONSTRAINT",
     "CUSTOM",
     "ERROR",
     "NOT_RUN",
@@ -441,13 +442,19 @@ class Decision:
     _internal_results: tuple[InternalResult, ...] = field(
         default=(), repr=False, compare=False
     )
+    _policy_errors: tuple[RuleResultError, ...] = field(
+        default=(), repr=False, compare=False
+    )
 
     def error_results(self) -> list[RuleResultError]:
         """The results that errored — rules (or the decision itself) that could
         not be processed. Empty when nothing errored. Each entry carries a
         ``code`` and ``message``; correlate one to a rule with
         ``rule.result(decision)``."""
-        return [r for r in self.results if isinstance(r, RuleResultError)]
+        return [
+            *(r for r in self.results if isinstance(r, RuleResultError)),
+            *self._policy_errors,
+        ]
 
     def has_failed_open(self) -> bool:
         """True when this decision returned ``"ALLOW"`` only because a rule or
