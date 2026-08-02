@@ -254,11 +254,14 @@ class AsyncRemotePolicyRuntime:
         if task is None:
             task = asyncio.create_task(self._refresh(label, cached))
             self._tasks[label] = task
-        try:
-            return await task
-        finally:
-            if self._tasks.get(label) is task:
-                self._tasks.pop(label, None)
+            task.add_done_callback(
+                lambda completed: self._forget_task(label, completed)
+            )
+        return await asyncio.shield(task)
+
+    def _forget_task(self, label: str, task: asyncio.Task[_CachedState]) -> None:
+        if self._tasks.get(label) is task:
+            self._tasks.pop(label, None)
 
     async def _refresh(self, label: str, cached: _CachedState | None) -> _CachedState:
         try:

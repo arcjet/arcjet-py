@@ -185,3 +185,40 @@ async def _test_async_not_configured_clears_and_caches_projection(
     now += 1
     assert (await runtime.prepare("test", inputs)).revision == "two"
     assert calls == 3
+
+
+def test_async_cancelled_waiter_does_not_cancel_shared_refresh() -> None:
+    asyncio.run(_test_async_cancelled_waiter_does_not_cancel_shared_refresh())
+
+
+async def _test_async_cancelled_waiter_does_not_cancel_shared_refresh() -> None:
+    calls = 0
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch(_label: str) -> pb.GetGuardPolicyResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _available("one")
+        started.set()
+        await release.wait()
+        return pb.GetGuardPolicyResponse(
+            status=pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED
+        )
+
+    runtime = remote_policy.AsyncRemotePolicyRuntime(fetch)
+    inputs = {"value": local_input.string("secret")}
+    assert (await runtime.prepare("test", inputs)).revision == "one"
+
+    cancelled = asyncio.create_task(runtime.prepare("test", inputs, force=True))
+    surviving = asyncio.create_task(runtime.prepare("test", inputs, force=True))
+    await started.wait()
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    release.set()
+
+    assert (await surviving).revision == ""
+    assert (await runtime.prepare("test", inputs)).revision == ""
+    assert calls == 2
