@@ -4,7 +4,12 @@ version = "0.1.0"
 description = "Arcjet Python SDK remote Guard policy example"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["arcjet[sensitive-info-rampart]", "fastapi[standard]>=0.124.4"]
+dependencies = [
+    "arcjet[sensitive-info-rampart]",
+    "fastapi[standard]>=0.124.4",
+    "langchain>=1.2.10",
+    "langchain-openai>=1.1.10",
+]
 
 [tool.uv]
 exclude-newer = "7 days"

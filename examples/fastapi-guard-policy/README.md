@@ -1,12 +1,13 @@
 # On behalf of the wrong client
 
-This advanced FastAPI Guard policy demo models a financial adviser composing an
-email after receiving an untrusted message. The server owns the trusted mapping
-from the selected client to its actor ID and allowed recipients. The browser can
-submit only `client`, `recipient`, `incoming_message`, and `body`.
+This advanced FastAPI Guard policy demo uses LangChain and OpenAI to model a
+financial adviser composing an email after receiving an untrusted message. The
+server owns the trusted mapping from the selected client to its actor ID,
+account data, and allowed recipients. The browser submits only `client` and
+`incoming_message`; the AI generates the attempted recipient and email body.
 
-Client A does **not** allow `advisor-backup@gmail.com`; Client B does. Sending is
-simulated only when the aggregate Guard conclusion is `ALLOW`.
+Client A does **not** allow `advisor-backup@gmail.com`; Client B does. Arcjet
+checks the AI-generated action before sending is simulated.
 
 ## Configure the Console policy
 
@@ -38,7 +39,7 @@ different policy while testing, set `GUARD_POLICY_LABEL`; its default is
 
 ```sh
 cp example.env .env.local
-# Set ARCJET_KEY in .env.local
+# Set ARCJET_KEY and OPENAI_API_KEY in .env.local
 uv run --env-file .env.local fastapi dev --host 0.0.0.0
 ```
 
