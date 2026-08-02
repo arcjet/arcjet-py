@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"proto/guard/policy/v1/policy.proto\x12\x15proto.guard.policy.v1\"\xfc\x01\n\x11GuardPolicyBundle\x12)\n\x10language_version\x18\x01 \x01(\rR\x0flanguageVersion\x12\x1a\n\x08revision\x18\x02 \x01(\tR\x08revision\x12\x31\n\x15refresh_after_unix_ms\x18\x03 \x01(\x04R\x12refreshAfterUnixMs\x12-\n\x13valid_until_unix_ms\x18\x04 \x01(\x04R\x10validUntilUnixMs\x12>\n\x08policies\x18\n \x03(\x0b\x32\".proto.guard.policy.v1.GuardPolicyR\x08policies\"\xe4\x01\n\x0bGuardPolicy\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n\x05label\x18\x02 \x01(\tR\x05label\x12%\n\x0erequires_actor\x18\x03 \x01(\x08R\rrequiresActor\x12J\n\x06inputs\x18\x04 \x03(\x0b\x32\x32.proto.guard.policy.v1.GuardPolicyInputRequirementR\x06inputs\x12<\n\x05rules\x18\n \x03(\x0b\x32&.proto.guard.policy.v1.GuardPolicyRuleR\x05rules\"\xdb\x01\n\x1bGuardPolicyInputRequirement\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12?\n\x04kind\x18\x02 \x01(\x0e\x32+.proto.guard.policy.v1.GuardPolicyInputKindR\x04kind\x12K\n\x08\x65xposure\x18\x03 \x01(\x0e\x32/.proto.guard.policy.v1.GuardPolicyInputExposureR\x08\x65xposure\x12\x1a\n\x08required\x18\x04 \x01(\x08R\x08required\"\xb0\x05\n\x0fGuardPolicyRule\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12>\n\x04mode\x18\x02 \x01(\x0e\x32*.proto.guard.policy.v1.GuardPolicyRuleModeR\x04mode\x12M\n\texecution\x18\x03 \x01(\x0e\x32/.proto.guard.policy.v1.GuardPolicyRuleExecutionR\texecution\x12k\n\x15\x61llowed_string_values\x18\n \x01(\x0b\x32\x35.proto.guard.policy.v1.GuardPolicyAllowedStringValuesH\x00R\x13\x61llowedStringValues\x12h\n\x14\x64\x65nied_string_values\x18\x0b \x01(\x0b\x32\x34.proto.guard.policy.v1.GuardPolicyDeniedStringValuesH\x00R\x12\x64\x65niedStringValues\x12U\n\rstring_length\x18\x0c \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringLengthH\x00R\x0cstringLength\x12^\n\x10prompt_injection\x18\r \x01(\x0b\x32\x31.proto.guard.policy.v1.GuardPolicyPromptInjectionH\x00R\x0fpromptInjection\x12h\n\x14local_sensitive_info\x18\x14 \x01(\x0b\x32\x34.proto.guard.policy.v1.GuardPolicyLocalSensitiveInfoH\x00R\x12localSensitiveInfoB\x06\n\x04rule\"1\n\x17GuardPolicyStringValues\x12\x16\n\x06values\x18\x01 \x03(\tR\x06values\"\x87\x01\n\x1eGuardPolicyAllowedStringValues\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12\x46\n\x06values\x18\x02 \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringValuesR\x06values\"\x86\x01\n\x1dGuardPolicyDeniedStringValues\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12\x46\n\x06values\x18\x02 \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringValuesR\x06values\"\x98\x01\n\x17GuardPolicyStringLength\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12 \n\tmin_bytes\x18\x02 \x01(\rH\x00R\x08minBytes\x88\x01\x01\x12 \n\tmax_bytes\x18\x03 \x01(\rH\x01R\x08maxBytes\x88\x01\x01\x42\x0c\n\n_min_bytesB\x0c\n\n_max_bytes\";\n\x1aGuardPolicyPromptInjection\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\"3\n\x15GuardPolicyEntityList\x12\x1a\n\x08\x65ntities\x18\x01 \x03(\tR\x08\x65ntities\"\xfb\x01\n\x1dGuardPolicyLocalSensitiveInfo\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12U\n\x0e\x65ntities_allow\x18\x02 \x01(\x0b\x32,.proto.guard.policy.v1.GuardPolicyEntityListH\x00R\rentitiesAllow\x12S\n\rentities_deny\x18\x03 \x01(\x0b\x32,.proto.guard.policy.v1.GuardPolicyEntityListH\x00R\x0c\x65ntitiesDenyB\x0f\n\rentity_filter*\xfa\x01\n\x14GuardPolicyInputKind\x12\'\n#GUARD_POLICY_INPUT_KIND_UNSPECIFIED\x10\x00\x12\"\n\x1eGUARD_POLICY_INPUT_KIND_STRING\x10\x01\x12#\n\x1fGUARD_POLICY_INPUT_KIND_BOOLEAN\x10\x02\x12#\n\x1fGUARD_POLICY_INPUT_KIND_INTEGER\x10\x03\x12\"\n\x1eGUARD_POLICY_INPUT_KIND_NUMBER\x10\x04\x12\'\n#GUARD_POLICY_INPUT_KIND_STRING_LIST\x10\x05*\x96\x01\n\x18GuardPolicyInputExposure\x12+\n\'GUARD_POLICY_INPUT_EXPOSURE_UNSPECIFIED\x10\x00\x12&\n\"GUARD_POLICY_INPUT_EXPOSURE_SERVER\x10\x01\x12%\n!GUARD_POLICY_INPUT_EXPOSURE_LOCAL\x10\x02*\x82\x01\n\x13GuardPolicyRuleMode\x12&\n\"GUARD_POLICY_RULE_MODE_UNSPECIFIED\x10\x00\x12\x1f\n\x1bGUARD_POLICY_RULE_MODE_LIVE\x10\x01\x12\"\n\x1eGUARD_POLICY_RULE_MODE_DRY_RUN\x10\x02*\x94\x01\n\x18GuardPolicyRuleExecution\x12+\n\'GUARD_POLICY_RULE_EXECUTION_UNSPECIFIED\x10\x00\x12#\n\x1fGUARD_POLICY_RULE_EXECUTION_SDK\x10\x01\x12&\n\"GUARD_POLICY_RULE_EXECUTION_SERVER\x10\x02\x42\xcc\x01\n\x19\x63om.proto.guard.policy.v1B\x0bPolicyProtoP\x01Z+arcjet/gen/go/guard/policy/v1;guardpolicyv1\xa2\x02\x03PGP\xaa\x02\x15Proto.Guard.Policy.V1\xca\x02\x15Proto\\Guard\\Policy\\V1\xe2\x02!Proto\\Guard\\Policy\\V1\\GPBMetadata\xea\x02\x18Proto::Guard::Policy::V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"proto/guard/policy/v1/policy.proto\x12\x15proto.guard.policy.v1\"\xd2\x01\n\x11GuardPolicyBundle\x12)\n\x10language_version\x18\x01 \x01(\rR\x0flanguageVersion\x12\x1a\n\x08revision\x18\x02 \x01(\tR\x08revision\x12>\n\x08policies\x18\n \x03(\x0b\x32\".proto.guard.policy.v1.GuardPolicyR\x08policiesJ\x04\x08\x03\x10\x04J\x04\x08\x04\x10\x05R\x15refresh_after_unix_msR\x13valid_until_unix_ms\"\xe4\x01\n\x0bGuardPolicy\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n\x05label\x18\x02 \x01(\tR\x05label\x12%\n\x0erequires_actor\x18\x03 \x01(\x08R\rrequiresActor\x12J\n\x06inputs\x18\x04 \x03(\x0b\x32\x32.proto.guard.policy.v1.GuardPolicyInputRequirementR\x06inputs\x12<\n\x05rules\x18\n \x03(\x0b\x32&.proto.guard.policy.v1.GuardPolicyRuleR\x05rules\"\xdb\x01\n\x1bGuardPolicyInputRequirement\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12?\n\x04kind\x18\x02 \x01(\x0e\x32+.proto.guard.policy.v1.GuardPolicyInputKindR\x04kind\x12K\n\x08\x65xposure\x18\x03 \x01(\x0e\x32/.proto.guard.policy.v1.GuardPolicyInputExposureR\x08\x65xposure\x12\x1a\n\x08required\x18\x04 \x01(\x08R\x08required\"\xb0\x05\n\x0fGuardPolicyRule\x12\x0e\n\x02id\x18\x01 \x01(\tR\x02id\x12>\n\x04mode\x18\x02 \x01(\x0e\x32*.proto.guard.policy.v1.GuardPolicyRuleModeR\x04mode\x12M\n\texecution\x18\x03 \x01(\x0e\x32/.proto.guard.policy.v1.GuardPolicyRuleExecutionR\texecution\x12k\n\x15\x61llowed_string_values\x18\n \x01(\x0b\x32\x35.proto.guard.policy.v1.GuardPolicyAllowedStringValuesH\x00R\x13\x61llowedStringValues\x12h\n\x14\x64\x65nied_string_values\x18\x0b \x01(\x0b\x32\x34.proto.guard.policy.v1.GuardPolicyDeniedStringValuesH\x00R\x12\x64\x65niedStringValues\x12U\n\rstring_length\x18\x0c \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringLengthH\x00R\x0cstringLength\x12^\n\x10prompt_injection\x18\r \x01(\x0b\x32\x31.proto.guard.policy.v1.GuardPolicyPromptInjectionH\x00R\x0fpromptInjection\x12h\n\x14local_sensitive_info\x18\x14 \x01(\x0b\x32\x34.proto.guard.policy.v1.GuardPolicyLocalSensitiveInfoH\x00R\x12localSensitiveInfoB\x06\n\x04rule\"1\n\x17GuardPolicyStringValues\x12\x16\n\x06values\x18\x01 \x03(\tR\x06values\"\x87\x01\n\x1eGuardPolicyAllowedStringValues\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12\x46\n\x06values\x18\x02 \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringValuesR\x06values\"\x86\x01\n\x1dGuardPolicyDeniedStringValues\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12\x46\n\x06values\x18\x02 \x01(\x0b\x32..proto.guard.policy.v1.GuardPolicyStringValuesR\x06values\"\x98\x01\n\x17GuardPolicyStringLength\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12 \n\tmin_bytes\x18\x02 \x01(\rH\x00R\x08minBytes\x88\x01\x01\x12 \n\tmax_bytes\x18\x03 \x01(\rH\x01R\x08maxBytes\x88\x01\x01\x42\x0c\n\n_min_bytesB\x0c\n\n_max_bytes\";\n\x1aGuardPolicyPromptInjection\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\"3\n\x15GuardPolicyEntityList\x12\x1a\n\x08\x65ntities\x18\x01 \x03(\tR\x08\x65ntities\"\xfb\x01\n\x1dGuardPolicyLocalSensitiveInfo\x12\x1d\n\ninput_name\x18\x01 \x01(\tR\tinputName\x12U\n\x0e\x65ntities_allow\x18\x02 \x01(\x0b\x32,.proto.guard.policy.v1.GuardPolicyEntityListH\x00R\rentitiesAllow\x12S\n\rentities_deny\x18\x03 \x01(\x0b\x32,.proto.guard.policy.v1.GuardPolicyEntityListH\x00R\x0c\x65ntitiesDenyB\x0f\n\rentity_filter*\xfa\x01\n\x14GuardPolicyInputKind\x12\'\n#GUARD_POLICY_INPUT_KIND_UNSPECIFIED\x10\x00\x12\"\n\x1eGUARD_POLICY_INPUT_KIND_STRING\x10\x01\x12#\n\x1fGUARD_POLICY_INPUT_KIND_BOOLEAN\x10\x02\x12#\n\x1fGUARD_POLICY_INPUT_KIND_INTEGER\x10\x03\x12\"\n\x1eGUARD_POLICY_INPUT_KIND_NUMBER\x10\x04\x12\'\n#GUARD_POLICY_INPUT_KIND_STRING_LIST\x10\x05*\x96\x01\n\x18GuardPolicyInputExposure\x12+\n\'GUARD_POLICY_INPUT_EXPOSURE_UNSPECIFIED\x10\x00\x12&\n\"GUARD_POLICY_INPUT_EXPOSURE_SERVER\x10\x01\x12%\n!GUARD_POLICY_INPUT_EXPOSURE_LOCAL\x10\x02*\x82\x01\n\x13GuardPolicyRuleMode\x12&\n\"GUARD_POLICY_RULE_MODE_UNSPECIFIED\x10\x00\x12\x1f\n\x1bGUARD_POLICY_RULE_MODE_LIVE\x10\x01\x12\"\n\x1eGUARD_POLICY_RULE_MODE_DRY_RUN\x10\x02*\x94\x01\n\x18GuardPolicyRuleExecution\x12+\n\'GUARD_POLICY_RULE_EXECUTION_UNSPECIFIED\x10\x00\x12#\n\x1fGUARD_POLICY_RULE_EXECUTION_SDK\x10\x01\x12&\n\"GUARD_POLICY_RULE_EXECUTION_SERVER\x10\x02\x42\xcc\x01\n\x19\x63om.proto.guard.policy.v1B\x0bPolicyProtoP\x01Z+arcjet/gen/go/guard/policy/v1;guardpolicyv1\xa2\x02\x03PGP\xaa\x02\x15Proto.Guard.Policy.V1\xca\x02\x15Proto\\Guard\\Policy\\V1\xe2\x02!Proto\\Guard\\Policy\\V1\\GPBMetadata\xea\x02\x18Proto::Guard::Policy::V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,34 +32,34 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'proto.guard.policy.v1.polic
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\031com.proto.guard.policy.v1B\013PolicyProtoP\001Z+arcjet/gen/go/guard/policy/v1;guardpolicyv1\242\002\003PGP\252\002\025Proto.Guard.Policy.V1\312\002\025Proto\\Guard\\Policy\\V1\342\002!Proto\\Guard\\Policy\\V1\\GPBMetadata\352\002\030Proto::Guard::Policy::V1'
-  _globals['_GUARDPOLICYINPUTKIND']._serialized_start=2310
-  _globals['_GUARDPOLICYINPUTKIND']._serialized_end=2560
-  _globals['_GUARDPOLICYINPUTEXPOSURE']._serialized_start=2563
-  _globals['_GUARDPOLICYINPUTEXPOSURE']._serialized_end=2713
-  _globals['_GUARDPOLICYRULEMODE']._serialized_start=2716
-  _globals['_GUARDPOLICYRULEMODE']._serialized_end=2846
-  _globals['_GUARDPOLICYRULEEXECUTION']._serialized_start=2849
-  _globals['_GUARDPOLICYRULEEXECUTION']._serialized_end=2997
+  _globals['_GUARDPOLICYINPUTKIND']._serialized_start=2268
+  _globals['_GUARDPOLICYINPUTKIND']._serialized_end=2518
+  _globals['_GUARDPOLICYINPUTEXPOSURE']._serialized_start=2521
+  _globals['_GUARDPOLICYINPUTEXPOSURE']._serialized_end=2671
+  _globals['_GUARDPOLICYRULEMODE']._serialized_start=2674
+  _globals['_GUARDPOLICYRULEMODE']._serialized_end=2804
+  _globals['_GUARDPOLICYRULEEXECUTION']._serialized_start=2807
+  _globals['_GUARDPOLICYRULEEXECUTION']._serialized_end=2955
   _globals['_GUARDPOLICYBUNDLE']._serialized_start=62
-  _globals['_GUARDPOLICYBUNDLE']._serialized_end=314
-  _globals['_GUARDPOLICY']._serialized_start=317
-  _globals['_GUARDPOLICY']._serialized_end=545
-  _globals['_GUARDPOLICYINPUTREQUIREMENT']._serialized_start=548
-  _globals['_GUARDPOLICYINPUTREQUIREMENT']._serialized_end=767
-  _globals['_GUARDPOLICYRULE']._serialized_start=770
-  _globals['_GUARDPOLICYRULE']._serialized_end=1458
-  _globals['_GUARDPOLICYSTRINGVALUES']._serialized_start=1460
-  _globals['_GUARDPOLICYSTRINGVALUES']._serialized_end=1509
-  _globals['_GUARDPOLICYALLOWEDSTRINGVALUES']._serialized_start=1512
-  _globals['_GUARDPOLICYALLOWEDSTRINGVALUES']._serialized_end=1647
-  _globals['_GUARDPOLICYDENIEDSTRINGVALUES']._serialized_start=1650
-  _globals['_GUARDPOLICYDENIEDSTRINGVALUES']._serialized_end=1784
-  _globals['_GUARDPOLICYSTRINGLENGTH']._serialized_start=1787
-  _globals['_GUARDPOLICYSTRINGLENGTH']._serialized_end=1939
-  _globals['_GUARDPOLICYPROMPTINJECTION']._serialized_start=1941
-  _globals['_GUARDPOLICYPROMPTINJECTION']._serialized_end=2000
-  _globals['_GUARDPOLICYENTITYLIST']._serialized_start=2002
-  _globals['_GUARDPOLICYENTITYLIST']._serialized_end=2053
-  _globals['_GUARDPOLICYLOCALSENSITIVEINFO']._serialized_start=2056
-  _globals['_GUARDPOLICYLOCALSENSITIVEINFO']._serialized_end=2307
+  _globals['_GUARDPOLICYBUNDLE']._serialized_end=272
+  _globals['_GUARDPOLICY']._serialized_start=275
+  _globals['_GUARDPOLICY']._serialized_end=503
+  _globals['_GUARDPOLICYINPUTREQUIREMENT']._serialized_start=506
+  _globals['_GUARDPOLICYINPUTREQUIREMENT']._serialized_end=725
+  _globals['_GUARDPOLICYRULE']._serialized_start=728
+  _globals['_GUARDPOLICYRULE']._serialized_end=1416
+  _globals['_GUARDPOLICYSTRINGVALUES']._serialized_start=1418
+  _globals['_GUARDPOLICYSTRINGVALUES']._serialized_end=1467
+  _globals['_GUARDPOLICYALLOWEDSTRINGVALUES']._serialized_start=1470
+  _globals['_GUARDPOLICYALLOWEDSTRINGVALUES']._serialized_end=1605
+  _globals['_GUARDPOLICYDENIEDSTRINGVALUES']._serialized_start=1608
+  _globals['_GUARDPOLICYDENIEDSTRINGVALUES']._serialized_end=1742
+  _globals['_GUARDPOLICYSTRINGLENGTH']._serialized_start=1745
+  _globals['_GUARDPOLICYSTRINGLENGTH']._serialized_end=1897
+  _globals['_GUARDPOLICYPROMPTINJECTION']._serialized_start=1899
+  _globals['_GUARDPOLICYPROMPTINJECTION']._serialized_end=1958
+  _globals['_GUARDPOLICYENTITYLIST']._serialized_start=1960
+  _globals['_GUARDPOLICYENTITYLIST']._serialized_end=2011
+  _globals['_GUARDPOLICYLOCALSENSITIVEINFO']._serialized_start=2014
+  _globals['_GUARDPOLICYLOCALSENSITIVEINFO']._serialized_end=2265
 # @@protoc_insertion_point(module_scope)

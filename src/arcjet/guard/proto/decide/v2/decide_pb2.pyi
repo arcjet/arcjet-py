@@ -73,7 +73,6 @@ class GuardPolicyStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_POLICY_STATUS_APPLIED: _ClassVar[GuardPolicyStatus]
     GUARD_POLICY_STATUS_INCOMPLETE: _ClassVar[GuardPolicyStatus]
     GUARD_POLICY_STATUS_UNAVAILABLE: _ClassVar[GuardPolicyStatus]
-    GUARD_POLICY_STATUS_EXPIRED: _ClassVar[GuardPolicyStatus]
 
 class GuardPolicyLookupStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -81,7 +80,6 @@ class GuardPolicyLookupStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper)
     GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED: _ClassVar[GuardPolicyLookupStatus]
     GUARD_POLICY_LOOKUP_STATUS_AVAILABLE: _ClassVar[GuardPolicyLookupStatus]
     GUARD_POLICY_LOOKUP_STATUS_UNAVAILABLE: _ClassVar[GuardPolicyLookupStatus]
-    GUARD_POLICY_LOOKUP_STATUS_EXPIRED: _ClassVar[GuardPolicyLookupStatus]
 GUARD_CONCLUSION_UNSPECIFIED: GuardConclusion
 GUARD_CONCLUSION_ALLOW: GuardConclusion
 GUARD_CONCLUSION_DENY: GuardConclusion
@@ -125,12 +123,10 @@ GUARD_POLICY_STATUS_NOT_CONFIGURED: GuardPolicyStatus
 GUARD_POLICY_STATUS_APPLIED: GuardPolicyStatus
 GUARD_POLICY_STATUS_INCOMPLETE: GuardPolicyStatus
 GUARD_POLICY_STATUS_UNAVAILABLE: GuardPolicyStatus
-GUARD_POLICY_STATUS_EXPIRED: GuardPolicyStatus
 GUARD_POLICY_LOOKUP_STATUS_UNSPECIFIED: GuardPolicyLookupStatus
 GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED: GuardPolicyLookupStatus
 GUARD_POLICY_LOOKUP_STATUS_AVAILABLE: GuardPolicyLookupStatus
 GUARD_POLICY_LOOKUP_STATUS_UNAVAILABLE: GuardPolicyLookupStatus
-GUARD_POLICY_LOOKUP_STATUS_EXPIRED: GuardPolicyLookupStatus
 
 class RuleTokenBucket(_message.Message):
     __slots__ = ()
@@ -674,17 +670,13 @@ class GuardLocalPolicyProjection(_message.Message):
     REQUIRES_ACTOR_FIELD_NUMBER: _ClassVar[int]
     INPUTS_FIELD_NUMBER: _ClassVar[int]
     SENSITIVE_INFO_RULES_FIELD_NUMBER: _ClassVar[int]
-    REFRESH_AFTER_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
-    VALID_UNTIL_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
     policy_id: str
     revision: str
     label: str
     requires_actor: bool
     inputs: _containers.RepeatedCompositeFieldContainer[GuardLocalPolicyInputRequirement]
     sensitive_info_rules: _containers.RepeatedCompositeFieldContainer[GuardLocalSensitiveInfoRule]
-    refresh_after_unix_ms: int
-    valid_until_unix_ms: int
-    def __init__(self, policy_id: _Optional[str] = ..., revision: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardLocalPolicyInputRequirement, _Mapping]]] = ..., sensitive_info_rules: _Optional[_Iterable[_Union[GuardLocalSensitiveInfoRule, _Mapping]]] = ..., refresh_after_unix_ms: _Optional[int] = ..., valid_until_unix_ms: _Optional[int] = ...) -> None: ...
+    def __init__(self, policy_id: _Optional[str] = ..., revision: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardLocalPolicyInputRequirement, _Mapping]]] = ..., sensitive_info_rules: _Optional[_Iterable[_Union[GuardLocalSensitiveInfoRule, _Mapping]]] = ...) -> None: ...
 
 class GetGuardPolicyResponse(_message.Message):
     __slots__ = ()

@@ -53,15 +53,11 @@ class GuardPolicyBundle(_message.Message):
     __slots__ = ()
     LANGUAGE_VERSION_FIELD_NUMBER: _ClassVar[int]
     REVISION_FIELD_NUMBER: _ClassVar[int]
-    REFRESH_AFTER_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
-    VALID_UNTIL_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
     POLICIES_FIELD_NUMBER: _ClassVar[int]
     language_version: int
     revision: str
-    refresh_after_unix_ms: int
-    valid_until_unix_ms: int
     policies: _containers.RepeatedCompositeFieldContainer[GuardPolicy]
-    def __init__(self, language_version: _Optional[int] = ..., revision: _Optional[str] = ..., refresh_after_unix_ms: _Optional[int] = ..., valid_until_unix_ms: _Optional[int] = ..., policies: _Optional[_Iterable[_Union[GuardPolicy, _Mapping]]] = ...) -> None: ...
+    def __init__(self, language_version: _Optional[int] = ..., revision: _Optional[str] = ..., policies: _Optional[_Iterable[_Union[GuardPolicy, _Mapping]]] = ...) -> None: ...
 
 class GuardPolicy(_message.Message):
     __slots__ = ()
