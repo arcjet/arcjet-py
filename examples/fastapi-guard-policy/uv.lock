@@ -78,6 +78,7 @@ dev = [
     { name = "griffe", specifier = "==2.1.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "hypothesis", specifier = ">=6.100.0" },
+    { name = "langchain-core", specifier = ">=1,<2" },
     { name = "pyright", specifier = "==1.1.410" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
