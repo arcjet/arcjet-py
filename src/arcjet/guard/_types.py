@@ -68,7 +68,7 @@ Mode = Literal["LIVE", "DRY_RUN"]
 evaluates without blocking."""
 
 PolicyStatus = Literal[
-    "NOT_CONFIGURED", "APPLIED", "INCOMPLETE", "UNAVAILABLE", "EXPIRED", "UNKNOWN"
+    "NOT_CONFIGURED", "APPLIED", "INCOMPLETE", "UNAVAILABLE", "UNKNOWN"
 ]
 PolicyExecution = Literal["SDK", "SERVER", "UNKNOWN"]
 InputConstraintType = Literal[

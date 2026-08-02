@@ -513,7 +513,6 @@ def decision_from_proto(
             pb.GUARD_POLICY_STATUS_APPLIED: "APPLIED",
             pb.GUARD_POLICY_STATUS_INCOMPLETE: "INCOMPLETE",
             pb.GUARD_POLICY_STATUS_UNAVAILABLE: "UNAVAILABLE",
-            pb.GUARD_POLICY_STATUS_EXPIRED: "EXPIRED",
         }
         status = statuses.get(proto.policy_evaluation.status, "UNKNOWN")
         policy_evaluation = PolicyEvaluation(
@@ -524,7 +523,6 @@ def decision_from_proto(
     if proto.HasField("policy_evaluation") and proto.policy_evaluation.status in (
         pb.GUARD_POLICY_STATUS_INCOMPLETE,
         pb.GUARD_POLICY_STATUS_UNAVAILABLE,
-        pb.GUARD_POLICY_STATUS_EXPIRED,
     ):
         policy_errors = (
             RuleResultError(

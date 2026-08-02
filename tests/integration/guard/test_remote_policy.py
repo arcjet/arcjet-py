@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from arcjet.guard import ArcjetGuardSync, local_input, server_input
@@ -18,20 +17,16 @@ def test_local_digest_matches_pinned_wire_encoding() -> None:
 
 def test_local_input_uses_projection_cache_and_never_sends_raw_value() -> None:
     fetches = 0
-    now = int(time.time() * 1000)
 
     def fetch(_label: str) -> pb.GetGuardPolicyResponse:
         nonlocal fetches
         fetches += 1
         return pb.GetGuardPolicyResponse(
             status=pb.GUARD_POLICY_LOOKUP_STATUS_AVAILABLE,
-            server_time_unix_ms=now,
             policy=pb.GuardLocalPolicyProjection(
                 policy_id="policy-1",
                 revision="revision-1",
                 label="email.sent",
-                refresh_after_unix_ms=now + 60_000,
-                valid_until_unix_ms=now + 120_000,
             ),
         )
 

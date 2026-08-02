@@ -19,6 +19,7 @@ from ._policy_input import PolicyInput, PolicyInputMap
 from .proto.decide.v2 import decide_pb2 as pb
 
 POLICY_CAPABILITIES = ("guard-policy-v1", "local-sensitive-info-v1")
+_REFRESH_INTERVAL_SECONDS = 5 * 60
 _DIGEST_DOMAIN = b"arcjet.guard.policy-input.v1\0"
 
 
@@ -33,7 +34,6 @@ class PreparedPolicy:
 class _Snapshot:
     policy: pb.GuardLocalPolicyProjection
     refresh_at: float
-    valid_until: float
 
 
 def local_string_digest(value: str) -> bytes:
@@ -153,17 +153,12 @@ def _snapshot(response: pb.GetGuardPolicyResponse) -> _Snapshot | None:
         or not response.HasField("policy")
     ):
         return None
-    refresh_in = response.policy.refresh_after_unix_ms - response.server_time_unix_ms
-    valid_for = response.policy.valid_until_unix_ms - response.server_time_unix_ms
-    if valid_for <= 0:
-        return None
     now = time.monotonic()
     policy = pb.GuardLocalPolicyProjection()
     policy.CopyFrom(response.policy)
     return _Snapshot(
         policy=policy,
-        refresh_at=now + max(0, refresh_in) / 1000,
-        valid_until=now + valid_for / 1000,
+        refresh_at=now + _REFRESH_INTERVAL_SECONDS,
     )
 
 
@@ -204,10 +199,13 @@ class SyncRemotePolicyRuntime:
             if fresh is not None:
                 self._snapshots[label] = fresh
                 return fresh
-            if cached is not None and now < cached.valid_until:
-                return cached
-            self._snapshots.pop(label, None)
-            return None
+            if (
+                response is not None
+                and response.status == pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED
+            ):
+                self._snapshots.pop(label, None)
+                return None
+            return cached
 
 
 class AsyncRemotePolicyRuntime:
@@ -253,7 +251,10 @@ class AsyncRemotePolicyRuntime:
         if fresh is not None:
             self._snapshots[label] = fresh
             return fresh
-        if cached is not None and time.monotonic() < cached.valid_until:
-            return cached
-        self._snapshots.pop(label, None)
-        return None
+        if (
+            response is not None
+            and response.status == pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED
+        ):
+            self._snapshots.pop(label, None)
+            return None
+        return cached
