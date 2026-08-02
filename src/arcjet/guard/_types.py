@@ -74,6 +74,7 @@ PolicyExecution = Literal["SDK", "SERVER", "UNKNOWN"]
 InputConstraintType = Literal[
     "ALLOWED_STRING_VALUES", "DENIED_STRING_VALUES", "STRING_LENGTH"
 ]
+StringMatchOperator = Literal["EXACT", "EMAIL_DOMAIN", "UNKNOWN"]
 
 NATIVE_SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = _NATIVE_SENSITIVE_INFO_TYPES
 """Sensitive info entity types the default (WASM) backend detects natively.
@@ -393,6 +394,8 @@ class RuleResultInputConstraint:
     conclusion: Conclusion
     reason: Literal["INPUT_CONSTRAINT"] = "INPUT_CONSTRAINT"
     type: InputConstraintType = "STRING_LENGTH"
+    match_operator: StringMatchOperator | None = None
+    """Match semantics for allowed/denied values. ``None`` for string length."""
     warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never

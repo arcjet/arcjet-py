@@ -33,6 +33,12 @@ class GuardPolicyRuleExecution(int, metaclass=_enum_type_wrapper.EnumTypeWrapper
     GUARD_POLICY_RULE_EXECUTION_UNSPECIFIED: _ClassVar[GuardPolicyRuleExecution]
     GUARD_POLICY_RULE_EXECUTION_SDK: _ClassVar[GuardPolicyRuleExecution]
     GUARD_POLICY_RULE_EXECUTION_SERVER: _ClassVar[GuardPolicyRuleExecution]
+
+class GuardPolicyStringMatchOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_POLICY_STRING_MATCH_OPERATOR_UNSPECIFIED: _ClassVar[GuardPolicyStringMatchOperator]
+    GUARD_POLICY_STRING_MATCH_OPERATOR_EXACT: _ClassVar[GuardPolicyStringMatchOperator]
+    GUARD_POLICY_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: _ClassVar[GuardPolicyStringMatchOperator]
 GUARD_POLICY_INPUT_KIND_UNSPECIFIED: GuardPolicyInputKind
 GUARD_POLICY_INPUT_KIND_STRING: GuardPolicyInputKind
 GUARD_POLICY_INPUT_KIND_BOOLEAN: GuardPolicyInputKind
@@ -48,6 +54,9 @@ GUARD_POLICY_RULE_MODE_DRY_RUN: GuardPolicyRuleMode
 GUARD_POLICY_RULE_EXECUTION_UNSPECIFIED: GuardPolicyRuleExecution
 GUARD_POLICY_RULE_EXECUTION_SDK: GuardPolicyRuleExecution
 GUARD_POLICY_RULE_EXECUTION_SERVER: GuardPolicyRuleExecution
+GUARD_POLICY_STRING_MATCH_OPERATOR_UNSPECIFIED: GuardPolicyStringMatchOperator
+GUARD_POLICY_STRING_MATCH_OPERATOR_EXACT: GuardPolicyStringMatchOperator
+GUARD_POLICY_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: GuardPolicyStringMatchOperator
 
 class GuardPolicyBundle(_message.Message):
     __slots__ = ()
@@ -115,17 +124,21 @@ class GuardPolicyAllowedStringValues(_message.Message):
     __slots__ = ()
     INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
     VALUES_FIELD_NUMBER: _ClassVar[int]
+    MATCH_OPERATOR_FIELD_NUMBER: _ClassVar[int]
     input_name: str
     values: GuardPolicyStringValues
-    def __init__(self, input_name: _Optional[str] = ..., values: _Optional[_Union[GuardPolicyStringValues, _Mapping]] = ...) -> None: ...
+    match_operator: GuardPolicyStringMatchOperator
+    def __init__(self, input_name: _Optional[str] = ..., values: _Optional[_Union[GuardPolicyStringValues, _Mapping]] = ..., match_operator: _Optional[_Union[GuardPolicyStringMatchOperator, str]] = ...) -> None: ...
 
 class GuardPolicyDeniedStringValues(_message.Message):
     __slots__ = ()
     INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
     VALUES_FIELD_NUMBER: _ClassVar[int]
+    MATCH_OPERATOR_FIELD_NUMBER: _ClassVar[int]
     input_name: str
     values: GuardPolicyStringValues
-    def __init__(self, input_name: _Optional[str] = ..., values: _Optional[_Union[GuardPolicyStringValues, _Mapping]] = ...) -> None: ...
+    match_operator: GuardPolicyStringMatchOperator
+    def __init__(self, input_name: _Optional[str] = ..., values: _Optional[_Union[GuardPolicyStringValues, _Mapping]] = ..., match_operator: _Optional[_Union[GuardPolicyStringMatchOperator, str]] = ...) -> None: ...
 
 class GuardPolicyStringLength(_message.Message):
     __slots__ = ()

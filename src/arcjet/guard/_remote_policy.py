@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 import struct
 import threading
 import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Union
+
+from arcjet._sensitive_info_backend import SensitiveInfoBackend
 
 from ._local import (
     LocalSensitiveInfoError,
@@ -69,7 +72,7 @@ def _server_input(name: str, policy_input: PolicyInput) -> pb.GuardPolicyInput:
         and not isinstance(value, bool)
     ):
         number = float(value)
-        if number != number or number in (float("inf"), float("-inf")):
+        if not math.isfinite(number):
             raise ValueError(f"policy input {name!r} must be finite")
         server.number_value = number
     elif (
@@ -114,6 +117,7 @@ def _wire_inputs(
 def _local_results(
     policy: pb.GuardLocalPolicyProjection,
     local: dict[str, tuple[str, bytes]],
+    backend: SensitiveInfoBackend | None,
 ) -> tuple[pb.GuardLocalPolicyResult, ...]:
     results: list[pb.GuardLocalPolicyResult] = []
     for rule in policy.sensitive_info_rules:
@@ -124,7 +128,9 @@ def _local_results(
         which = rule.WhichOneof("entity_filter")
         allow = tuple(rule.entities_allow.entities) if which == "entities_allow" else ()
         deny = tuple(rule.entities_deny.entities) if which == "entities_deny" else ()
-        evaluated = evaluate_sensitive_info_locally(value, allow=allow, deny=deny)
+        evaluated = evaluate_sensitive_info_locally(
+            value, allow=allow, deny=deny, backend=backend
+        )
         result = pb.GuardLocalPolicyResult(
             policy_id=policy.policy_id,
             policy_revision=policy.revision,
@@ -144,6 +150,10 @@ def _local_results(
                     ),
                     detected=bool(evaluated.detected_entity_types),
                     detected_entity_types=evaluated.detected_entity_types,
+                    detected_entities=[
+                        pb.GuardSensitiveInfoEntity(type=entity, start=start, end=end)
+                        for entity, start, end in evaluated.detected_entities
+                    ],
                 )
             )
         elif isinstance(evaluated, LocalSensitiveInfoError):
@@ -190,9 +200,12 @@ def _refresh_state(
 
 class SyncRemotePolicyRuntime:
     def __init__(
-        self, fetch: Callable[[str], pb.GetGuardPolicyResponse | None]
+        self,
+        fetch: Callable[[str], pb.GetGuardPolicyResponse | None],
+        sensitive_info_backend: SensitiveInfoBackend | None = None,
     ) -> None:
         self._fetch = fetch
+        self._sensitive_info_backend = sensitive_info_backend
         self._states: dict[str, _CachedState] = {}
         self._lock = threading.Lock()
 
@@ -204,7 +217,9 @@ class SyncRemotePolicyRuntime:
         if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
         return PreparedPolicy(
-            wire, state.policy.revision, _local_results(state.policy, local)
+            wire,
+            state.policy.revision,
+            _local_results(state.policy, local, self._sensitive_info_backend),
         )
 
     def _get(self, label: str, *, force: bool) -> _CachedState:
@@ -228,9 +243,12 @@ class SyncRemotePolicyRuntime:
 
 class AsyncRemotePolicyRuntime:
     def __init__(
-        self, fetch: Callable[[str], Awaitable[pb.GetGuardPolicyResponse | None]]
+        self,
+        fetch: Callable[[str], Awaitable[pb.GetGuardPolicyResponse | None]],
+        sensitive_info_backend: SensitiveInfoBackend | None = None,
     ) -> None:
         self._fetch = fetch
+        self._sensitive_info_backend = sensitive_info_backend
         self._states: dict[str, _CachedState] = {}
         self._tasks: dict[str, asyncio.Task[_CachedState]] = {}
 
@@ -242,7 +260,9 @@ class AsyncRemotePolicyRuntime:
         if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
         return PreparedPolicy(
-            wire, state.policy.revision, _local_results(state.policy, local)
+            wire,
+            state.policy.revision,
+            _local_results(state.policy, local, self._sensitive_info_backend),
         )
 
     async def _get(self, label: str, *, force: bool) -> _CachedState:

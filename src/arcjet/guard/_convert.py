@@ -51,6 +51,7 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
+    StringMatchOperator,
 )
 
 _CONCLUSION_MAP: dict[int, Conclusion] = {
@@ -203,9 +204,20 @@ def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
             "denied_string_values": "DENIED_STRING_VALUES",
             "string_length": "STRING_LENGTH",
         }
+        constraint = getattr(pr, which)
+        match_operators: dict[int, StringMatchOperator] = {
+            pb.GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED: "EXACT",
+            pb.GUARD_STRING_MATCH_OPERATOR_EXACT: "EXACT",
+            pb.GUARD_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: "EMAIL_DOMAIN",
+        }
         result = RuleResultInputConstraint(
-            conclusion=_conclusion_from_proto(getattr(pr, which).conclusion),
+            conclusion=_conclusion_from_proto(constraint.conclusion),
             type=constraint_types[which],
+            match_operator=(
+                None
+                if which == "string_length"
+                else match_operators.get(constraint.match_operator, "UNKNOWN")
+            ),
         )
     elif which == "error":
         result = RuleResultError(
@@ -372,6 +384,10 @@ def _rule_body_to_proto(
                     ),
                     detected=len(local_result.detected_entity_types) > 0,
                     detected_entity_types=local_result.detected_entity_types,
+                    detected_entities=[
+                        pb.GuardSensitiveInfoEntity(type=entity, start=start, end=end)
+                        for entity, start, end in local_result.detected_entities
+                    ],
                 )
             )
             local_si.result_duration_ms = local_result.elapsed_ms

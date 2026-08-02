@@ -28,6 +28,7 @@ from arcjet._metadata import (
     encode_metadata,
     enforce_metadata_budget,
 )
+from arcjet._sensitive_info_backend import SensitiveInfoBackend
 from arcjet._transport import build_async_transport, build_sync_transport
 
 from ._capture import build_capture_request, normalize_capture_event
@@ -301,6 +302,7 @@ class ArcjetGuard:
     _client: _AsyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker task. Not a constructor argument.
     _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False, init=False)
@@ -321,7 +323,9 @@ class ArcjetGuard:
                 timeout_ms=self._timeout_ms,
             )
 
-        self._remote_policy = AsyncRemotePolicyRuntime(fetch)
+        self._remote_policy = AsyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -502,6 +506,7 @@ class ArcjetGuardSync:
     _client: _SyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker thread. Not a constructor argument.
     _delivery: SyncCaptureDelivery | None = field(default=None, repr=False, init=False)
@@ -522,7 +527,9 @@ class ArcjetGuardSync:
                 timeout_ms=self._timeout_ms,
             )
 
-        self._remote_policy = SyncRemotePolicyRuntime(fetch)
+        self._remote_policy = SyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -713,6 +720,7 @@ def launch_arcjet(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuard:
     """Create an async Arcjet Guard client.
 
@@ -750,6 +758,7 @@ def launch_arcjet(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(
@@ -766,6 +775,7 @@ def launch_arcjet_sync(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuardSync:
     """Create a sync Arcjet Guard client.
 
@@ -803,6 +813,7 @@ def launch_arcjet_sync(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(

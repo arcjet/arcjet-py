@@ -95,6 +95,7 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
+    StringMatchOperator,
 )
 
 __all__ = [
@@ -122,6 +123,7 @@ __all__ = [
     "RuleResultSlidingWindow",
     "RuleResultTokenBucket",
     "RuleResultUnknown",
+    "StringMatchOperator",
     "SENSITIVE_INFO_ENTITY_TYPES",
     "ArcjetWarning",
     # Rule classes

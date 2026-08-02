@@ -74,6 +74,7 @@ class LocalSensitiveInfoResult:
 
     conclusion: str
     detected_entity_types: list[str]
+    detected_entities: list[tuple[str, int, int]]
     elapsed_ms: int
 
 
@@ -176,5 +177,9 @@ def evaluate_sensitive_info_locally(
     return LocalSensitiveInfoResult(
         conclusion=conclusion,
         detected_entity_types=denied_types,
+        detected_entities=[
+            (_detected_entity_type_str(entity), entity.start, entity.end)
+            for entity in denied
+        ],
         elapsed_ms=elapsed_ms,
     )

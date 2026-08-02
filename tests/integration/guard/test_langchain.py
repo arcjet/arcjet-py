@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from langchain_core.tools import StructuredTool
@@ -66,7 +66,7 @@ def test_guard_tool_maps_parsed_arguments_and_trusted_config_before_delegating()
     )
 
     result = wrapped.invoke(
-        {"to": "person@example.com", "body": "hello"},
+        cast(Any, {"to": "person@example.com", "body": "hello"}),
         config={"configurable": {"user_id": "user-1"}},
     )
 
@@ -100,7 +100,7 @@ def test_guard_tool_does_not_invoke_wrapped_tool_after_denial() -> None:
     )
 
     with pytest.raises(ArcjetToolDeniedError):
-        wrapped.invoke({"value": "no"})
+        wrapped.invoke(cast(Any, {"value": "no"}))
     assert calls == 0
 
 
@@ -146,6 +146,6 @@ def test_guard_tool_uses_native_async_guard_and_tool_paths() -> None:
         inputs=inputs,
     )
 
-    assert asyncio.run(wrapped.ainvoke({"value": "one"})) == "found:one"
+    assert asyncio.run(wrapped.ainvoke(cast(Any, {"value": "one"}))) == "found:one"
     assert transport.request is not None
     assert transport.request.actor == "user-async"

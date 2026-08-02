@@ -119,7 +119,7 @@ class _GuardedTool(BaseTool):
             raise TypeError(
                 "A synchronous LangChain invocation requires ArcjetGuardSync"
             )
-        resolved_config: RunnableConfig = config or {}
+        resolved_config = config if config is not None else cast(RunnableConfig, {})
         try:
             arguments = _arguments(self._tool, input)
             actor = self._resolve_actor(resolved_config)
@@ -143,7 +143,7 @@ class _GuardedTool(BaseTool):
     ) -> Any:
         if not isinstance(self._guard, ArcjetGuard):
             raise TypeError("An asynchronous LangChain invocation requires ArcjetGuard")
-        resolved_config: RunnableConfig = config or {}
+        resolved_config = config if config is not None else cast(RunnableConfig, {})
         try:
             arguments = _arguments(self._tool, input)
             actor = await self._resolve_actor_async(resolved_config)
@@ -175,7 +175,14 @@ class _GuardedTool(BaseTool):
     ) -> PolicyInputMap | None:
         if self._inputs is None or not callable(self._inputs):
             return self._inputs
-        value = self._inputs(arguments, config)
+        resolver = cast(
+            Callable[
+                [Mapping[str, Any], RunnableConfig],
+                PolicyInputMap | Awaitable[PolicyInputMap],
+            ],
+            self._inputs,
+        )
+        value = resolver(arguments, config)
         if inspect.isawaitable(value):
             raise TypeError("A synchronous input resolver must not return an awaitable")
         return value
@@ -183,16 +190,28 @@ class _GuardedTool(BaseTool):
     async def _resolve_actor_async(self, config: RunnableConfig) -> str | None:
         if self._actor is None or isinstance(self._actor, str):
             return self._actor
-        value = self._actor(config)
-        return await value if inspect.isawaitable(value) else value
+        resolver = cast(Callable[[RunnableConfig], str | Awaitable[str]], self._actor)
+        value = resolver(config)
+        if inspect.isawaitable(value):
+            return cast(str, await value)
+        return cast(str, value)
 
     async def _resolve_inputs_async(
         self, arguments: Mapping[str, Any], config: RunnableConfig
     ) -> PolicyInputMap | None:
         if self._inputs is None or not callable(self._inputs):
             return self._inputs
-        value = self._inputs(arguments, config)
-        return await value if inspect.isawaitable(value) else value
+        resolver = cast(
+            Callable[
+                [Mapping[str, Any], RunnableConfig],
+                PolicyInputMap | Awaitable[PolicyInputMap],
+            ],
+            self._inputs,
+        )
+        value = resolver(arguments, config)
+        if inspect.isawaitable(value):
+            return cast(PolicyInputMap, await value)
+        return cast(PolicyInputMap, value)
 
     def _run(self, *_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("Guarded tools delegate through invoke()")

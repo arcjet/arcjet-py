@@ -57,6 +57,12 @@ class GuardRuleExecution(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_EXECUTION_SDK: _ClassVar[GuardRuleExecution]
     GUARD_RULE_EXECUTION_SERVER: _ClassVar[GuardRuleExecution]
 
+class GuardStringMatchOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED: _ClassVar[GuardStringMatchOperator]
+    GUARD_STRING_MATCH_OPERATOR_EXACT: _ClassVar[GuardStringMatchOperator]
+    GUARD_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: _ClassVar[GuardStringMatchOperator]
+
 class GuardPolicyInputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     GUARD_POLICY_INPUT_KIND_UNSPECIFIED: _ClassVar[GuardPolicyInputKind]
@@ -112,6 +118,9 @@ GUARD_RULE_SOURCE_REMOTE: GuardRuleSource
 GUARD_RULE_EXECUTION_UNSPECIFIED: GuardRuleExecution
 GUARD_RULE_EXECUTION_SDK: GuardRuleExecution
 GUARD_RULE_EXECUTION_SERVER: GuardRuleExecution
+GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED: GuardStringMatchOperator
+GUARD_STRING_MATCH_OPERATOR_EXACT: GuardStringMatchOperator
+GUARD_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: GuardStringMatchOperator
 GUARD_POLICY_INPUT_KIND_UNSPECIFIED: GuardPolicyInputKind
 GUARD_POLICY_INPUT_KIND_STRING: GuardPolicyInputKind
 GUARD_POLICY_INPUT_KIND_BOOLEAN: GuardPolicyInputKind
@@ -363,18 +372,32 @@ class ResultModerateContent(_message.Message):
 class ResultStringConstraint(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    MATCH_OPERATOR_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ...) -> None: ...
+    match_operator: GuardStringMatchOperator
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., match_operator: _Optional[_Union[GuardStringMatchOperator, str]] = ...) -> None: ...
 
 class ResultLocalSensitiveInfo(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
     DETECTED_ENTITY_TYPES_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_ENTITIES_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
     detected_entity_types: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., detected_entity_types: _Optional[_Iterable[str]] = ...) -> None: ...
+    detected_entities: _containers.RepeatedCompositeFieldContainer[GuardSensitiveInfoEntity]
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., detected_entity_types: _Optional[_Iterable[str]] = ..., detected_entities: _Optional[_Iterable[_Union[GuardSensitiveInfoEntity, _Mapping]]] = ...) -> None: ...
+
+class GuardSensitiveInfoEntity(_message.Message):
+    __slots__ = ()
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    START_FIELD_NUMBER: _ClassVar[int]
+    END_FIELD_NUMBER: _ClassVar[int]
+    type: str
+    start: int
+    end: int
+    def __init__(self, type: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
 
 class ResultLocalCustom(_message.Message):
     __slots__ = ()

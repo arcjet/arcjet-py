@@ -5,6 +5,7 @@ from typing import Any
 from arcjet.guard import ArcjetGuardSync, local_input, server_input
 from arcjet.guard._convert import decision_from_proto
 from arcjet.guard._remote_policy import SyncRemotePolicyRuntime, local_string_digest
+from arcjet.guard._types import RuleResultInputConstraint
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 
@@ -106,7 +107,8 @@ def test_remote_results_are_keyed_separately_from_sdk_results() -> None:
                         execution=pb.GUARD_RULE_EXECUTION_SERVER,
                         source=pb.GUARD_RULE_SOURCE_REMOTE,
                         allowed_string_values=pb.ResultStringConstraint(
-                            conclusion=pb.GUARD_CONCLUSION_DENY
+                            conclusion=pb.GUARD_CONCLUSION_DENY,
+                            match_operator=pb.GUARD_STRING_MATCH_OPERATOR_EMAIL_DOMAIN,
                         ),
                     )
                 ],
@@ -119,3 +121,33 @@ def test_remote_results_are_keyed_separately_from_sdk_results() -> None:
     assert decision.policy_evaluation.status == "APPLIED"
     assert decision.policy_results[0].rule_id == "allowed-recipient"
     assert decision.policy_results[0].result.reason == "INPUT_CONSTRAINT"
+    result = decision.policy_results[0].result
+    assert isinstance(result, RuleResultInputConstraint)
+    assert result.match_operator == "EMAIL_DOMAIN"
+
+
+def test_string_match_operator_compatibility_is_fail_safe() -> None:
+    def convert(match_operator: Any) -> str | None:
+        decision = decision_from_proto(
+            pb.GuardResponse(
+                decision=pb.GuardDecision(
+                    id="gdec_policy",
+                    policy_rule_results=[
+                        pb.GuardPolicyRuleResult(
+                            denied_string_values=pb.ResultStringConstraint(
+                                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                                match_operator=match_operator,
+                            )
+                        )
+                    ],
+                )
+            )
+        )
+        result = decision.policy_results[0].result
+        assert isinstance(result, RuleResultInputConstraint)
+        assert result.type == "DENIED_STRING_VALUES"
+        return result.match_operator
+
+    assert convert(pb.GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED) == "EXACT"
+    assert convert(pb.GUARD_STRING_MATCH_OPERATOR_EXACT) == "EXACT"
+    assert convert(99) == "UNKNOWN"
