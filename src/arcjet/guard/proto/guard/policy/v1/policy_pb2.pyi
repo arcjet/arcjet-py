@@ -103,6 +103,7 @@ class GuardPolicyRule(_message.Message):
     DENIED_STRING_VALUES_FIELD_NUMBER: _ClassVar[int]
     STRING_LENGTH_FIELD_NUMBER: _ClassVar[int]
     PROMPT_INJECTION_FIELD_NUMBER: _ClassVar[int]
+    STRING_LIST_MEMBERSHIP_FIELD_NUMBER: _ClassVar[int]
     LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     id: str
     mode: GuardPolicyRuleMode
@@ -111,8 +112,9 @@ class GuardPolicyRule(_message.Message):
     denied_string_values: GuardPolicyDeniedStringValues
     string_length: GuardPolicyStringLength
     prompt_injection: GuardPolicyPromptInjection
+    string_list_membership: GuardPolicyStringListMembership
     local_sensitive_info: GuardPolicyLocalSensitiveInfo
-    def __init__(self, id: _Optional[str] = ..., mode: _Optional[_Union[GuardPolicyRuleMode, str]] = ..., execution: _Optional[_Union[GuardPolicyRuleExecution, str]] = ..., allowed_string_values: _Optional[_Union[GuardPolicyAllowedStringValues, _Mapping]] = ..., denied_string_values: _Optional[_Union[GuardPolicyDeniedStringValues, _Mapping]] = ..., string_length: _Optional[_Union[GuardPolicyStringLength, _Mapping]] = ..., prompt_injection: _Optional[_Union[GuardPolicyPromptInjection, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[GuardPolicyLocalSensitiveInfo, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., mode: _Optional[_Union[GuardPolicyRuleMode, str]] = ..., execution: _Optional[_Union[GuardPolicyRuleExecution, str]] = ..., allowed_string_values: _Optional[_Union[GuardPolicyAllowedStringValues, _Mapping]] = ..., denied_string_values: _Optional[_Union[GuardPolicyDeniedStringValues, _Mapping]] = ..., string_length: _Optional[_Union[GuardPolicyStringLength, _Mapping]] = ..., prompt_injection: _Optional[_Union[GuardPolicyPromptInjection, _Mapping]] = ..., string_list_membership: _Optional[_Union[GuardPolicyStringListMembership, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[GuardPolicyLocalSensitiveInfo, _Mapping]] = ...) -> None: ...
 
 class GuardPolicyStringValues(_message.Message):
     __slots__ = ()
@@ -155,6 +157,14 @@ class GuardPolicyPromptInjection(_message.Message):
     INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
     input_name: str
     def __init__(self, input_name: _Optional[str] = ...) -> None: ...
+
+class GuardPolicyStringListMembership(_message.Message):
+    __slots__ = ()
+    STRING_INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
+    STRING_LIST_INPUT_NAME_FIELD_NUMBER: _ClassVar[int]
+    string_input_name: str
+    string_list_input_name: str
+    def __init__(self, string_input_name: _Optional[str] = ..., string_list_input_name: _Optional[str] = ...) -> None: ...
 
 class GuardPolicyEntityList(_message.Message):
     __slots__ = ()

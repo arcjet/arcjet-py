@@ -72,7 +72,10 @@ PolicyStatus = Literal[
 ]
 PolicyExecution = Literal["SDK", "SERVER", "UNKNOWN"]
 InputConstraintType = Literal[
-    "ALLOWED_STRING_VALUES", "DENIED_STRING_VALUES", "STRING_LENGTH"
+    "ALLOWED_STRING_VALUES",
+    "DENIED_STRING_VALUES",
+    "STRING_LENGTH",
+    "STRING_LIST_MEMBERSHIP",
 ]
 StringMatchOperator = Literal["EXACT", "EMAIL_DOMAIN", "UNKNOWN"]
 
@@ -396,6 +399,9 @@ class RuleResultInputConstraint:
     type: InputConstraintType = "STRING_LENGTH"
     match_operator: StringMatchOperator | None = None
     """Match semantics for allowed/denied values. ``None`` for string length."""
+    matched: bool | None = None
+    """Whether the value occurred in the configured string list. ``None`` for
+    other input constraints."""
     warnings: tuple[ArcjetWarning, ...] = ()
     """Per-rule warnings — this rule was processed correctly (the result is
     trustworthy) but something about it should be fixed. Informational; never

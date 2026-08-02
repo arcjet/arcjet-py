@@ -219,6 +219,12 @@ def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
                 else match_operators.get(constraint.match_operator, "UNKNOWN")
             ),
         )
+    elif which == "string_list_membership":
+        result = RuleResultInputConstraint(
+            conclusion=_conclusion_from_proto(pr.string_list_membership.conclusion),
+            type="STRING_LIST_MEMBERSHIP",
+            matched=pr.string_list_membership.matched,
+        )
     elif which == "error":
         result = RuleResultError(
             message=pr.error.message or "Unknown error", code=pr.error.code or "UNKNOWN"

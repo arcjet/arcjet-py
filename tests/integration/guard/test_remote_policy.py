@@ -64,29 +64,52 @@ class _Transport:
         return pb.CaptureResponse()
 
 
-def test_direct_guard_sends_actor_and_typed_server_inputs_without_policy_fetch() -> (
-    None
-):
+def test_direct_guard_preserves_actor_and_string_list_values_exactly() -> None:
     transport = _Transport()
     guard = ArcjetGuardSync("key", transport, 1000, "test-agent")  # type: ignore[arg-type]
+    actor = "client-A'; DROP TABLE clients; -- 🧑🏽‍💼"
+    recipients = (
+        "Advisor@Example.COM",
+        "' OR '1'='1",
+        "rådgiver+東京@example.com",
+    )
 
     decision = guard.guard(
         label="email.sent",
-        actor="user-1",
+        actor=actor,
         inputs={
             "recipient": server_input.string("person@example.com"),
-            "attempts": server_input.integer(2),
+            "allowed_recipients": server_input.string_list(recipients),
         },
     )
 
     assert decision.id == "gdec_test"
     assert transport.request is not None
-    assert transport.request.actor == "user-1"
+    assert transport.request.actor == actor
     assert (
         transport.request.policy_inputs["recipient"].server.string_value
         == "person@example.com"
     )
-    assert transport.request.policy_inputs["attempts"].server.integer_value == 2
+    assert (
+        tuple(
+            transport.request.policy_inputs[
+                "allowed_recipients"
+            ].server.string_list_value.values
+        )
+        == recipients
+    )
+
+    serialized = transport.request.SerializeToString()
+    round_tripped = pb.GuardRequest.FromString(serialized)
+    assert round_tripped.actor == actor
+    assert (
+        tuple(
+            round_tripped.policy_inputs[
+                "allowed_recipients"
+            ].server.string_list_value.values
+        )
+        == recipients
+    )
 
 
 def test_remote_results_are_keyed_separately_from_sdk_results() -> None:
@@ -151,3 +174,28 @@ def test_string_match_operator_compatibility_is_fail_safe() -> None:
     assert convert(pb.GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED) == "EXACT"
     assert convert(pb.GUARD_STRING_MATCH_OPERATOR_EXACT) == "EXACT"
     assert convert(99) == "UNKNOWN"
+
+
+def test_string_list_membership_result_is_public_input_constraint() -> None:
+    decision = decision_from_proto(
+        pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_membership",
+                policy_rule_results=[
+                    pb.GuardPolicyRuleResult(
+                        execution=pb.GUARD_RULE_EXECUTION_SERVER,
+                        string_list_membership=pb.ResultStringListMembership(
+                            conclusion=pb.GUARD_CONCLUSION_DENY,
+                            matched=False,
+                        ),
+                    )
+                ],
+            )
+        )
+    )
+
+    result = decision.policy_results[0].result
+    assert isinstance(result, RuleResultInputConstraint)
+    assert result.type == "STRING_LIST_MEMBERSHIP"
+    assert result.conclusion == "DENY"
+    assert result.matched is False
