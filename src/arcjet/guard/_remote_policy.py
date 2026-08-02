@@ -8,7 +8,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Union
 
 from ._local import (
     LocalSensitiveInfoError,
@@ -20,6 +20,7 @@ from .proto.decide.v2 import decide_pb2 as pb
 
 POLICY_CAPABILITIES = ("guard-policy-v1", "local-sensitive-info-v1")
 _REFRESH_INTERVAL_SECONDS = 5 * 60
+_EMPTY_RETRY_SECONDS = 5
 _DIGEST_DOMAIN = b"arcjet.guard.policy-input.v1\0"
 
 
@@ -31,9 +32,17 @@ class PreparedPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class _Snapshot:
+class _AvailableState:
     policy: pb.GuardLocalPolicyProjection
     refresh_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class _NotConfiguredState:
+    refresh_at: float
+
+
+_CachedState = Union[_AvailableState, _NotConfiguredState]
 
 
 def local_string_digest(value: str) -> bytes:
@@ -147,19 +156,36 @@ def _local_results(
     return tuple(results)
 
 
-def _snapshot(response: pb.GetGuardPolicyResponse) -> _Snapshot | None:
+def _available_state(
+    response: pb.GetGuardPolicyResponse, refresh_at: float
+) -> _AvailableState | None:
     if (
         response.status != pb.GUARD_POLICY_LOOKUP_STATUS_AVAILABLE
         or not response.HasField("policy")
     ):
         return None
-    now = time.monotonic()
     policy = pb.GuardLocalPolicyProjection()
     policy.CopyFrom(response.policy)
-    return _Snapshot(
-        policy=policy,
-        refresh_at=now + _REFRESH_INTERVAL_SECONDS,
-    )
+    return _AvailableState(policy=policy, refresh_at=refresh_at)
+
+
+def _refresh_state(
+    response: pb.GetGuardPolicyResponse | None,
+    cached: _CachedState | None,
+    now: float,
+) -> _CachedState:
+    refresh_at = now + _REFRESH_INTERVAL_SECONDS
+    if response is not None:
+        available = _available_state(response, refresh_at)
+        if available is not None:
+            return available
+        if response.status == pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED:
+            return _NotConfiguredState(refresh_at)
+    if cached is not None:
+        if isinstance(cached, _AvailableState):
+            return _AvailableState(cached.policy, refresh_at)
+        return _NotConfiguredState(refresh_at)
+    return _NotConfiguredState(now + _EMPTY_RETRY_SECONDS)
 
 
 class SyncRemotePolicyRuntime:
@@ -167,27 +193,27 @@ class SyncRemotePolicyRuntime:
         self, fetch: Callable[[str], pb.GetGuardPolicyResponse | None]
     ) -> None:
         self._fetch = fetch
-        self._snapshots: dict[str, _Snapshot] = {}
+        self._states: dict[str, _CachedState] = {}
         self._lock = threading.Lock()
 
     def prepare(
         self, label: str, inputs: PolicyInputMap | None, *, force: bool = False
     ) -> PreparedPolicy:
         wire, local = _wire_inputs(inputs)
-        snapshot = self._get(label, force=force) if local else None
-        if snapshot is None:
+        state = self._get(label, force=force) if local else None
+        if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
         return PreparedPolicy(
-            wire, snapshot.policy.revision, _local_results(snapshot.policy, local)
+            wire, state.policy.revision, _local_results(state.policy, local)
         )
 
-    def _get(self, label: str, *, force: bool) -> _Snapshot | None:
+    def _get(self, label: str, *, force: bool) -> _CachedState:
         now = time.monotonic()
-        cached = self._snapshots.get(label)
+        cached = self._states.get(label)
         if not force and cached is not None and now < cached.refresh_at:
             return cached
         with self._lock:
-            cached = self._snapshots.get(label)
+            cached = self._states.get(label)
             now = time.monotonic()
             if not force and cached is not None and now < cached.refresh_at:
                 return cached
@@ -195,17 +221,9 @@ class SyncRemotePolicyRuntime:
                 response = self._fetch(label)
             except Exception:
                 response = None
-            fresh = _snapshot(response) if response is not None else None
-            if fresh is not None:
-                self._snapshots[label] = fresh
-                return fresh
-            if (
-                response is not None
-                and response.status == pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED
-            ):
-                self._snapshots.pop(label, None)
-                return None
-            return cached
+            state = _refresh_state(response, cached, time.monotonic())
+            self._states[label] = state
+            return state
 
 
 class AsyncRemotePolicyRuntime:
@@ -213,23 +231,23 @@ class AsyncRemotePolicyRuntime:
         self, fetch: Callable[[str], Awaitable[pb.GetGuardPolicyResponse | None]]
     ) -> None:
         self._fetch = fetch
-        self._snapshots: dict[str, _Snapshot] = {}
-        self._tasks: dict[str, asyncio.Task[_Snapshot | None]] = {}
+        self._states: dict[str, _CachedState] = {}
+        self._tasks: dict[str, asyncio.Task[_CachedState]] = {}
 
     async def prepare(
         self, label: str, inputs: PolicyInputMap | None, *, force: bool = False
     ) -> PreparedPolicy:
         wire, local = _wire_inputs(inputs)
-        snapshot = await self._get(label, force=force) if local else None
-        if snapshot is None:
+        state = await self._get(label, force=force) if local else None
+        if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
         return PreparedPolicy(
-            wire, snapshot.policy.revision, _local_results(snapshot.policy, local)
+            wire, state.policy.revision, _local_results(state.policy, local)
         )
 
-    async def _get(self, label: str, *, force: bool) -> _Snapshot | None:
+    async def _get(self, label: str, *, force: bool) -> _CachedState:
         now = time.monotonic()
-        cached = self._snapshots.get(label)
+        cached = self._states.get(label)
         if not force and cached is not None and now < cached.refresh_at:
             return cached
         task = self._tasks.get(label)
@@ -242,19 +260,11 @@ class AsyncRemotePolicyRuntime:
             if self._tasks.get(label) is task:
                 self._tasks.pop(label, None)
 
-    async def _refresh(self, label: str, cached: _Snapshot | None) -> _Snapshot | None:
+    async def _refresh(self, label: str, cached: _CachedState | None) -> _CachedState:
         try:
             response = await self._fetch(label)
         except Exception:
             response = None
-        fresh = _snapshot(response) if response is not None else None
-        if fresh is not None:
-            self._snapshots[label] = fresh
-            return fresh
-        if (
-            response is not None
-            and response.status == pb.GUARD_POLICY_LOOKUP_STATUS_NOT_CONFIGURED
-        ):
-            self._snapshots.pop(label, None)
-            return None
-        return cached
+        state = _refresh_state(response, cached, time.monotonic())
+        self._states[label] = state
+        return state
