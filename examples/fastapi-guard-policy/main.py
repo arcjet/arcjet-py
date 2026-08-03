@@ -122,6 +122,40 @@ PAGE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>On behalf of the wrong client</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    body { margin: 0; }
+    main {
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+    }
+    form, section {
+      margin-block: 1.5rem;
+      padding: 1rem;
+      border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+      border-radius: 0.5rem;
+    }
+    select, button {
+      box-sizing: border-box;
+      max-width: 100%;
+      padding: 0.5rem 0.75rem;
+      font: inherit;
+    }
+    pre {
+      padding: 0.75rem;
+      overflow-x: auto;
+      border-radius: 0.25rem;
+      background: color-mix(in srgb, currentColor 8%, transparent);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    h1, h2, h3 { line-height: 1.2; }
+  </style>
 </head>
 <body>
   <main>
@@ -138,6 +172,15 @@ PAGE = """<!doctype html>
         <option value="pii-leak">Sensitive information leak</option>
         <option value="injection">Layered defense</option>
       </select></label></p>
+      <section id="scenario-details" aria-live="polite">
+        <h2>Run context</h2>
+        <h3>Inbound customer message (untrusted)</h3>
+        <pre id="inbound-message">Loading…</pre>
+        <h3><code>get_client_record</code> returns</h3>
+        <pre id="client-record">Loading…</pre>
+        <h3>Allowed recipients for this client</h3>
+        <pre id="allowed-recipients">Loading…</pre>
+      </section>
       <button type="submit">Handle latest support request</button>
     </form>
     <section id="result" aria-live="polite" hidden></section>
@@ -145,6 +188,35 @@ PAGE = """<!doctype html>
   <script>
     const form = document.querySelector('#email-form');
     const result = document.querySelector('#result');
+    const inboundMessage = document.querySelector('#inbound-message');
+    const clientRecord = document.querySelector('#client-record');
+    const allowedRecipients = document.querySelector('#allowed-recipients');
+    let demoContext;
+
+    function showScenarioDetails() {
+      if (!demoContext) return;
+      const fields = new FormData(form);
+      const client = demoContext.clients[fields.get('client')];
+      const scenario = demoContext.scenarios[fields.get('scenario')];
+      inboundMessage.textContent = scenario.message;
+      clientRecord.textContent = JSON.stringify({
+        client_id: client.actor,
+        record: client.record,
+        details_on_file: `Details on file: ${Object.entries(client.record)
+          .map(([field, value]) => `${field}: ${value}`)
+          .join('; ')}`,
+      }, null, 2);
+      allowedRecipients.textContent = JSON.stringify(client.allowed_recipients, null, 2);
+    }
+
+    form.addEventListener('change', showScenarioDetails);
+    fetch('/context')
+      .then((response) => response.json())
+      .then((context) => {
+        demoContext = context;
+        showScenarioDetails();
+      });
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = form.querySelector('button');
@@ -200,6 +272,17 @@ PAGE = """<!doctype html>
 class EmailRequest(BaseModel):
     client: str
     scenario: Literal["benign", "wrong-recipient", "pii-leak", "injection"]
+
+
+@app.get("/context")
+def demo_context() -> dict[str, object]:
+    return {
+        "clients": CLIENTS,
+        "scenarios": {
+            name: {"message": scenario["message"]}
+            for name, scenario in SCENARIOS.items()
+        },
+    }
 
 
 def format_denial(error: ToolException) -> str:
