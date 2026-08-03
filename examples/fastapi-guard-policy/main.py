@@ -160,6 +160,18 @@ PAGE = """<!doctype html>
       overflow-wrap: anywhere;
     }
     h1, h2, h3 { line-height: 1.2; }
+    .trace-list {
+      display: grid;
+      gap: 0.75rem;
+      padding: 0;
+      list-style: none;
+    }
+    .trace-list li {
+      padding: 0.75rem;
+      border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+      border-radius: 0.25rem;
+    }
+    .trace-list pre { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -254,15 +266,31 @@ PAGE = """<!doctype html>
         guardHeading.textContent = 'Guard result';
         const guardResult = document.createElement('p');
         guardResult.textContent = data.guard_result?.summary || 'The guarded tool was not called.';
+        const guardJson = document.createElement('pre');
+        guardJson.textContent = JSON.stringify(data.guard_result, null, 2);
+        const content = [heading, model, summary, guardHeading, guardResult, guardJson];
+        if (data.sent_email) {
+          const emailHeading = document.createElement('h3');
+          emailHeading.textContent = 'Sent email';
+          const emailJson = document.createElement('pre');
+          emailJson.textContent = JSON.stringify(data.sent_email, null, 2);
+          content.push(emailHeading, emailJson);
+        }
         const traceHeading = document.createElement('h3');
         traceHeading.textContent = 'Tool trace';
         const list = document.createElement('ul');
+        list.className = 'trace-list';
         for (const trace of data.trace) {
           const item = document.createElement('li');
-          item.textContent = `${trace.type}: ${trace.tool} ${JSON.stringify(trace.detail)}`;
+          const label = document.createElement('strong');
+          label.textContent = `${trace.type}: ${trace.tool}`;
+          const detailJson = document.createElement('pre');
+          detailJson.textContent = JSON.stringify(trace.detail ?? null, null, 2);
+          item.append(label, detailJson);
           list.append(item);
         }
-        result.replaceChildren(heading, model, summary, guardHeading, guardResult, traceHeading, list);
+        content.push(traceHeading, list);
+        result.replaceChildren(...content);
         result.hidden = false;
       } catch (error) {
         const heading = document.createElement('h2');
