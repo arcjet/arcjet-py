@@ -351,7 +351,8 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
         ChatOpenAI(
             model=email.model,
             api_key=SecretStr(openai_api_key),
-            reasoning_effort="none",
+            reasoning_effort="medium",
+            use_responses_api=True,
         )
         if email.model == "gpt-5.6-sol"
         else ChatOpenAI(model=email.model, api_key=SecretStr(openai_api_key))
