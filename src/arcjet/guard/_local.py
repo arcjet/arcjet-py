@@ -152,7 +152,9 @@ def evaluate_sensitive_info_locally(
             # evaluator in ``arcjet._local``. The default WASM path returns
             # built-ins only, so it is left untouched.
             denied = _filter_recognized(denied, _accepted_types(allow, deny))
-        denied_types = [_detected_entity_type_str(e) for e in denied]
+        denied_types = list(
+            dict.fromkeys(_detected_entity_type_str(entity) for entity in denied)
+        )
     except Exception as exc:
         # A user-provided backend that raises would otherwise fail silently, so
         # surface it at error level in addition to returning the error result.

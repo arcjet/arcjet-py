@@ -1,16 +1,14 @@
 # On behalf of the wrong client
 
 This advanced FastAPI Guard policy demo uses a LangChain agent with two tools.
-`get_client_messages` is an unguarded read tool that returns a support thread
-containing an indirect prompt injection. `send_email` is wrapped with
-`guard_tool`, so Arcjet evaluates the model-selected recipient and body before
-the simulated email side effect can run.
+`get_client_record` is an unguarded read tool that returns the current actor's
+structured financial record. `send_email` is wrapped with `guard_tool`, so
+Arcjet evaluates the model-selected recipient and body before the simulated
+email side effect can run.
 
 The server owns the trusted mapping from the selected client to its actor ID,
-support thread, and allowed recipients. The browser submits only `client`.
-
-Client A does **not** allow `advisor-backup@gmail.com`; Client B does. Arcjet
-checks the AI-generated action before sending is simulated.
+record, and allowed recipients. The browser submits only `client` and
+`scenario`; it cannot supply an actor, record, or allow-list.
 
 ## Configure the Console policy
 
@@ -26,12 +24,14 @@ Create a Guard policy with label `email.sent` and these exact inputs:
 Require an actor, then add these rules:
 
 1. **Allowed-list membership**: require `recipient` to be a member of
-   `allowed_recipients` (start in **DRY_RUN**).
-2. **Prompt injection** on `incoming_message` (server execution, start in
-   **DRY_RUN**).
-3. **Sensitive info** on `body` (local SDK execution, start in **DRY_RUN**),
-   allowing Email address, Given name, and Surname while denying every other
-   detected entity type.
+   `allowed_recipients`.
+2. **Sensitive info** on `body` (local SDK execution), allowing `EMAIL`,
+   `GIVEN_NAME`, and `SURNAME` while denying every other detected entity type.
+3. **Prompt injection** on `incoming_message` (server execution).
+
+The example configures the Rampart sensitive-info backend. This activates the
+backend-only `SSN`, `BANK_ACCOUNT`, and `ROUTING_NUMBER` entity types used by
+the demo, in addition to the allowed entity types above.
 
 The policy's actor is the trusted client ID supplied by the server. Do not add
 an actor input or accept actor/allowed recipients from the browser. To use a
@@ -47,22 +47,24 @@ uv run --env-file .env.local fastapi dev --host 0.0.0.0
 ```
 
 Open <http://localhost:8000>. The plain browser form intentionally has no custom
-CSS or assets. Its trace shows the model reading the support thread, choosing
-`send_email`, and receiving either the tool result or Arcjet's denial.
+CSS or assets. Its trace shows the model fetching the client record, choosing
+`send_email`, and receiving the aggregate conclusion, every denying rule, and
+any detected sensitive-info entity types.
 
 ## Demo sequence
 
-1. Keep all three rules in **DRY_RUN** and select **Client A**. The model reads
-   the injected thread and autonomously calls `send_email` for
-   `advisor-backup@gmail.com`. The email is simulated as sent while the
-   would-have-blocked evidence is preserved.
-2. Change all three rules to **LIVE** and repeat Client A. The aggregate is now
-   `DENY`, so no simulated email is sent.
-3. Review the decision in the Console to show the trusted `client-a` actor and
-   evidence from each rule.
-4. To isolate the actor-dependent rule, keep membership **LIVE**, return the two
-   content rules to **DRY_RUN**, select **Client B**, and retry without changing
-   the recipient or application. Its trusted list includes the address, so the
-   simulated email is sent.
-5. Tighten either content rule to **LIVE** and repeat. The app changes behavior
-   without a deployment, and the evidence shows which live rule blocked it.
+Run each scenario for either client:
+
+- **Benign request** sends a PII-free acknowledgement to the client's own
+  allowed address.
+- **Wrong recipient** is denied only by membership for Client A, while the same
+  recipient is allowed for Client B.
+- **Sensitive information leak** uses the client's allowed address, isolating
+  the sensitive-info control when the model echoes account details.
+- **Layered defense** attempts an external recipient and account-data
+  exfiltration. Membership and sensitive-info provide deterministic backstops;
+  prompt-injection detection may add another denial reason.
+
+Keep all rules in **LIVE** for this matrix. Review each decision in the Console
+to show the trusted actor and per-rule evidence, then change and publish the
+policy to demonstrate enforcement without an application deployment.

@@ -110,6 +110,34 @@ class TestLocalSensitiveInfoEvaluation:
         assert result.conclusion == "DENY"
         assert "EMAIL" in result.detected_entity_types
 
+    def test_repeated_detections_have_unique_entity_types(self) -> None:
+        from arcjet._analyze import (
+            DetectedSensitiveInfoEntity,
+            SensitiveInfoEntityEmail,
+            SensitiveInfoResult,
+        )
+
+        detections = [
+            DetectedSensitiveInfoEntity(
+                start=start,
+                end=end,
+                identified_type=SensitiveInfoEntityEmail(),
+            )
+            for start, end in ((0, 17), (22, 40))
+        ]
+        mock_component = MagicMock()
+        mock_component.detect_sensitive_info.return_value = SensitiveInfoResult(
+            allowed=[], denied=detections
+        )
+        with patch("arcjet._local._get_component", return_value=mock_component):
+            result = evaluate_sensitive_info_locally(
+                "first@example.com and second@example.com", allow=(), deny=("EMAIL",)
+            )
+
+        assert isinstance(result, LocalSensitiveInfoResult)
+        assert result.detected_entity_types == ["EMAIL"]
+        assert len(result.detected_entities) == 2
+
     def test_passes_allow_config_to_wasm(self) -> None:
         from arcjet._analyze import SensitiveInfoEntitiesAllow, SensitiveInfoResult
 

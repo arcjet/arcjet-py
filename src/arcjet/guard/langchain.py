@@ -10,6 +10,7 @@ import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Literal, cast
 
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
 
@@ -69,6 +70,26 @@ def _check_decision(
         raise ArcjetToolDeniedError(action, decision)
     if decision.has_failed_open() and on_guard_error == "deny":
         raise ArcjetToolUnavailableError(action)
+
+
+def _handle_tool_exception(tool: BaseTool, error: ToolException, value: Any) -> Any:
+    handler = tool.handle_tool_error
+    if callable(handler):
+        content = handler(error)
+    elif isinstance(handler, str):
+        content = handler
+    elif handler:
+        content = error.args[0] if error.args else "Tool execution error"
+    else:
+        raise error
+    if isinstance(value, dict) and value.get("type") == "tool_call":
+        return ToolMessage(
+            content=cast(Any, content),
+            tool_call_id=str(value.get("id", "")),
+            name=tool.name,
+            status="error",
+        )
+    return content
 
 
 class _GuardedTool(BaseTool):
@@ -131,8 +152,8 @@ class _GuardedTool(BaseTool):
                 inputs=inputs,
             )
             _check_decision(decision, self._action, self._on_guard_error)
-        except ArcjetToolDeniedError:
-            raise
+        except ArcjetToolDeniedError as exc:
+            return _handle_tool_exception(self, exc, input)
         except Exception as exc:
             if self._on_guard_error == "deny":
                 raise ArcjetToolUnavailableError(self._action, cause=exc) from exc
@@ -155,8 +176,8 @@ class _GuardedTool(BaseTool):
                 inputs=inputs,
             )
             _check_decision(decision, self._action, self._on_guard_error)
-        except ArcjetToolDeniedError:
-            raise
+        except ArcjetToolDeniedError as exc:
+            return _handle_tool_exception(self, exc, input)
         except Exception as exc:
             if self._on_guard_error == "deny":
                 raise ArcjetToolUnavailableError(self._action, cause=exc) from exc

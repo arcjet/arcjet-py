@@ -104,6 +104,30 @@ def test_guard_tool_does_not_invoke_wrapped_tool_after_denial() -> None:
     assert calls == 0
 
 
+def test_guard_tool_uses_wrapped_tool_error_handler_after_denial() -> None:
+    calls = 0
+
+    def dangerous(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    tool = StructuredTool.from_function(
+        dangerous, name="dangerous", description="Dangerous action"
+    )
+    tool.handle_tool_error = lambda error: f"blocked: {type(error).__name__}"
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=tool,
+        action="dangerous.called",
+    )
+
+    assert wrapped.invoke(cast(Any, {"value": "no"})) == (
+        "blocked: ArcjetToolDeniedError"
+    )
+    assert calls == 0
+
+
 class _AsyncTransport:
     def __init__(self) -> None:
         self.request: pb.GuardRequest | None = None
