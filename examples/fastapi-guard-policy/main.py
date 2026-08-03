@@ -337,6 +337,7 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
                 try:
                     detail = json.loads(message.content)
                 except json.JSONDecodeError:
+                    # Tool errors may be plain text, which should remain unchanged.
                     pass
                 if isinstance(detail, dict):
                     guard_result = detail
