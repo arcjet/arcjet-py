@@ -98,9 +98,7 @@ def test_model_detects_formatted_phone_without_phone_recognizer():
 
     backend = rampart()
     ctx = SensitiveInfoBackendContext(log=logging.getLogger("test"))
-    entities = SensitiveInfoEntitiesDeny(
-        entities=[to_analyze_entity("PHONE_NUMBER")]
-    )
+    entities = SensitiveInfoEntitiesDeny(entities=[to_analyze_entity("PHONE_NUMBER")])
     text = "Call me at +1 (415) 555-2671."
     result = backend.detect(ctx, text, entities)
 
