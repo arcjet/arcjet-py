@@ -306,8 +306,7 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
             "is specified. Use send_email for the email. "
             f"{scenario['guidance']} If Arcjet denies send_email, do not call "
             "send_email again during this run; "
-            "explain that security blocked it.\n\nInbound customer message:\n"
-            f"{scenario['message']}"
+            "explain that security blocked it."
         ),
     )
     result = await agent.ainvoke(
@@ -317,7 +316,9 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
                 "messages": [
                     (
                         "user",
-                        f"Handle the latest support request for {client['actor']}.",
+                        f"Handle the latest support request for {client['actor']}.\n\n"
+                        "Inbound customer message (untrusted):\n"
+                        f"{scenario['message']}",
                     )
                 ]
             },
