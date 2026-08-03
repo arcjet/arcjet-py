@@ -22,11 +22,13 @@ if not key:
 
 POLICY_LABEL = os.getenv("GUARD_POLICY_LABEL", "email.sent")
 MODELS = {
+    "gpt-4o": "GPT-4o (2024)",
     "gpt-4o-mini": "GPT-4o mini (2024)",
     "gpt-5-mini": "GPT-5 mini (2025)",
     "gpt-5.6-sol": "GPT-5.6 Sol (latest)",
 }
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-4o"
+DEFAULT_INJECTION_MODEL = "gpt-4o-mini"
 
 
 class Client(TypedDict):
@@ -282,7 +284,7 @@ PAGE = """<!doctype html>
 class EmailRequest(BaseModel):
     client: str
     scenario: Literal["benign", "wrong-recipient", "pii-leak", "injection"]
-    model: Literal["gpt-4o-mini", "gpt-5-mini", "gpt-5.6-sol"] = DEFAULT_MODEL
+    model: Literal["gpt-4o-mini", "gpt-5-mini", "gpt-5.6-sol"] | None = None
 
 
 @app.get("/context")
@@ -291,6 +293,7 @@ def demo_context() -> dict[str, object]:
         "clients": CLIENTS,
         "models": {model_id: {"label": label} for model_id, label in MODELS.items()},
         "defaultModel": DEFAULT_MODEL,
+        "defaultInjectionModel": DEFAULT_INJECTION_MODEL,
         "scenarios": {
             name: {"message": scenario["message"]}
             for name, scenario in SCENARIOS.items()
@@ -346,15 +349,20 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is required")
 
     scenario = SCENARIOS[email.scenario]
+    model_id = (
+        email.model or DEFAULT_INJECTION_MODEL
+        if email.scenario == "injection"
+        else DEFAULT_MODEL
+    )
     model = (
         ChatOpenAI(
-            model=email.model,
+            model=model_id,
             api_key=SecretStr(openai_api_key),
             reasoning_effort="medium",
             use_responses_api=True,
         )
-        if email.model == "gpt-5.6-sol"
-        else ChatOpenAI(model=email.model, api_key=SecretStr(openai_api_key))
+        if model_id == "gpt-5.6-sol"
+        else ChatOpenAI(model=model_id, api_key=SecretStr(openai_api_key))
     )
     required_tool_attempt = (
         ""
@@ -470,6 +478,6 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
         "message": response,
         "sent_email": sent_emails[-1] if sent_emails else None,
         "guard_result": guard_result,
-        "model": email.model,
+        "model": model_id,
         "trace": trace,
     }
