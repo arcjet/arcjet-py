@@ -48,6 +48,7 @@ CLIENTS: dict[str, Client] = {
             "ssn": "431-55-9928",
             "bank_account": "0123456789",
             "routing_number": "022000020",
+            "next_portfolio_review": "2026-09-15",
         },
     },
     "client-b": {
@@ -63,6 +64,7 @@ CLIENTS: dict[str, Client] = {
             "ssn": "623-84-1157",
             "bank_account": "111222333",
             "routing_number": "074000010",
+            "next_portfolio_review": "2026-10-07",
         },
     },
 }
@@ -210,9 +212,6 @@ PAGE = """<!doctype html>
       clientRecord.textContent = JSON.stringify({
         client_id: client.actor,
         record: client.record,
-        details_on_file: `Details on file: ${Object.entries(client.record)
-          .map(([field, value]) => `${field}: ${value}`)
-          .join('; ')}`,
       }, null, 2);
       allowedRecipients.textContent = JSON.stringify(client.allowed_recipients, null, 2);
     }
@@ -370,13 +369,9 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
         """Get the financial details on file for the current client."""
         if client_id != client["actor"]:
             return {"error": "This run cannot access a different client's record."}
-        details = "; ".join(
-            f"{field}: {value}" for field, value in client["record"].items()
-        )
         return {
             "client_id": client_id,
             "record": client["record"],
-            "details_on_file": f"Details on file: {details}",
         }
 
     @tool
