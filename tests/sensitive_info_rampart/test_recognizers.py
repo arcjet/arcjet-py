@@ -200,5 +200,6 @@ class TestRunRecognizers:
         assert run_recognizers("alice@example.com", []) == []
 
     def test_default_recognizers_order(self):
-        # Credit card is checked before phone so it wins ties on the same text.
         assert default_recognizers[0] is credit_card_recognizer
+        assert phone_recognizer not in default_recognizers
+        assert run_recognizers("bank account 0123456789") == []

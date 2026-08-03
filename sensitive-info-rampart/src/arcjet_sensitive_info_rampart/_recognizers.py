@@ -345,17 +345,15 @@ def credit_card_recognizer(value: str) -> list[DetectedSpan]:
     return result
 
 
-# The default set of deterministic recognizers, ordered most-specific first.
-# Overlap resolution happens later in the backend (longer spans win; equal-length
-# ties keep the earlier-listed recognizer), so this order only breaks ties — for
-# example a Luhn-valid card over the looser phone matcher on the same text.
+# Phone numbers are intentionally left to the NER model because their digit
+# shape overlaps with bank accounts, routing numbers, and other identifiers. A
+# pattern cannot validate which semantic type the digits represent.
 default_recognizers: tuple[Recognizer, ...] = (
     credit_card_recognizer,
     ssn_recognizer,
     email_recognizer,
     url_recognizer,
     ip_address_recognizer,
-    phone_recognizer,
 )
 
 
