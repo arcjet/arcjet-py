@@ -79,7 +79,7 @@ def _handle_tool_exception(tool: BaseTool, error: ToolException, value: Any) -> 
     elif handler is True:
         content = error.args[0] if error.args else "Tool execution error"
     elif callable(handler):
-        content = handler(error)
+        content = cast(Callable[[ToolException], str], handler)(error)
     else:
         raise error
     if isinstance(value, dict) and value.get("type") == "tool_call":
