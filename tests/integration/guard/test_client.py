@@ -26,6 +26,7 @@ from arcjet.guard import (
     TokenBucket,
     launch_arcjet,
     launch_arcjet_sync,
+    server_input,
 )
 from arcjet.guard._client import _auth_headers, _build_request, _make_error_decision
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -432,12 +433,16 @@ class TestArcjetGuardSync:
     def test_empty_rules_reaches_server(self) -> None:
         client = FakeSyncClient()
         guard = _make_guard_sync(client)
-        decision = guard.guard([], label="test")
+        decision = guard.guard(
+            [], label="policy-only", inputs={"tenant": server_input.string("acme")}
+        )
         assert decision.conclusion == "ALLOW"
         assert decision.id == "gdec_test"
         assert not decision.has_failed_open()
         assert client.last_request is not None
         assert list(client.last_request.rule_submissions) == []
+        assert client.last_request.label == "policy-only"
+        assert client.last_request.policy_inputs["tenant"].server.string_value == "acme"
 
 
 class TestArcjetGuardAsync:

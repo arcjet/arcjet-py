@@ -83,6 +83,24 @@ def test_guard_tool_maps_parsed_arguments_and_trusted_config_before_delegating()
     )
 
 
+def test_guard_tool_uses_public_schema_validation_and_defaults() -> None:
+    transport = _Transport()
+
+    def greet(name: str, punctuation: str = "!") -> str:
+        return f"Hello {name}{punctuation}"
+
+    seen: list[dict[str, Any]] = []
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(greet, description="Greet someone"),
+        action="greet.called",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    assert wrapped.invoke(cast(Any, {"name": "Ada"})) == "Hello Ada!"
+    assert seen == [{"name": "Ada", "punctuation": "!"}]
+
+
 def test_guard_tool_does_not_invoke_wrapped_tool_after_denial() -> None:
     calls = 0
 

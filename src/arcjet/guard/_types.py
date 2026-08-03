@@ -388,6 +388,7 @@ class RuleResultUnknown:
     """Discriminant — always ``"UNKNOWN"``."""
 
     warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings. Informational; never changes the conclusion."""
 
 
 @dataclass(frozen=True, slots=True)

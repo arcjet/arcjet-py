@@ -242,6 +242,8 @@ class SyncRemotePolicyRuntime:
 
 
 class AsyncRemotePolicyRuntime:
+    """Cache remote policy projections for one async client/event-loop context."""
+
     def __init__(
         self,
         fetch: Callable[[str], Awaitable[pb.GetGuardPolicyResponse | None]],

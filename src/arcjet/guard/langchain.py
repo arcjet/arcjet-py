@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
+from pydantic import BaseModel
 
 from ._client import ArcjetGuard, ArcjetGuardSync
 from ._policy_input import PolicyInputMap
@@ -52,15 +53,22 @@ class ArcjetToolUnavailableError(ToolException):
 
 
 def _arguments(tool: BaseTool, value: Any) -> Mapping[str, Any]:
-    tool_call_id: str | None = None
     raw = value
     if isinstance(value, dict) and value.get("type") == "tool_call":
-        tool_call_id = cast(str | None, value.get("id"))
         raw = value.get("args", {})
-    parsed = tool._parse_input(raw, tool_call_id)  # noqa: SLF001
-    if isinstance(parsed, dict):
-        return parsed
-    return {"input": parsed}
+    schema = tool.tool_call_schema
+    if isinstance(schema, type) and issubclass(schema, BaseModel):
+        if isinstance(raw, str):
+            fields = schema.model_fields
+            if len(fields) != 1:
+                raise ValueError("String tool input requires a single-field schema")
+            raw = {next(iter(fields)): raw}
+        if not isinstance(raw, dict):
+            raise TypeError("Tool input must be a string or mapping")
+        return schema.model_validate(raw).model_dump()
+    if isinstance(raw, dict):
+        return raw
+    return {"input": raw}
 
 
 def _check_decision(

@@ -934,8 +934,9 @@ decision = await aj.guard(
 print(decision.policy_evaluation, decision.policy_results)
 ```
 
-Rules are optional; omitting them still calls Guard so a remote policy can
-protect the action.
+Rules are optional. Passing no rules (or ``rules=[]``) still calls Guard and
+sends the label, actor, and policy inputs, so a remotely configured policy can
+protect the action. An empty rules list does not mean “allow without checking.”
 
 ### LangChain tool checkpoints
 
@@ -1173,8 +1174,10 @@ for result in decision.results:
 
 | Parameter   | Type                      | Description |
 | ----------- | ------------------------- | ----------- |
-| `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
+| `rules`     | `Sequence[RuleWithInput]` | Bound SDK rule inputs (optional; defaults to empty for policy-only calls) |
 | `label`     | `str`                     | Label identifying this guard call (required) |
+| `actor`     | `str \| None`             | Actor used by remote policy selection/evaluation |
+| `inputs`    | `PolicyInputMap \| None`  | Typed server-visible or local remote-policy inputs |
 | `metadata`  | `Metadata \| None`        | Structured metadata — see [Metadata](#metadata) |
 | `correlation_id` | `str \| None`       | Opaque id correlating this call with other `guard()`/`protect()` calls |
 

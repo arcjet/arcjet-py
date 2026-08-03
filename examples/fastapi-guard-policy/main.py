@@ -378,7 +378,7 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
 
     scenario = SCENARIOS[email.scenario]
     model_id = (
-        email.model or DEFAULT_INJECTION_MODEL
+        (email.model or DEFAULT_INJECTION_MODEL)
         if email.scenario == "injection"
         else DEFAULT_MODEL
     )
