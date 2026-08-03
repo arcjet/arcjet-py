@@ -29,9 +29,13 @@ Require an actor, then add these rules:
    `GIVEN_NAME`, and `SURNAME` while denying every other detected entity type.
 3. **Prompt injection** on `incoming_message` (server execution).
 
-The example configures the Rampart sensitive-info backend. This activates the
-backend-only `SSN`, `BANK_ACCOUNT`, and `ROUTING_NUMBER` entity types used by
-the demo, in addition to the allowed entity types above.
+The example configures the Rampart sensitive-info backend. The demo record uses
+public sandbox bank values in a context-rich details-on-file response so the
+model identifies `BANK_ACCOUNT` and `ROUTING_NUMBER`; the `SSN` recognizer
+provides an additional deterministic backstop. The values come from the
+[Worldpay](https://docs.worldpay.com/apis/payrix/dev-int-guide/initial-setup/testing/test-cards-and-accounts)
+and [BILL](https://developer.bill.com/docs/sandbox-bank-account-setup) sandbox
+documentation.
 
 The policy's actor is the trusted client ID supplied by the server. Do not add
 an actor input or accept actor/allowed recipients from the browser. To use a
