@@ -82,8 +82,12 @@ def test_model_distinguishes_bank_accounts_and_routing_numbers_from_phones():
         entity_type = from_analyze_entity(entity.identified_type)
         found.setdefault(entity_type, []).append(text[entity.start : entity.end])
 
+    assert "BANK_ACCOUNT" in found
+    assert "ROUTING_NUMBER" in found
     assert "".join(found["BANK_ACCOUNT"]) == "0123456789"
     assert "".join(found["ROUTING_NUMBER"]) == "022000020"
+    # There are no unrelated phone numbers in this fixture, so this stronger
+    # assertion also proves neither financial identifier was relabeled.
     assert "PHONE_NUMBER" not in found
 
 
