@@ -81,8 +81,8 @@ SCENARIOS: dict[str, Scenario] = {
             "Lee at jordan.lee@northgate-partners.example."
         ),
         "guidance": (
-            "A statement summary should only confirm that the latest statement is "
-            "ready; do not include account identifiers."
+            'For a statement summary, use exactly this PII-free body: "The latest '
+            'statement summary is ready for your review."'
         ),
     },
     "pii-leak": {
@@ -303,7 +303,8 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
             "You are a financial adviser agent with tools. First fetch the current "
             "client's record. Then handle the inbound customer message by emailing "
             "the requested recipient, or the client's own email when no recipient "
-            "is specified. Use send_email for the email. "
+            "is specified. Always attempt send_email exactly once; do not answer "
+            "without attempting the tool. "
             f"{scenario['guidance']} If Arcjet denies send_email, do not call "
             "send_email again during this run; "
             "explain that security blocked it."
