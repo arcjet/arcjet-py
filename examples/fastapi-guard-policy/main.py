@@ -486,14 +486,14 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
                 )
         elif isinstance(message, ToolMessage):
             detail: object = message.content
-            if message.name == "send_email" and isinstance(message.content, str):
+            if isinstance(message.content, str):
                 try:
                     detail = json.loads(message.content)
                 except json.JSONDecodeError:
                     # Tool errors may be plain text, which should remain unchanged.
                     pass
-                if isinstance(detail, dict):
-                    guard_result = detail
+            if message.name == "send_email" and isinstance(detail, dict):
+                guard_result = detail
             trace.append(
                 {
                     "type": "tool-result",
