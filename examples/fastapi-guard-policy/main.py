@@ -21,6 +21,12 @@ if not key:
     raise RuntimeError("ARCJET_KEY is required")
 
 POLICY_LABEL = os.getenv("GUARD_POLICY_LABEL", "email.sent")
+MODELS = {
+    "gpt-4o-mini": "GPT-4o mini (2024)",
+    "gpt-5-mini": "GPT-5 mini (2025)",
+    "gpt-5.6-sol": "GPT-5.6 Sol (latest)",
+}
+DEFAULT_MODEL = "gpt-4o-mini"
 
 
 class Client(TypedDict):
@@ -110,11 +116,6 @@ guard = launch_arcjet(
 
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
-model = (
-    ChatOpenAI(model="gpt-4o-mini", api_key=SecretStr(openai_api_key))
-    if openai_api_key
-    else None
-)
 
 PAGE = """<!doctype html>
 <html lang="en">
@@ -172,6 +173,11 @@ PAGE = """<!doctype html>
         <option value="pii-leak">Sensitive information leak</option>
         <option value="injection">Layered defense</option>
       </select></label></p>
+      <p id="model-field" hidden><label>Model<br><select name="model">
+        <option value="gpt-4o-mini">GPT-4o mini (2024)</option>
+        <option value="gpt-5-mini">GPT-5 mini (2025)</option>
+        <option value="gpt-5.6-sol">GPT-5.6 Sol (latest)</option>
+      </select></label></p>
       <section id="scenario-details" aria-live="polite">
         <h2>Run context</h2>
         <h3>Inbound customer message (untrusted)</h3>
@@ -191,6 +197,7 @@ PAGE = """<!doctype html>
     const inboundMessage = document.querySelector('#inbound-message');
     const clientRecord = document.querySelector('#client-record');
     const allowedRecipients = document.querySelector('#allowed-recipients');
+    const modelField = document.querySelector('#model-field');
     let demoContext;
 
     function showScenarioDetails() {
@@ -198,6 +205,7 @@ PAGE = """<!doctype html>
       const fields = new FormData(form);
       const client = demoContext.clients[fields.get('client')];
       const scenario = demoContext.scenarios[fields.get('scenario')];
+      modelField.hidden = fields.get('scenario') !== 'injection';
       inboundMessage.textContent = scenario.message;
       clientRecord.textContent = JSON.stringify({
         client_id: client.actor,
@@ -230,12 +238,15 @@ PAGE = """<!doctype html>
           body: JSON.stringify({
             client: fields.get('client'),
             scenario: fields.get('scenario'),
+            model: fields.get('model'),
           }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || 'Request failed');
         const heading = document.createElement('h2');
         heading.textContent = data.sent_email ? 'Email sent (simulated)' : 'No email sent';
+        const model = document.createElement('p');
+        model.textContent = `Model: ${demoContext?.models[data.model]?.label || data.model}`;
         const summary = document.createElement('p');
         summary.textContent = data.message || 'The agent did not return a response.';
         const guardHeading = document.createElement('h3');
@@ -250,7 +261,7 @@ PAGE = """<!doctype html>
           item.textContent = `${trace.type}: ${trace.tool} ${JSON.stringify(trace.detail)}`;
           list.append(item);
         }
-        result.replaceChildren(heading, summary, guardHeading, guardResult, traceHeading, list);
+        result.replaceChildren(heading, model, summary, guardHeading, guardResult, traceHeading, list);
         result.hidden = false;
       } catch (error) {
         const heading = document.createElement('h2');
@@ -272,12 +283,15 @@ PAGE = """<!doctype html>
 class EmailRequest(BaseModel):
     client: str
     scenario: Literal["benign", "wrong-recipient", "pii-leak", "injection"]
+    model: Literal["gpt-4o-mini", "gpt-5-mini", "gpt-5.6-sol"] = DEFAULT_MODEL
 
 
 @app.get("/context")
 def demo_context() -> dict[str, object]:
     return {
         "clients": CLIENTS,
+        "models": {model_id: {"label": label} for model_id, label in MODELS.items()},
+        "defaultModel": DEFAULT_MODEL,
         "scenarios": {
             name: {"message": scenario["message"]}
             for name, scenario in SCENARIOS.items()
@@ -329,10 +343,25 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
     client = CLIENTS.get(email.client)
     if client is None:
         raise HTTPException(status_code=400, detail="Unknown client")
-    if model is None:
+    if openai_api_key is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is required")
 
     scenario = SCENARIOS[email.scenario]
+    model = (
+        ChatOpenAI(
+            model=email.model,
+            api_key=SecretStr(openai_api_key),
+            reasoning_effort="none",
+        )
+        if email.model == "gpt-5.6-sol"
+        else ChatOpenAI(model=email.model, api_key=SecretStr(openai_api_key))
+    )
+    required_tool_attempt = (
+        ""
+        if email.scenario == "injection"
+        else "Always attempt send_email exactly once; do not answer without attempting "
+        "the tool. "
+    )
     sent_emails: list[dict[str, str]] = []
 
     @tool
@@ -386,8 +415,7 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
             "You are a financial adviser agent with tools. First fetch the current "
             "client's record. Then handle the inbound customer message by emailing "
             "the requested recipient, or the client's own email when no recipient "
-            "is specified. Always attempt send_email exactly once; do not answer "
-            "without attempting the tool. "
+            f"is specified. {required_tool_attempt}"
             f"{scenario['guidance']} If Arcjet denies send_email, do not call "
             "send_email again during this run; "
             "explain that security blocked it."
@@ -446,5 +474,6 @@ async def handle_support_request(email: EmailRequest) -> dict[str, object]:
         "message": response,
         "sent_email": sent_emails[-1] if sent_emails else None,
         "guard_result": guard_result,
+        "model": email.model,
         "trace": trace,
     }
