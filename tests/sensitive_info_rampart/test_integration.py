@@ -53,6 +53,64 @@ def test_model_detects_name_and_email():
     assert denied & {"GIVEN_NAME", "SURNAME"}
 
 
+def test_model_distinguishes_bank_accounts_and_routing_numbers_from_phones():
+    import logging
+
+    from arcjet_sensitive_info_rampart import rampart, rampart_entities
+    from arcjet_sensitive_info_rampart._entities import (
+        from_analyze_entity,
+        to_analyze_entity,
+    )
+
+    from arcjet._analyze import SensitiveInfoEntitiesDeny
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    backend = rampart()
+    ctx = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    entities = SensitiveInfoEntitiesDeny(
+        entities=[to_analyze_entity(entity) for entity in rampart_entities]
+    )
+    text = (
+        "Details on file: name: Alex Morgan; "
+        "email: alex.morgan@client-corp.example; ssn: 431-55-9928; "
+        "bank_account: 0123456789; routing_number: 022000020"
+    )
+    result = backend.detect(ctx, text, entities)
+
+    found: dict[str, list[str]] = {}
+    for entity in result.denied:
+        entity_type = from_analyze_entity(entity.identified_type)
+        found.setdefault(entity_type, []).append(text[entity.start : entity.end])
+
+    assert "BANK_ACCOUNT" in found
+    assert "ROUTING_NUMBER" in found
+    assert "".join(found["BANK_ACCOUNT"]) == "0123456789"
+    assert "".join(found["ROUTING_NUMBER"]) == "022000020"
+    # There are no unrelated phone numbers in this fixture, so this stronger
+    # assertion also proves neither financial identifier was relabeled.
+    assert "PHONE_NUMBER" not in found
+
+
+def test_model_detects_formatted_phone_without_phone_recognizer():
+    import logging
+
+    from arcjet_sensitive_info_rampart import rampart
+    from arcjet_sensitive_info_rampart._entities import to_analyze_entity
+
+    from arcjet._analyze import SensitiveInfoEntitiesDeny
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    backend = rampart()
+    ctx = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    entities = SensitiveInfoEntitiesDeny(entities=[to_analyze_entity("PHONE_NUMBER")])
+    text = "Call me at +1 (415) 555-2671."
+    result = backend.detect(ctx, text, entities)
+
+    assert any(
+        "555-2671" in text[entity.start : entity.end] for entity in result.denied
+    )
+
+
 def test_full_core_evaluation_path():
     from arcjet_sensitive_info_rampart import rampart
 

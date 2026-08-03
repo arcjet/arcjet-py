@@ -107,8 +107,10 @@ class RampartOptions:
     recognizers: Optional[Sequence[Recognizer]] = None
     """Deterministic recognizers to run alongside the model (default:
     :data:`~arcjet_sensitive_info_rampart._recognizers.default_recognizers`).
-    These handle structured, validatable types and are the supported extension
-    point for custom detection. Pass ``()`` to rely on the model alone."""
+    These handle structured, validatable types other than phone numbers, whose
+    digit shape overlaps with financial and government identifiers. They are
+    the supported extension point for custom detection. Pass ``()`` to rely on
+    the model alone."""
 
     run_model: Optional[ModelRunner] = None
     """Override the model runner. Intended for testing — supply a function that
@@ -246,8 +248,8 @@ def rampart(options: RampartOptions = RampartOptions()) -> SensitiveInfoBackend:
     ``BANK_ACCOUNT``, ``ROUTING_NUMBER``, ``GOVERNMENT_ID``, ``PASSPORT``,
     ``DRIVERS_LICENSE``, ``BUILDING_NUMBER``, ``STREET_NAME``,
     ``SECONDARY_ADDRESS``, ``CITY``, ``STATE``, ``ZIP_CODE``. Detected by
-    deterministic recognizers: ``EMAIL``, ``URL``, ``IP_ADDRESS``,
-    ``PHONE_NUMBER``, ``SSN``, ``CREDIT_CARD_NUMBER``.
+    deterministic recognizers: ``EMAIL``, ``URL``, ``IP_ADDRESS``, ``SSN``,
+    ``CREDIT_CARD_NUMBER``.
 
     The token-based ``detect`` callback of the ``detect_sensitive_info`` rule is
     **not** used by this backend (the model works on spans, not tokens). Use the
