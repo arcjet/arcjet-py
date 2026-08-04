@@ -141,6 +141,8 @@ def _local_results(
         )
         if isinstance(evaluated, LocalSensitiveInfoResult):
             result.duration_ms = evaluated.elapsed_ms
+            # The wire contract reports denied findings only; allowed detections
+            # are intentionally omitted by the local evaluator.
             result.local_sensitive_info.CopyFrom(
                 pb.ResultLocalSensitiveInfo(
                     conclusion=(

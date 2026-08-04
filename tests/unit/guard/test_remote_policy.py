@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pytest
 
+from arcjet._analyze import (
+    DetectedSensitiveInfoEntity,
+    SensitiveInfoEntities,
+    SensitiveInfoEntityEmail,
+    SensitiveInfoResult,
+)
+from arcjet._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
+)
 from arcjet.guard import _remote_policy as remote_policy
 from arcjet.guard import local_input
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -16,6 +28,58 @@ def _available(revision: str) -> pb.GetGuardPolicyResponse:
             policy_id="policy-1", revision=revision, label="test"
         ),
     )
+
+
+def test_local_sensitive_info_result_reports_denied_findings_only() -> None:
+    finding = DetectedSensitiveInfoEntity(
+        start=0, end=19, identified_type=SensitiveInfoEntityEmail()
+    )
+
+    class Backend:
+        def detect(
+            self,
+            _context: SensitiveInfoBackendContext,
+            _value: str,
+            _entities: SensitiveInfoEntities,
+            _options: SensitiveInfoBackendOptions | None = None,
+        ) -> SensitiveInfoResult:
+            if _value.startswith("allowed"):
+                return SensitiveInfoResult(allowed=[finding], denied=[])
+            return SensitiveInfoResult(allowed=[], denied=[finding])
+
+    response = _available("one")
+    response.policy.sensitive_info_rules.add(
+        rule_id="rule-1",
+        input_name="value",
+        entities_allow=pb.EntityList(entities=["EMAIL"]),
+    )
+    runtime = remote_policy.SyncRemotePolicyRuntime(
+        lambda _label: response,
+        sensitive_info_backend=cast(SensitiveInfoBackend, Backend()),
+    )
+
+    prepared = runtime.prepare(
+        "test", {"value": local_input.string("allowed@example.com")}
+    )
+
+    assert len(prepared.results) == 1
+    sensitive_info = prepared.results[0].local_sensitive_info
+    assert sensitive_info.conclusion == pb.GUARD_CONCLUSION_ALLOW
+    assert not sensitive_info.detected
+    assert list(sensitive_info.detected_entity_types) == []
+    assert list(sensitive_info.detected_entities) == []
+
+    denied = (
+        runtime.prepare("test", {"value": local_input.string("denied@example.com")})
+        .results[0]
+        .local_sensitive_info
+    )
+    assert denied.conclusion == pb.GUARD_CONCLUSION_DENY
+    assert denied.detected
+    assert list(denied.detected_entity_types) == ["EMAIL"]
+    assert [
+        (entity.type, entity.start, entity.end) for entity in denied.detected_entities
+    ] == [("EMAIL", 0, 19)]
 
 
 def test_sync_projection_refreshes_every_five_minutes_and_survives_failures(
