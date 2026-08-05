@@ -283,6 +283,7 @@ class ThreatIntelligence:
     entity_name: str | None
     service: str | None
     background_noise: int
+    """Raw background-noise value reported by the service."""
 
 
 @dataclass(frozen=True, slots=True)
