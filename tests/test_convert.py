@@ -445,7 +445,6 @@ def test_converting_ip_threat_intelligence() -> None:
         entities=("threat_actor",),
         entity_name="Example actor",
         service="Example VPN",
-        background_noise=42,
     )
 
 
@@ -479,7 +478,6 @@ def test_converting_present_empty_ip_threat_intelligence() -> None:
         entities=(),
         entity_name=None,
         service=None,
-        background_noise=0,
     )
 
 

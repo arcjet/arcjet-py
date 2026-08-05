@@ -164,7 +164,6 @@ def _ip_details_from_proto(proto: decide_pb2.IpDetails | None) -> IpDetails | No
             entities=tuple(threat_data.get("entities", ())),
             entity_name=threat_data.get("entity_name"),
             service=threat_data.get("service"),
-            background_noise=threat_data.get("background_noise", 0),
         )
 
     return IpDetails(
