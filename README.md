@@ -751,16 +751,23 @@ if ip:
     print(ip.asn, ip.asn_name)        # ASN / network
     print(ip.is_vpn, ip.is_hosting)   # reputation
     if ip.threat:                     # optional threat intelligence
-        print(ip.threat.risk_level, ip.threat.activities)
+        threat = ip.threat
+        print(threat.risk_level, threat.confidence, threat.reputation)
+        print(threat.is_safe, threat.network_types, threat.activities)
+        print(threat.entities, threat.entity_name, threat.service)
+        print(threat.background_noise)
 ```
 
 Available fields include geolocation (`latitude`, `longitude`, `city`,
 `region`, `country`, `continent`), network (`asn`, `asn_name`, `asn_domain`,
 `asn_type`, `asn_country`), and reputation (`is_vpn`, `is_proxy`, `is_tor`,
-`is_hosting`, `is_relay`).
+`is_hosting`, `is_relay`). Threat intelligence provides `risk_level`,
+`confidence`, `reputation`, `is_safe`, `network_types`, `activities`,
+`entities`, `entity_name`, `service`, and `background_noise`.
 
 `decision.ip_details` and its `threat` field are optional because metadata or
-threat intelligence may not be available for every IP.
+threat intelligence may not be available for every IP. `background_noise` is
+the raw value reported by the service.
 
 ## LangChain example
 
