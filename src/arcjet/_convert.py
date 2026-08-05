@@ -19,6 +19,7 @@ from ._dataclasses import (
     Reason,
     SensitiveInfoReason,
     ShieldReason,
+    ThreatIntelligence,
 )
 
 
@@ -150,6 +151,20 @@ def _ip_details_from_proto(proto: decide_pb2.IpDetails | None) -> IpDetails | No
         proto,
         preserving_proto_field_name=True,
     )
+    threat_data = data.get("threat")
+    threat = None
+    if threat_data is not None:
+        threat = ThreatIntelligence(
+            risk_level=threat_data.get("risk_level", ""),
+            confidence=threat_data.get("confidence", ""),
+            reputation=threat_data.get("reputation", ""),
+            is_safe=threat_data.get("is_safe", False),
+            network_types=tuple(threat_data.get("network_types", ())),
+            activities=tuple(threat_data.get("activities", ())),
+            entities=tuple(threat_data.get("entities", ())),
+            entity_name=threat_data.get("entity_name"),
+            service=threat_data.get("service"),
+        )
 
     return IpDetails(
         latitude=data.get("latitude"),
@@ -175,4 +190,5 @@ def _ip_details_from_proto(proto: decide_pb2.IpDetails | None) -> IpDetails | No
         is_tor=data.get("is_tor"),
         is_relay=data.get("is_relay"),
         is_abuser=data.get("is_abuser"),
+        threat=threat,
     )

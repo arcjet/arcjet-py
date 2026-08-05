@@ -44,7 +44,7 @@ jobs:
         continue-on-error: ${{ contains(github.event.pull_request.labels.*.name, 'breaking') }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: uv run griffe check arcjet --search src --format github --against "origin/${BASE_REF}"
+        run: uv run griffe check arcjet --search src --extensions tools/griffe_extensions.py:IgnoreProtobufDescriptors --format github --against "origin/${BASE_REF}"
 
 
   test:
