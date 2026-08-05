@@ -20,16 +20,6 @@ A module global is visible from every thread and every event loop, which is what
 "register once at startup, call from anywhere" has to mean.  ``ContextVar`` is
 still the right answer for *ambient correlation context*, which is a different
 problem and deliberately out of scope.
-
-Why there is no version check
------------------------------
-
-The JavaScript SDK stamps its registration with an SDK version because its slot
-lives on a realm-wide ``Symbol.for`` key that every copy of the package shares,
-so one copy can read a record another version wrote.  Python has no equivalent
-exposure: the import cache gives exactly one module object per name, and a
-vendored second copy is a *different* module with its own global that cannot see
-this one.  There is no cross-version read to guard against.
 """
 
 from __future__ import annotations
@@ -42,7 +32,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, Union
 from arcjet._metadata import Metadata
 
 from ._client import ArcjetGuard, ArcjetGuardSync, _make_error_decision
-from ._diagnostics import CLIENT_ALREADY_REGISTERED, CLIENT_FLAVOUR_MISMATCH
+from ._diagnostics import CLIENT_ALREADY_REGISTERED, CLIENT_FLAVOR_MISMATCH
 from ._rules import RuleWithInput
 from ._types import Decision
 
@@ -58,7 +48,7 @@ __all__ = [
 ]
 
 AnyArcjetGuard = Union[ArcjetGuard, ArcjetGuardSync]
-"""Either client flavour.  Registration accepts both; the free calls do not."""
+"""Either client flavor.  Registration accepts both; the free calls do not."""
 
 _registered: Optional[AnyArcjetGuard] = None
 
@@ -223,7 +213,7 @@ async def guard(
             correlation_id=correlation_id,
         )
 
-    _diagnose_flavour_mismatch(client)
+    _diagnose_flavor_mismatch(client)
     return _make_error_decision(
         "guard() was called with no registered async Arcjet client"
     )
@@ -253,7 +243,7 @@ def guard_sync(
             correlation_id=correlation_id,
         )
 
-    _diagnose_flavour_mismatch(client)
+    _diagnose_flavor_mismatch(client)
     return _make_error_decision(
         "guard_sync() was called with no registered sync Arcjet client"
     )
@@ -270,7 +260,7 @@ def capture(
     """Record a fact about what the application did, through the registered
     client.
 
-    One function for both client flavours, because ``capture()`` queues and
+    One function for both client flavors, because ``capture()`` queues and
     returns on each of them — it does no I/O on the caller's path, so there is
     nothing to await and nothing to block.
 
@@ -315,7 +305,7 @@ async def flush(timeout_ms: Optional[int] = None) -> None:
         await method(timeout_ms)
         return
 
-    _diagnose_flavour_mismatch(client)
+    _diagnose_flavor_mismatch(client)
 
 
 def flush_sync(timeout_ms: Optional[int] = None) -> None:
@@ -330,7 +320,7 @@ def flush_sync(timeout_ms: Optional[int] = None) -> None:
         method(timeout_ms)
         return
 
-    _diagnose_flavour_mismatch(client)
+    _diagnose_flavor_mismatch(client)
 
 
 def _awaitable(
@@ -340,7 +330,7 @@ def _awaitable(
 
     Dispatch is on whether the method is a coroutine function rather than on
     ``isinstance`` of the two concrete client classes.  That is what Python
-    actually means by "is this the async flavour", and it keeps registration
+    actually means by "is this the async flavor", and it keeps registration
     structural: the in-memory test client and any hand-rolled double satisfy the
     free calls without subclassing anything.
     """
@@ -355,7 +345,7 @@ def _blocking(
 
     Tries *preferred* — the explicitly sync name — before *fallback*, because
     ``ArcjetGuardSync`` spells its blocking method ``guard``/``flush`` while a
-    double offering both flavours spells them ``guard_sync``/``flush_sync``.
+    double offering both flavors spells them ``guard_sync``/``flush_sync``.
     Either way an awaitable is rejected: this caller cannot await it.
     """
     for name in (preferred, fallback):
@@ -365,16 +355,16 @@ def _blocking(
     return None
 
 
-def _diagnose_flavour_mismatch(client: Optional[AnyArcjetGuard]) -> None:
-    """Report a call that found the other flavour of client registered.
+def _diagnose_flavor_mismatch(client: Optional[AnyArcjetGuard]) -> None:
+    """Report a call that found the other flavor of client registered.
 
     Only when something *is* registered.  Nothing registered is the ordinary
     unconfigured case and stays silent; a registered client of the wrong
-    flavour is a wiring mistake worth a line, and there is a configured logger
+    flavor is a wiring mistake worth a line, and there is a configured logger
     on it to put that line on.
     """
     if client is not None:
-        _diagnose(client, CLIENT_FLAVOUR_MISMATCH)
+        _diagnose(client, CLIENT_FLAVOR_MISMATCH)
 
 
 def _diagnose(client: AnyArcjetGuard, code: str) -> None:
@@ -390,4 +380,7 @@ def _diagnose(client: AnyArcjetGuard, code: str) -> None:
         if callable(diagnose):
             diagnose(code)
     except Exception:
+        # Deliberately swallowed, including a logging handler that raises. A
+        # diagnostics sink is observational: reporting that a client could not
+        # be registered must not become a second, louder failure in the caller.
         pass

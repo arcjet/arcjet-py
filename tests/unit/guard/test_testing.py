@@ -171,7 +171,7 @@ class TestRecordingGuards:
             assert arcjet.guards[0].metadata == {"a": 1}
             assert arcjet.guards[0].correlation_id == "corr_1"
 
-    def test_both_flush_flavours_return(self) -> None:
+    def test_both_flush_flavors_return(self) -> None:
         with register_test_client():
             asyncio.run(flush())
             flush_sync()

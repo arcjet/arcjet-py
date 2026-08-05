@@ -43,7 +43,7 @@ code that cannot reach a client handle can still call ``guard()`` and
 ``capture()``; passing a client explicitly always works and is the recommended
 path.  ``capture()`` is a single function because it queues and returns on both
 clients, while ``guard``/``flush`` come in async and ``_sync`` pairs mirroring
-the two client flavours.
+the two client flavors.
 
 The in-memory test client lives in :mod:`arcjet.guard.testing`.
 

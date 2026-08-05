@@ -14,7 +14,7 @@ import pytest
 
 from arcjet.guard._diagnostics import (
     CLIENT_ALREADY_REGISTERED,
-    CLIENT_FLAVOUR_MISMATCH,
+    CLIENT_FLAVOR_MISMATCH,
 )
 from arcjet.guard._registry import (
     capture,
@@ -184,10 +184,10 @@ class TestNothingRegistered:
         flush_sync()
 
 
-class TestSyncAsyncFlavour:
+class TestSyncAsyncFlavor:
     """The failure mode Python has and JavaScript does not.
 
-    ``register_arcjet`` erases which flavour it took, so a mismatch is not
+    ``register_arcjet`` erases which flavor it took, so a mismatch is not
     statically catchable — which is exactly why it has to degrade predictably
     and say so.
     """
@@ -218,7 +218,7 @@ class TestSyncAsyncFlavour:
 
         assert decision.has_failed_open()
         assert client.guards == []
-        assert client.diagnostics == [CLIENT_FLAVOUR_MISMATCH]
+        assert client.diagnostics == [CLIENT_FLAVOR_MISMATCH]
 
     def test_sync_guard_with_an_async_client_fails_open(self) -> None:
         client = async_recorder()
@@ -230,18 +230,18 @@ class TestSyncAsyncFlavour:
         # decision, which is what calling through blindly would produce.
         assert decision.has_failed_open()
         assert client.guards == []
-        assert client.diagnostics == [CLIENT_FLAVOUR_MISMATCH]
+        assert client.diagnostics == [CLIENT_FLAVOR_MISMATCH]
 
-    def test_flush_flavour_mismatch_is_reported(self) -> None:
+    def test_flush_flavor_mismatch_is_reported(self) -> None:
         client = sync_recorder()
         register_arcjet(client)
 
         asyncio.run(flush())
 
         assert client.flushes == []
-        assert client.diagnostics == [CLIENT_FLAVOUR_MISMATCH]
+        assert client.diagnostics == [CLIENT_FLAVOR_MISMATCH]
 
-    def test_capture_works_with_either_flavour(self) -> None:
+    def test_capture_works_with_either_flavor(self) -> None:
         # One free function for both, because capture() queues and returns on
         # each of them.
         for client in (async_recorder(), sync_recorder()):
@@ -254,7 +254,7 @@ class TestSyncAsyncFlavour:
 
     def test_nothing_registered_is_silent_but_a_mismatch_is_not(self) -> None:
         # Nothing registered is the ordinary unconfigured case; a registered
-        # client of the wrong flavour is a wiring mistake, and there is a
+        # client of the wrong flavor is a wiring mistake, and there is a
         # configured logger on it to report to.
         asyncio.run(guard([], label="test"))  # no client, no channel, no line
 
@@ -262,7 +262,7 @@ class TestSyncAsyncFlavour:
         register_arcjet(client)
         asyncio.run(guard([], label="test"))
 
-        assert client.diagnostics == [CLIENT_FLAVOUR_MISMATCH]
+        assert client.diagnostics == [CLIENT_FLAVOR_MISMATCH]
 
 
 class TestThreadVisibility:

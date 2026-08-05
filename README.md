@@ -1311,7 +1311,7 @@ async def refund(invoice_id: str) -> None:
 
 #### Sync and async
 
-`capture()` is one function for both client flavours, because it queues and
+`capture()` is one function for both client flavors, because it queues and
 returns on each of them. `guard()` and `flush()` cannot be, so they come in
 pairs matching `launch_arcjet` / `launch_arcjet_sync`:
 
@@ -1410,7 +1410,7 @@ is synchronous — once the code under test reaches `capture()`, the event is
 there with no flushing or waiting.
 
 The test client answers both `guard()` and `guard_sync()`, so it does not care
-which flavour your application uses. It records the call and returns a fail-open
+which flavor your application uses. It records the call and returns a fail-open
 `ALLOW`, because no rule actually ran. It is not a mock server and does not let
 you stub per-rule verdicts.
 
