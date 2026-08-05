@@ -7,6 +7,7 @@ autouse fixture — a leaked client changes the meaning of every test after it.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any, Optional, Sequence
 
 import pytest
@@ -295,3 +296,52 @@ class TestThreadVisibility:
         thread.join()
 
         assert client.captures == ["from.thread"]
+
+
+class TestNamespaceShape:
+    """Pins how the free calls are reached, because one spelling is a trap.
+
+    ``guard`` names both the subpackage and a function inside it. That is
+    survivable — ``arcjet.guard.guard`` stutters but resolves, and
+    ``from arcjet.guard import guard`` is the spelling the docs use. What is not
+    survivable is a *top-level* ``arcjet.guard`` function: it would collide with
+    the submodule of the same name and win or lose depending on whether
+    ``import arcjet.guard`` had run yet, which is an order-dependent bug in
+    somebody else's application.
+    """
+
+    def test_the_free_calls_are_importable_from_the_subpackage(self) -> None:
+        from arcjet.guard import capture as pkg_capture
+        from arcjet.guard import flush as pkg_flush
+        from arcjet.guard import flush_sync as pkg_flush_sync
+        from arcjet.guard import guard as pkg_guard
+        from arcjet.guard import guard_sync as pkg_guard_sync
+
+        for fn in (
+            pkg_guard,
+            pkg_guard_sync,
+            pkg_capture,
+            pkg_flush,
+            pkg_flush_sync,
+        ):
+            assert callable(fn)
+
+    def test_the_top_level_arcjet_namespace_does_not_define_guard(self) -> None:
+        import arcjet
+        import arcjet.guard
+
+        # `from arcjet import guard` must keep meaning the module. If a function
+        # named `guard` is ever added to arcjet/__init__.py, this fails — which
+        # is the point.
+        assert inspect.ismodule(arcjet.guard)
+        assert "guard" not in getattr(arcjet, "__all__", ())
+
+    def test_async_and_sync_pairs_are_distinct_callables(self) -> None:
+        # The pairing is the whole reason both spellings exist; aliasing one to
+        # the other would silently reintroduce the blocking-in-async problem.
+        assert guard is not guard_sync
+        assert flush is not flush_sync
+        assert inspect.iscoroutinefunction(guard)
+        assert not inspect.iscoroutinefunction(guard_sync)
+        assert inspect.iscoroutinefunction(flush)
+        assert not inspect.iscoroutinefunction(flush_sync)
