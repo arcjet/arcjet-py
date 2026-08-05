@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ._client import Arcjet, ArcjetSync, arcjet, arcjet_sync
-from ._dataclasses import IpDetails
+from ._dataclasses import IpDetails, ThreatIntelligence
 from ._decision import (
     Decision,
     IpInfo,
@@ -52,6 +52,7 @@ __all__ = [
     "fixed_window",
     "IpInfo",
     "IpDetails",
+    "ThreatIntelligence",
     "is_spoofed_bot",
     "Metadata",
     "MetadataValue",

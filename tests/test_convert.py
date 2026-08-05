@@ -412,6 +412,77 @@ def test_converting_missing_ip_details() -> None:
     assert _ip_details_from_proto(None) is None
 
 
+def test_converting_ip_threat_intelligence() -> None:
+    from arcjet import ThreatIntelligence
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    ip = _ip_details_from_proto(
+        decide_pb2.IpDetails(
+            threat=decide_pb2.ThreatIntelligence(
+                risk_level="high",
+                confidence="high",
+                reputation="malicious",
+                is_safe=False,
+                network_types=["hosting", "vpn"],
+                activities=["scanner"],
+                entities=["threat_actor"],
+                entity_name="Example actor",
+                service="Example VPN",
+                background_noise=42,
+            )
+        )
+    )
+
+    assert ip is not None
+    assert ip.threat == ThreatIntelligence(
+        risk_level="high",
+        confidence="high",
+        reputation="malicious",
+        is_safe=False,
+        network_types=("hosting", "vpn"),
+        activities=("scanner",),
+        entities=("threat_actor",),
+        entity_name="Example actor",
+        service="Example VPN",
+        background_noise=42,
+    )
+
+
+def test_converting_ip_without_threat_intelligence() -> None:
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    ip = _ip_details_from_proto(decide_pb2.IpDetails())
+
+    assert ip is not None
+    assert ip.threat is None
+
+
+def test_converting_present_empty_ip_threat_intelligence() -> None:
+    from arcjet import ThreatIntelligence
+    from arcjet._convert import _ip_details_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    ip = _ip_details_from_proto(
+        decide_pb2.IpDetails(threat=decide_pb2.ThreatIntelligence())
+    )
+
+    assert ip is not None
+    assert ip.threat == ThreatIntelligence(
+        risk_level="",
+        confidence="",
+        reputation="",
+        is_safe=False,
+        network_types=(),
+        activities=(),
+        entities=(),
+        entity_name=None,
+        service=None,
+        background_noise=0,
+    )
+
+
 def test_converting_sensitive_info_reason_empty() -> None:
     from arcjet._convert import _reason_from_proto
     from arcjet._dataclasses import SensitiveInfoReason
