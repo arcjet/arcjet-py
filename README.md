@@ -1278,6 +1278,142 @@ cannot discard another request's telemetry.
 There is no `close()`: a client holds no connection of its own to release, so
 flushing is the only shutdown step that changes what gets delivered.
 
+### Registering a client (optional)
+
+Passing the client explicitly is the recommended path, and everything above does
+exactly that. Registration is a shortcut for the case it cannot cover: code too
+deep in an application to be handed a client, where `capture()` is often most
+useful.
+
+`launch_arcjet()` never touches global state. Registering is always a separate,
+explicit call:
+
+```python
+# wherever your application starts up
+import os
+
+from arcjet.guard import launch_arcjet, register_arcjet
+
+register_arcjet(launch_arcjet(key=os.environ["ARCJET_KEY"]))
+```
+
+`capture()` is then importable on its own and reaches the registered client:
+
+```python
+# deep in application code — nothing was passed down here
+from arcjet.guard import capture
+
+
+async def refund(invoice_id: str) -> None:
+    await issue_refund(invoice_id)
+    capture(action="refund.issued", metadata={"invoice": invoice_id})
+```
+
+#### Sync and async
+
+`capture()` is one function for both client flavours, because it queues and
+returns on each of them. `guard()` and `flush()` cannot be, so they come in
+pairs matching `launch_arcjet` / `launch_arcjet_sync`:
+
+| Registered client | Guard | Flush |
+| --- | --- | --- |
+| `launch_arcjet()` | `await guard(...)` | `await flush()` |
+| `launch_arcjet_sync()` | `guard_sync(...)` | `flush_sync()` |
+
+Registration accepts either and does not record which, so calling the wrong one
+is not something a type checker can catch. It fails open and reports `AJ3007` on
+the registered client's logger.
+
+#### What happens with nothing registered
+
+`guard()` and `guard_sync()` return a fail-open `ALLOW` carrying an error
+result, so a caller that inspects the decision can see that no policy ran. They
+do not raise.
+
+```python
+decision = await guard([limit(key=user_id)], label="refund")
+
+if decision.has_failed_open():
+    # No rule was evaluated. Treat this as "policy did not run", not as a pass.
+    ...
+```
+
+`capture()` drops the event silently, and the `flush()` variants return.
+Nothing is logged: the client that would have carried a logger is the thing
+that is missing, so the only available sink would be an unconfigurable warning
+on a request path.
+
+#### Registering twice, and unregistering
+
+Registration is guarded. A second client does not displace the first — the
+attempt is reported as `AJ3004` on the **incumbent's** logger, so a library or a
+stray second `launch_arcjet()` cannot quietly redirect an application's
+telemetry to a different key. Registering the client that is already registered
+is a silent no-op.
+
+`unregister_arcjet()` takes no argument and clears whatever is there. The cost
+is that anything calling it clears the application's client and every free call
+afterwards fails open, so **libraries should not call it** — they take a client
+explicitly. That is a convention, not something the SDK enforces.
+
+The registration is a module-level global, so it is visible from every thread
+and every event loop. It is deliberately *not* a `contextvars.ContextVar`: a
+context variable set at startup is invisible inside worker threads, which is
+exactly how Flask, Django and other WSGI servers run request handlers, so
+registration would appear to work in development and silently do nothing in
+production.
+
+### Testing
+
+`arcjet.guard.testing` registers an in-memory client that records calls and
+talks to nothing:
+
+```python
+from arcjet.guard import capture
+from arcjet.guard.testing import register_test_client
+
+
+async def test_refund_captures_an_event():
+    with register_test_client() as arcjet:
+        await refund("inv_1")
+
+        assert arcjet.captures[0].action == "refund.issued"
+```
+
+The `with` block unregisters the client on the way out, including when the test
+fails part-way through. Note the `await`: the capture happens wherever the code
+under test reaches it, so a test that forgets to await an async function asserts
+before the event exists.
+
+Usually this belongs in a fixture:
+
+```python
+import pytest
+from arcjet.guard.testing import register_test_client
+
+
+@pytest.fixture
+def arcjet():
+    with register_test_client() as client:
+        yield client
+```
+
+`register_test_client()` raises if a client is already registered, which
+surfaces a leak from an earlier test rather than letting this one assert against
+the wrong recorder. `unregister()` is also available for teardown that cannot
+use `with`, and only clears the registration if it is still this client.
+
+Each recorded capture goes through the same validation and metadata encoding as
+a real `capture()`, so a call the real client would drop is not recorded here
+either, and anything the SDK rewrote is on `capture.warnings`. Recording itself
+is synchronous — once the code under test reaches `capture()`, the event is
+there with no flushing or waiting.
+
+The test client answers both `guard()` and `guard_sync()`, so it does not care
+which flavour your application uses. It records the call and returns a fail-open
+`ALLOW`, because no rule actually ran. It is not a mock server and does not let
+you stub per-rule verdicts.
+
 ## Best practices
 
 ### Single-instance pattern

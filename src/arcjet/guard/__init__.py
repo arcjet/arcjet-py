@@ -33,6 +33,20 @@ Public API
     launch_arcjet, launch_arcjet_sync
     ArcjetGuard, ArcjetGuardSync
 
+**Optional registration** (from ``registry``)::
+
+    register_arcjet, unregister_arcjet, registered_client
+    guard, guard_sync, capture, flush, flush_sync
+
+Registering a client is optional and separate from launching one.  It exists so
+code that cannot reach a client handle can still call ``guard()`` and
+``capture()``; passing a client explicitly always works and is the recommended
+path.  ``capture()`` is a single function because it queues and returns on both
+clients, while ``guard``/``flush`` come in async and ``_sync`` pairs mirroring
+the two client flavours.
+
+The in-memory test client lives in :mod:`arcjet.guard.testing`.
+
 Both clients expose ``.guard()`` for decisions and ``.capture()`` /
 ``.flush()`` for visibility events.  ``capture()`` is fire-and-forget: it
 records what your application did without affecting any decision, and is
@@ -46,6 +60,16 @@ from ._client import (
     ArcjetGuardSync,
     launch_arcjet,
     launch_arcjet_sync,
+)
+from ._registry import (
+    capture,
+    flush,
+    flush_sync,
+    guard,
+    guard_sync,
+    register_arcjet,
+    registered_client,
+    unregister_arcjet,
 )
 from ._rules import (
     DetectPromptInjection,
@@ -141,4 +165,15 @@ __all__ = [
     "ArcjetGuardSync",
     "launch_arcjet",
     "launch_arcjet_sync",
+    # Optional registration, and the free calls it enables. Nothing here takes
+    # effect until an application calls register_arcjet(); launch_arcjet()
+    # touches no global state.
+    "register_arcjet",
+    "registered_client",
+    "unregister_arcjet",
+    "capture",
+    "flush",
+    "flush_sync",
+    "guard",
+    "guard_sync",
 ]

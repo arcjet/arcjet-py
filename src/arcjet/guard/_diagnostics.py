@@ -23,6 +23,31 @@ from typing import Callable, Protocol
 
 from arcjet._logging import logger as _default_logger
 
+# SDK-local diagnostic codes.
+#
+# ``AJ1000``–``AJ1999`` is the server-side guard registry and travels on the
+# wire; ``AJ3000``+ is SDK-local and is only ever reported here, so the range is
+# owned by the SDKs and allocated append-only across all of them. A code means
+# the same thing in every SDK, so allocate a new one rather than reusing a
+# number another SDK spent on a different meaning.
+#
+# Allocated so far:
+#   AJ3000 capture input invalid            AJ3004 client already registered
+#   AJ3001 capture queue full               AJ3005 RETIRED — never reuse
+#   AJ3002 capture batch send failed        AJ3006 registration version clash
+#   AJ3003 capture flush expired                   (JavaScript only)
+#                                           AJ3007 wrong client flavour
+#
+# ``AJ3005`` briefly meant "no client is registered" in the JavaScript SDK and
+# was withdrawn before release: the free calls report that through their own
+# return value instead. It stays burned so a future codegen pass cannot quietly
+# hand it a second meaning.
+#
+# ``AJ3006`` has no Python counterpart. It guards JavaScript's realm-wide
+# ``Symbol.for`` slot, which every copy of the package shares. Python's import
+# cache gives one module object per name, and a vendored second copy gets its
+# own module global, so a cross-version read is unrepresentable here.
+
 CAPTURE_INPUT_INVALID = "AJ3000"
 """A capture call's input could not be normalized; the event was dropped."""
 
@@ -41,6 +66,12 @@ OPTION_DROPPED = "AJ1001"
 METADATA_ENCODE_FAILED = "AJ1017"
 """A metadata key could not be encoded and was dropped."""
 
+CLIENT_ALREADY_REGISTERED = "AJ3004"
+"""A second client tried to register; the first one was kept."""
+
+CLIENT_FLAVOUR_MISMATCH = "AJ3007"
+"""The registered client is sync/async the other way round from the call."""
+
 _MESSAGES = {
     CAPTURE_INPUT_INVALID: "Capture input was invalid; the event was dropped",
     CAPTURE_QUEUE_FULL: "Capture queue is full; newest events were dropped",
@@ -55,6 +86,14 @@ _MESSAGES = {
     # as well. They are also still sent in the event's local_warnings.
     OPTION_DROPPED: "A capture field was invalid and was dropped",
     METADATA_ENCODE_FAILED: "Metadata keys could not be encoded and were dropped",
+    # Registration codes. Neither concerns an individual event.
+    CLIENT_ALREADY_REGISTERED: (
+        "An Arcjet client is already registered; the existing one was kept"
+    ),
+    CLIENT_FLAVOUR_MISMATCH: (
+        "The registered Arcjet client is the other of sync/async from this "
+        "call; the call failed open"
+    ),
 }
 
 _COALESCE_SECONDS = 60.0
