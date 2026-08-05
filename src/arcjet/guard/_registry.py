@@ -132,10 +132,55 @@ def unregister_arcjet() -> None:
 def registered_client() -> Optional[AnyArcjetGuard]:
     """Return the registered client, or ``None``.
 
-    Exposed so an application can branch on whether registration happened —
-    during startup checks, say — without reaching into module internals.
+    Internal.  Deliberately not re-exported from :mod:`arcjet.guard`: the ADR
+    does not define it and neither does the JavaScript SDK, which tests that its
+    equivalent stays unexported.  Publishing it now would make removing it a
+    breaking change later.
     """
     return _registered
+
+
+def register_arcjet_for_testing(client: AnyArcjetGuard) -> None:
+    """Register *client*, refusing to displace or share with an incumbent.
+
+    The check and the set happen under one lock, so concurrent callers cannot
+    both observe an empty slot and both believe they registered — which would
+    leave one of them asserting against a recorder no call ever reaches.
+
+    The test client uses this instead of :func:`register_arcjet` because the
+    failure modes invert under test.  In an application a second registration
+    should be survivable, so it warns and carries on.  In a test suite a client
+    left registered by an earlier test is a leak that makes the current test
+    assert against the wrong recorder — quietly, and usually somewhere else.
+
+    Raises:
+        RuntimeError: If a client is already registered.
+    """
+    global _registered
+
+    with _lock:
+        if _registered is not None:
+            raise RuntimeError(
+                "An Arcjet client is already registered. Call "
+                "unregister_arcjet() first — an earlier test probably left "
+                "one behind."
+            )
+        _registered = client
+
+
+def unregister_arcjet_if(client: AnyArcjetGuard) -> None:
+    """Clear the registration, but only if *client* still holds it.
+
+    Compare-and-clear under one lock.  A teardown that checked ownership and
+    then cleared unconditionally could clear a *replacement* registered in
+    between, so a stale handle would silently unregister somebody else's
+    client.
+    """
+    global _registered
+
+    with _lock:
+        if _registered is client:
+            _registered = None
 
 
 async def guard(
@@ -149,8 +194,8 @@ async def guard(
 
     With nothing registered — or with a *sync* client registered, which this
     cannot await — the call fails open: it returns an ALLOW carrying an error
-    result, so ``decision.is_error()`` is true and a caller that inspects the
-    decision can see that no policy ran.  It does not raise.
+    result, so ``decision.has_failed_open()`` is true and a caller that
+    inspects the decision can see that no policy ran.  It does not raise.
 
     The decision is the report.  There is deliberately no log line for the
     unregistered case: the client that would have carried a logger is the thing

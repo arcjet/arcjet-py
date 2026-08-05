@@ -43,7 +43,7 @@ from arcjet._metadata import Metadata
 
 from ._capture import normalize_capture_event
 from ._client import _make_error_decision
-from ._registry import register_arcjet, registered_client, unregister_arcjet
+from ._registry import register_arcjet_for_testing, unregister_arcjet_if
 from ._rules import RuleWithInput
 from ._types import ArcjetWarning, Decision
 
@@ -117,11 +117,11 @@ class ArcjetTestClient:
     def unregister(self) -> None:
         """Unregister this client.
 
-        Safe to call twice, so it also works from a teardown that runs after a
-        failing test.  ``with`` calls this on the way out.
+        Compare-and-clear, so a stale handle cannot unregister a client that
+        replaced this one.  Safe to call twice, so it also works from a teardown
+        that runs after a failing test.  ``with`` calls this on the way out.
         """
-        if registered_client() is self:
-            unregister_arcjet()
+        unregister_arcjet_if(self)  # type: ignore[arg-type]  # structural double
 
     def __enter__(self) -> ArcjetTestClient:
         return self
@@ -248,15 +248,10 @@ def register_test_client() -> ArcjetTestClient:
     Returns:
         The client, which is also a context manager, so ``with`` unregisters it.
     """
-    incumbent = registered_client()
-    if incumbent is not None:
-        raise RuntimeError(
-            "An Arcjet client is already registered. Call unregister_arcjet() "
-            "first — an earlier test probably left one behind."
-        )
-
     client = ArcjetTestClient()
-    register_arcjet(client)  # type: ignore[arg-type]  # structural test double
+    # Checked and set under one lock rather than here, so two concurrent calls
+    # cannot both succeed while only one of them is actually registered.
+    register_arcjet_for_testing(client)  # type: ignore[arg-type]  # structural double
     return client
 
 

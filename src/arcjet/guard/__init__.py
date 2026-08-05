@@ -35,7 +35,7 @@ Public API
 
 **Optional registration** (from ``registry``)::
 
-    register_arcjet, unregister_arcjet, registered_client
+    register_arcjet, unregister_arcjet
     guard, guard_sync, capture, flush, flush_sync
 
 Registering a client is optional and separate from launching one.  It exists so
@@ -68,7 +68,6 @@ from ._registry import (
     guard,
     guard_sync,
     register_arcjet,
-    registered_client,
     unregister_arcjet,
 )
 from ._rules import (
@@ -169,7 +168,6 @@ __all__ = [
     # effect until an application calls register_arcjet(); launch_arcjet()
     # touches no global state.
     "register_arcjet",
-    "registered_client",
     "unregister_arcjet",
     "capture",
     "flush",

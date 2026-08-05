@@ -326,6 +326,15 @@ class TestNamespaceShape:
         ):
             assert callable(fn)
 
+    def test_registered_client_is_not_public(self) -> None:
+        import arcjet.guard
+
+        # Internal on purpose: the ADR does not define it, and the JavaScript
+        # SDK tests that its equivalent stays unexported. Publishing it would
+        # make removing it a breaking change.
+        assert not hasattr(arcjet.guard, "registered_client")
+        assert "registered_client" not in arcjet.guard.__all__
+
     def test_the_top_level_arcjet_namespace_does_not_define_guard(self) -> None:
         import arcjet
         import arcjet.guard
@@ -345,3 +354,104 @@ class TestNamespaceShape:
         assert not inspect.iscoroutinefunction(guard_sync)
         assert inspect.iscoroutinefunction(flush)
         assert not inspect.iscoroutinefunction(flush_sync)
+
+
+class TestAtomicRegistryOperations:
+    """The test client's register and teardown must be indivisible.
+
+    Honest note on what these can and cannot prove. A genuine TOCTOU
+    reproduction is not reliably expressible here — the window between a check
+    and a following mutation is a couple of bytecodes, and threads racing on a
+    barrier do not land inside it dependably. Tests written that way passed
+    against the buggy implementation, so they were decoration.
+
+    What is pinned instead is the property that makes the race impossible: both
+    operations do their check *and* their mutation inside the registry lock, so
+    there is no window to land in. If someone reintroduces a check-then-act by
+    composing the public helpers, the atomicity tests below fail.
+    """
+
+    def test_test_registration_happens_inside_the_lock(self) -> None:
+        import threading
+
+        from arcjet.guard._registry import _lock, register_arcjet_for_testing
+
+        finished = threading.Event()
+
+        def attempt() -> None:
+            try:
+                register_arcjet_for_testing(sync_recorder())
+            finally:
+                finished.set()
+
+        with _lock:
+            worker = threading.Thread(target=attempt)
+            worker.start()
+            # Blocked: the occupancy check is inside the critical section, not
+            # before it.
+            assert not finished.wait(0.2)
+
+        worker.join(timeout=2)
+        assert finished.is_set()
+        unregister_arcjet()
+
+    def test_compare_and_clear_happens_inside_the_lock(self) -> None:
+        import threading
+
+        from arcjet.guard._registry import _lock, unregister_arcjet_if
+
+        client = sync_recorder()
+        register_arcjet(client)
+        finished = threading.Event()
+
+        def attempt() -> None:
+            try:
+                unregister_arcjet_if(client)
+            finally:
+                finished.set()
+
+        with _lock:
+            worker = threading.Thread(target=attempt)
+            worker.start()
+            assert not finished.wait(0.2)
+
+        worker.join(timeout=2)
+        assert finished.is_set()
+        assert registered_client() is None
+
+    def test_a_second_test_client_is_refused(self) -> None:
+        from arcjet.guard.testing import register_test_client
+
+        first = register_test_client()
+        try:
+            with pytest.raises(RuntimeError, match="already registered"):
+                register_test_client()
+        finally:
+            first.unregister()
+
+    def test_a_stale_client_cannot_clear_its_replacement(self) -> None:
+        from arcjet.guard.testing import register_test_client
+
+        first = register_test_client()
+        first.unregister()
+
+        second = register_test_client()
+        try:
+            # The stale handle must not clear a slot it no longer owns.
+            first.unregister()
+
+            assert registered_client() is second
+        finally:
+            second.unregister()
+
+    def test_compare_and_clear_ignores_a_client_that_does_not_hold_the_slot(
+        self,
+    ) -> None:
+        from arcjet.guard._registry import unregister_arcjet_if
+
+        holder = sync_recorder()
+        register_arcjet(holder)
+
+        unregister_arcjet_if(sync_recorder())
+
+        assert registered_client() is holder
