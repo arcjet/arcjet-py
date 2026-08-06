@@ -26,6 +26,7 @@ from arcjet.guard import (
     TokenBucket,
     launch_arcjet,
     launch_arcjet_sync,
+    server_input,
 )
 from arcjet.guard._client import _auth_headers, _build_request, _make_error_decision
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -429,25 +430,19 @@ class TestArcjetGuardSync:
             decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 
-    def test_empty_rules_returns_validation_error(self) -> None:
+    def test_empty_rules_reaches_server(self) -> None:
         client = FakeSyncClient()
         guard = _make_guard_sync(client)
-        decision = guard.guard([], label="test")
+        decision = guard.guard(
+            [], label="policy-only", inputs={"tenant": server_input.string("acme")}
+        )
         assert decision.conclusion == "ALLOW"
-        assert decision.id == ""
-        assert decision.reason == "ERROR"
-        assert decision.has_error()
-        assert decision.has_failed_open()
-        assert len(decision.error_results()) == 1
-        assert decision.warnings == ()
-        assert len(decision.results) == 1
-        r = decision.results[0]
-        assert isinstance(r, RuleResultError)
-        assert r.type == "RULE_ERROR"
-        assert r.code == "VALIDATION_ERROR"
-        assert "at least one rule" in r.message
-        # Verify no network call was made
-        assert client.last_request is None
+        assert decision.id == "gdec_test"
+        assert not decision.has_failed_open()
+        assert client.last_request is not None
+        assert list(client.last_request.rule_submissions) == []
+        assert client.last_request.label == "policy-only"
+        assert client.last_request.policy_inputs["tenant"].server.string_value == "acme"
 
 
 class TestArcjetGuardAsync:
@@ -506,22 +501,12 @@ class TestArcjetGuardAsync:
         assert errs[0].code == "TRANSPORT_ERROR"
         assert decision.warnings == ()
 
-    def test_empty_rules_returns_validation_error(self) -> None:
+    def test_empty_rules_reaches_server(self) -> None:
         client = FakeAsyncClient()
         guard = _make_guard(client)
         decision = self._run(guard.guard([], label="test"))
         assert decision.conclusion == "ALLOW"
-        assert decision.id == ""
-        assert decision.reason == "ERROR"
-        assert decision.has_error()
-        assert decision.has_failed_open()
-        assert len(decision.error_results()) == 1
-        assert decision.warnings == ()
-        assert len(decision.results) == 1
-        r = decision.results[0]
-        assert isinstance(r, RuleResultError)
-        assert r.type == "RULE_ERROR"
-        assert r.code == "VALIDATION_ERROR"
-        assert "at least one rule" in r.message
-        # Verify no network call was made
-        assert client.last_request is None
+        assert decision.id == "gdec_test"
+        assert not decision.has_failed_open()
+        assert client.last_request is not None
+        assert list(client.last_request.rule_submissions) == []

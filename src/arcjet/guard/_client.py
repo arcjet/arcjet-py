@@ -28,6 +28,7 @@ from arcjet._metadata import (
     encode_metadata,
     enforce_metadata_budget,
 )
+from arcjet._sensitive_info_backend import SensitiveInfoBackend
 from arcjet._transport import build_async_transport, build_sync_transport
 
 from ._capture import build_capture_request, normalize_capture_event
@@ -43,6 +44,13 @@ from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
     evaluate_sensitive_info_locally,
+)
+from ._policy_input import PolicyInputMap
+from ._remote_policy import (
+    POLICY_CAPABILITIES,
+    AsyncRemotePolicyRuntime,
+    PreparedPolicy,
+    SyncRemotePolicyRuntime,
 )
 from ._rules import RuleWithInput, SensitiveInfoWithInput
 from ._types import Decision, RuleResultError
@@ -148,6 +156,15 @@ def _with_local_warnings(decision: Decision, request: pb.GuardRequest) -> Decisi
     return replace(decision, warnings=(*decision.warnings, *local))
 
 
+def _apply_prepared_policy(request: pb.GuardRequest, policy: PreparedPolicy) -> None:
+    request.policy_inputs.clear()
+    for name, policy_input in policy.inputs.items():
+        request.policy_inputs[name].CopyFrom(policy_input)
+    request.local_policy_revision = policy.revision
+    del request.local_policy_results[:]
+    request.local_policy_results.extend(policy.results)
+
+
 def _make_error_decision(message: str) -> Decision:
     return Decision(
         conclusion="ALLOW",
@@ -198,19 +215,6 @@ def _prepare_guard(
     """
     rule_list = list(rules)
 
-    if not rule_list:
-        return Decision(
-            conclusion="ALLOW",
-            id="",
-            results=(
-                RuleResultError(
-                    message="at least one rule is required",
-                    code="VALIDATION_ERROR",
-                ),
-            ),
-            reason="ERROR",
-        )
-
     t0 = time.perf_counter()
     local_results = _run_local_evaluations(rule_list)
     # Per-rule metadata keys the SDK could not encode ride on the request
@@ -247,6 +251,14 @@ class _AsyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    async def get_guard_policy(
+        self,
+        request: pb.GetGuardPolicyRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GetGuardPolicyResponse: ...
+
     async def capture(
         self,
         request: pb.CaptureRequest,
@@ -265,6 +277,14 @@ class _SyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    def get_guard_policy(
+        self,
+        request: pb.GetGuardPolicyRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GetGuardPolicyResponse: ...
+
     def capture(
         self,
         request: pb.CaptureRequest,
@@ -282,12 +302,30 @@ class ArcjetGuard:
     _client: _AsyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker task. Not a constructor argument.
     _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False, init=False)
     # Where this client reports drops. Defaults to the shared coalescing
     # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
     _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
+    _remote_policy: AsyncRemotePolicyRuntime = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        async def fetch(label: str) -> pb.GetGuardPolicyResponse:
+            return await self._client.get_guard_policy(
+                pb.GetGuardPolicyRequest(
+                    user_agent=self._user_agent,
+                    label=label,
+                    policy_capabilities=POLICY_CAPABILITIES,
+                ),
+                headers=_auth_headers(self._key),
+                timeout_ms=self._timeout_ms,
+            )
+
+        self._remote_policy = AsyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -375,11 +413,13 @@ class ArcjetGuard:
 
     async def guard(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Metadata | None = None,
         correlation_id: str | None = None,
+        actor: str | None = None,
+        inputs: PolicyInputMap | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (async).
 
@@ -409,6 +449,7 @@ class ArcjetGuard:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
+        prepared = await self._remote_policy.prepare(label, inputs)
         result = _prepare_guard(
             rules,
             user_agent=self._user_agent,
@@ -418,6 +459,10 @@ class ArcjetGuard:
         )
         if isinstance(result, Decision):
             return result
+        if actor is not None:
+            result.actor = actor
+        _apply_prepared_policy(result, prepared)
+        result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = await self._client.guard(
@@ -425,6 +470,23 @@ class ArcjetGuard:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            evaluation = resp.decision.policy_evaluation
+            should_refresh = bool(inputs) and (
+                evaluation.refresh_required
+                or (
+                    prepared.revision
+                    and evaluation.revision
+                    and evaluation.revision != prepared.revision
+                )
+            )
+            if should_refresh:
+                prepared = await self._remote_policy.prepare(label, inputs, force=True)
+                _apply_prepared_policy(result, prepared)
+                resp = await self._client.guard(
+                    result,
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
         except ArcjetError:
             raise
         except Exception as e:
@@ -444,12 +506,30 @@ class ArcjetGuardSync:
     _client: _SyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker thread. Not a constructor argument.
     _delivery: SyncCaptureDelivery | None = field(default=None, repr=False, init=False)
     # Where this client reports drops. Defaults to the shared coalescing
     # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
     _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
+    _remote_policy: SyncRemotePolicyRuntime = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        def fetch(label: str) -> pb.GetGuardPolicyResponse:
+            return self._client.get_guard_policy(
+                pb.GetGuardPolicyRequest(
+                    user_agent=self._user_agent,
+                    label=label,
+                    policy_capabilities=POLICY_CAPABILITIES,
+                ),
+                headers=_auth_headers(self._key),
+                timeout_ms=self._timeout_ms,
+            )
+
+        self._remote_policy = SyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -549,11 +629,13 @@ class ArcjetGuardSync:
 
     def guard(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Metadata | None = None,
         correlation_id: str | None = None,
+        actor: str | None = None,
+        inputs: PolicyInputMap | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (sync).
 
@@ -583,6 +665,7 @@ class ArcjetGuardSync:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
+        prepared = self._remote_policy.prepare(label, inputs)
         result = _prepare_guard(
             rules,
             user_agent=self._user_agent,
@@ -592,6 +675,10 @@ class ArcjetGuardSync:
         )
         if isinstance(result, Decision):
             return result
+        if actor is not None:
+            result.actor = actor
+        _apply_prepared_policy(result, prepared)
+        result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = self._client.guard(
@@ -599,6 +686,23 @@ class ArcjetGuardSync:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            evaluation = resp.decision.policy_evaluation
+            should_refresh = bool(inputs) and (
+                evaluation.refresh_required
+                or (
+                    prepared.revision
+                    and evaluation.revision
+                    and evaluation.revision != prepared.revision
+                )
+            )
+            if should_refresh:
+                prepared = self._remote_policy.prepare(label, inputs, force=True)
+                _apply_prepared_policy(result, prepared)
+                resp = self._client.guard(
+                    result,
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
         except ArcjetError:
             raise
         except Exception as e:
@@ -616,6 +720,7 @@ def launch_arcjet(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuard:
     """Create an async Arcjet Guard client.
 
@@ -653,6 +758,7 @@ def launch_arcjet(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(
@@ -669,6 +775,7 @@ def launch_arcjet_sync(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuardSync:
     """Create a sync Arcjet Guard client.
 
@@ -706,6 +813,7 @@ def launch_arcjet_sync(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(

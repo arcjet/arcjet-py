@@ -47,6 +47,7 @@ from ._client import (
     launch_arcjet,
     launch_arcjet_sync,
 )
+from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._rules import (
     DetectPromptInjection,
     FixedWindow,
@@ -80,11 +81,14 @@ from ._types import (
     CustomEvaluateResult,
     Decision,
     Mode,
+    PolicyEvaluation,
+    PolicyRuleResult,
     Reason,
     RuleResult,
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultInputConstraint,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
@@ -92,6 +96,7 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
+    StringMatchOperator,
 )
 
 __all__ = [
@@ -103,11 +108,16 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Mode",
+    "PolicyInput",
+    "PolicyInputMap",
+    "PolicyEvaluation",
+    "PolicyRuleResult",
     "Reason",
     "RuleResult",
     "RuleResultCustom",
     "RuleResultError",
     "RuleResultFixedWindow",
+    "RuleResultInputConstraint",
     "RuleResultModerateContent",
     "RuleResultNotRun",
     "RuleResultPromptInjection",
@@ -115,6 +125,7 @@ __all__ = [
     "RuleResultSlidingWindow",
     "RuleResultTokenBucket",
     "RuleResultUnknown",
+    "StringMatchOperator",
     "SENSITIVE_INFO_ENTITY_TYPES",
     "ArcjetWarning",
     # Rule classes
@@ -143,4 +154,6 @@ __all__ = [
     "ArcjetGuardSync",
     "launch_arcjet",
     "launch_arcjet_sync",
+    "local_input",
+    "server_input",
 ]

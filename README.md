@@ -922,6 +922,58 @@ async def handle_tool_call(user_id: str, message: str):
     # safe to proceed
 ```
 
+### Remotely configured policy inputs
+
+Map application values explicitly as server-visible or local. Server inputs are
+evaluated and retained as policy evidence. Local strings remain in SDK memory;
+only a correlation digest and local-rule attestation are sent.
+
+```py
+from arcjet.guard import local_input, server_input
+
+decision = await aj.guard(
+    label="email.sent",
+    actor=user_id,
+    inputs={
+        "recipient": server_input.string(to),
+        "subject": local_input.string(subject),
+        "content": server_input.string(body),
+    },
+)
+
+print(decision.policy_evaluation, decision.policy_results)
+```
+
+Rules are optional. Passing no rules (or ``rules=[]``) still calls Guard and
+sends the label, actor, and policy inputs, so a remotely configured policy can
+protect the action. An empty rules list does not mean “allow without checking.”
+
+### LangChain tool checkpoints
+
+Install the optional integration with `pip install "arcjet[langchain]"`, then
+wrap a tool immediately before execution:
+
+```py
+from arcjet.guard import local_input, server_input
+from arcjet.guard.langchain import guard_tool
+
+guarded_send_email = guard_tool(
+    guard=aj,
+    tool=send_email_tool,
+    action="email.sent",
+    actor=lambda config: config["configurable"]["user_id"],
+    inputs=lambda arguments, _config: {
+        "recipient": server_input.string(arguments["to"]),
+        "subject": local_input.string(arguments["subject"]),
+        "content": server_input.string(arguments["body"]),
+    },
+)
+```
+
+The wrapper preserves the tool schema and delegates through `invoke()` or
+`ainvoke()`. Denied or unavailable checks do not execute the wrapped tool;
+`on_guard_error="allow"` explicitly opts into fail-open execution.
+
 ### Sync usage
 
 For Flask, Django, or other sync frameworks, use `launch_arcjet_sync`:
@@ -1140,8 +1192,10 @@ for result in decision.results:
 
 | Parameter   | Type                      | Description |
 | ----------- | ------------------------- | ----------- |
-| `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
+| `rules`     | `Sequence[RuleWithInput]` | Bound SDK rule inputs (optional; defaults to empty for policy-only calls) |
 | `label`     | `str`                     | Label identifying this guard call (required) |
+| `actor`     | `str \| None`             | Actor used by remote policy selection/evaluation |
+| `inputs`    | `PolicyInputMap \| None`  | Typed server-visible or local remote-policy inputs |
 | `metadata`  | `Metadata \| None`        | Structured metadata — see [Metadata](#metadata) |
 | `correlation_id` | `str \| None`       | Opaque id correlating this call with other `guard()`/`protect()` calls |
 
