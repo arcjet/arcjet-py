@@ -1,5 +1,9 @@
 name: Release
 
+# Surfaces the tag being released in the run list and the environment
+# approval notification.
+run-name: "Release ${{ github.ref_name }} to PyPI"
+
 on:
   push:
     tags:
@@ -7,8 +11,55 @@ on:
       - v*
 
 jobs:
+  # Runs without approval so the pypi environment reviewer can see, before
+  # approving, that the pushed tag actually matches the version declared in
+  # pyproject.toml.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: false
+      - name: Assert the tag matches the project version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG_NAME" in
+            v?*) ;;
+            *)
+              echo "::error::Tag '$TAG_NAME' must start with 'v'."
+              exit 1
+              ;;
+          esac
+          expected="${TAG_NAME#v}"
+          actual="$(uv version --short)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::pyproject.toml version '$actual' does not match tag '$TAG_NAME'; bump the version and re-tag."
+            exit 1
+          fi
+      - name: Summarize the release request
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          {
+            echo "## Release request"
+            echo "- tag: \`$TAG_NAME\`"
+            echo "- project version: \`$(uv version --short)\`"
+            echo "- commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   pypi:
     name: Publish to PyPI
+    needs: preflight
     runs-on: ubuntu-latest
     # Environment and permissions trusted publishing.
     environment:
