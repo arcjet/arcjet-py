@@ -200,19 +200,28 @@ class GuardRuleSubmission(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     CONFIG_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_ID_FIELD_NUMBER: _ClassVar[int]
     LABEL_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     RULE_FIELD_NUMBER: _ClassVar[int]
     MODE_FIELD_NUMBER: _ClassVar[int]
     config_id: str
     input_id: str
     label: str
     metadata: _containers.ScalarMap[str, str]
+    metadata_json: _containers.ScalarMap[str, str]
     rule: GuardRule
     mode: GuardRuleMode
-    def __init__(self, config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule: _Optional[_Union[GuardRule, _Mapping]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ...) -> None: ...
+    def __init__(self, config_id: _Optional[str] = ..., input_id: _Optional[str] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., rule: _Optional[_Union[GuardRule, _Mapping]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ...) -> None: ...
 
 class ResultTokenBucket(_message.Message):
     __slots__ = ()
@@ -258,21 +267,33 @@ class ResultSlidingWindow(_message.Message):
     interval_seconds: int
     def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., remaining_requests: _Optional[int] = ..., max_requests: _Optional[int] = ..., reset_at_unix_seconds: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
 
+class Billing(_message.Message):
+    __slots__ = ()
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    unit: str
+    count: int
+    def __init__(self, unit: _Optional[str] = ..., count: _Optional[int] = ...) -> None: ...
+
 class ResultPromptInjection(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
+    BILLING_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
+    billing: Billing
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
 
 class ResultModerateContent(_message.Message):
     __slots__ = ()
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
+    BILLING_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ...) -> None: ...
+    billing: Billing
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
 
 class ResultLocalSensitiveInfo(_message.Message):
     __slots__ = ()
@@ -310,6 +331,14 @@ class ResultError(_message.Message):
     message: str
     code: str
     def __init__(self, message: _Optional[str] = ..., code: _Optional[str] = ...) -> None: ...
+
+class Warning(_message.Message):
+    __slots__ = ()
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    message: str
+    def __init__(self, code: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
 
 class GuardRuleResult(_message.Message):
     __slots__ = ()
@@ -362,6 +391,13 @@ class GuardRequest(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     USER_AGENT_FIELD_NUMBER: _ClassVar[int]
     LOCAL_EVAL_DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     SENT_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
@@ -369,6 +405,8 @@ class GuardRequest(_message.Message):
     METADATA_FIELD_NUMBER: _ClassVar[int]
     RULE_SUBMISSIONS_FIELD_NUMBER: _ClassVar[int]
     CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     user_agent: str
     local_eval_duration_ms: int
     sent_at_unix_ms: int
@@ -376,7 +414,9 @@ class GuardRequest(_message.Message):
     metadata: _containers.ScalarMap[str, str]
     rule_submissions: _containers.RepeatedCompositeFieldContainer[GuardRuleSubmission]
     correlation_id: str
-    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, user_agent: _Optional[str] = ..., local_eval_duration_ms: _Optional[int] = ..., sent_at_unix_ms: _Optional[int] = ..., label: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., rule_submissions: _Optional[_Iterable[_Union[GuardRuleSubmission, _Mapping]]] = ..., correlation_id: _Optional[str] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class GuardResponse(_message.Message):
     __slots__ = ()
@@ -385,3 +425,51 @@ class GuardResponse(_message.Message):
     decision: GuardDecision
     errors: _containers.RepeatedCompositeFieldContainer[ResultError]
     def __init__(self, decision: _Optional[_Union[GuardDecision, _Mapping]] = ..., errors: _Optional[_Iterable[_Union[ResultError, _Mapping]]] = ...) -> None: ...
+
+class CaptureEvent(_message.Message):
+    __slots__ = ()
+    class MetadataEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    OCCURRED_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    DECISION_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    occurred_at_unix_ms: int
+    correlation_id: str
+    decision_id: str
+    action: str
+    metadata: _containers.ScalarMap[str, str]
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    source: str
+    def __init__(self, occurred_at_unix_ms: _Optional[int] = ..., correlation_id: _Optional[str] = ..., decision_id: _Optional[str] = ..., action: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ..., source: _Optional[str] = ...) -> None: ...
+
+class CaptureRequest(_message.Message):
+    __slots__ = ()
+    USER_AGENT_FIELD_NUMBER: _ClassVar[int]
+    SENT_AT_UNIX_MS_FIELD_NUMBER: _ClassVar[int]
+    EVENTS_FIELD_NUMBER: _ClassVar[int]
+    user_agent: str
+    sent_at_unix_ms: int
+    events: _containers.RepeatedCompositeFieldContainer[CaptureEvent]
+    def __init__(self, user_agent: _Optional[str] = ..., sent_at_unix_ms: _Optional[int] = ..., events: _Optional[_Iterable[_Union[CaptureEvent, _Mapping]]] = ...) -> None: ...
+
+class CaptureResponse(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...

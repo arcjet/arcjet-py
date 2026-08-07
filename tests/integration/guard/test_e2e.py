@@ -288,7 +288,7 @@ class TestE2eSyncSensitiveInfo:
         rule = LocalDetectSensitiveInfo()
         inp = rule("hello world")
 
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             response, rules = _guard_sync([inp])
         decision = decision_from_proto(response)
 
@@ -317,7 +317,7 @@ class TestE2eSyncSensitiveInfo:
         rule = LocalDetectSensitiveInfo()
         inp = rule("test@example.com is my email")
 
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             response, rules = _guard_sync([inp])
         decision = decision_from_proto(response)
 
@@ -331,7 +331,7 @@ class TestE2eSyncSensitiveInfo:
         rule = LocalDetectSensitiveInfo()
         inp = rule("some text")
 
-        with patch("arcjet.guard._local._get_component", return_value=None):
+        with patch("arcjet._local._get_component", return_value=None):
             response, rules = _guard_sync([inp])
         decision = decision_from_proto(response)
 
@@ -461,7 +461,7 @@ class TestE2eSyncDeniedResultNoneOnAllow:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("clean text")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             response, rules = _guard_sync([inp])
         decision = decision_from_proto(response)
         assert inp.denied_result(decision) is None
@@ -511,7 +511,7 @@ class TestE2eSyncMultiRule:
             pi("safe message"),
             si("no pii here"),
         ]
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             response, out_rules = _guard_sync(rules)
 
         decision = decision_from_proto(response)
@@ -573,4 +573,4 @@ class TestE2eSyncMultiRule:
 
         submissions = [rule_to_proto(inp)]
         assert submissions[0].label == "my-rule"
-        assert dict(submissions[0].metadata) == {"env": "staging"}
+        assert dict(submissions[0].metadata_json) == {"env": '"staging"'}

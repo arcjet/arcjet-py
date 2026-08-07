@@ -189,6 +189,7 @@ class IpDetails(_message.Message):
     IS_RELAY_FIELD_NUMBER: _ClassVar[int]
     IS_ABUSER_FIELD_NUMBER: _ClassVar[int]
     BOTS_FIELD_NUMBER: _ClassVar[int]
+    THREAT_FIELD_NUMBER: _ClassVar[int]
     latitude: float
     longitude: float
     accuracy_radius: int
@@ -213,7 +214,32 @@ class IpDetails(_message.Message):
     is_relay: bool
     is_abuser: bool
     bots: _containers.ScalarMap[str, str]
-    def __init__(self, latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_radius: _Optional[int] = ..., timezone: _Optional[str] = ..., postal_code: _Optional[str] = ..., city: _Optional[str] = ..., region: _Optional[str] = ..., country: _Optional[str] = ..., country_name: _Optional[str] = ..., continent: _Optional[str] = ..., continent_name: _Optional[str] = ..., asn: _Optional[str] = ..., asn_name: _Optional[str] = ..., asn_domain: _Optional[str] = ..., asn_type: _Optional[str] = ..., asn_country: _Optional[str] = ..., service: _Optional[str] = ..., is_hosting: _Optional[bool] = ..., is_vpn: _Optional[bool] = ..., is_proxy: _Optional[bool] = ..., is_tor: _Optional[bool] = ..., is_relay: _Optional[bool] = ..., is_abuser: _Optional[bool] = ..., bots: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    threat: ThreatIntelligence
+    def __init__(self, latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_radius: _Optional[int] = ..., timezone: _Optional[str] = ..., postal_code: _Optional[str] = ..., city: _Optional[str] = ..., region: _Optional[str] = ..., country: _Optional[str] = ..., country_name: _Optional[str] = ..., continent: _Optional[str] = ..., continent_name: _Optional[str] = ..., asn: _Optional[str] = ..., asn_name: _Optional[str] = ..., asn_domain: _Optional[str] = ..., asn_type: _Optional[str] = ..., asn_country: _Optional[str] = ..., service: _Optional[str] = ..., is_hosting: _Optional[bool] = ..., is_vpn: _Optional[bool] = ..., is_proxy: _Optional[bool] = ..., is_tor: _Optional[bool] = ..., is_relay: _Optional[bool] = ..., is_abuser: _Optional[bool] = ..., bots: _Optional[_Mapping[str, str]] = ..., threat: _Optional[_Union[ThreatIntelligence, _Mapping]] = ...) -> None: ...
+
+class ThreatIntelligence(_message.Message):
+    __slots__ = ()
+    RISK_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    REPUTATION_FIELD_NUMBER: _ClassVar[int]
+    IS_SAFE_FIELD_NUMBER: _ClassVar[int]
+    NETWORK_TYPES_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
+    ENTITIES_FIELD_NUMBER: _ClassVar[int]
+    ENTITY_NAME_FIELD_NUMBER: _ClassVar[int]
+    SERVICE_FIELD_NUMBER: _ClassVar[int]
+    BACKGROUND_NOISE_FIELD_NUMBER: _ClassVar[int]
+    risk_level: str
+    confidence: str
+    reputation: str
+    is_safe: bool
+    network_types: _containers.RepeatedScalarFieldContainer[str]
+    activities: _containers.RepeatedScalarFieldContainer[str]
+    entities: _containers.RepeatedScalarFieldContainer[str]
+    entity_name: str
+    service: str
+    background_noise: int
+    def __init__(self, risk_level: _Optional[str] = ..., confidence: _Optional[str] = ..., reputation: _Optional[str] = ..., is_safe: _Optional[bool] = ..., network_types: _Optional[_Iterable[str]] = ..., activities: _Optional[_Iterable[str]] = ..., entities: _Optional[_Iterable[str]] = ..., entity_name: _Optional[str] = ..., service: _Optional[str] = ..., background_noise: _Optional[int] = ...) -> None: ...
 
 class Reason(_message.Message):
     __slots__ = ()
@@ -513,6 +539,14 @@ class RuleResult(_message.Message):
     fingerprint: str
     def __init__(self, rule_id: _Optional[str] = ..., state: _Optional[_Union[RuleState, str]] = ..., conclusion: _Optional[_Union[Conclusion, str]] = ..., reason: _Optional[_Union[Reason, _Mapping]] = ..., ttl: _Optional[int] = ..., fingerprint: _Optional[str] = ...) -> None: ...
 
+class Warning(_message.Message):
+    __slots__ = ()
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    message: str
+    def __init__(self, code: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
+
 class RequestDetails(_message.Message):
     __slots__ = ()
     class HeadersEntry(_message.Message):
@@ -573,17 +607,28 @@ class Decision(_message.Message):
 
 class DecideRequest(_message.Message):
     __slots__ = ()
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     SDK_STACK_FIELD_NUMBER: _ClassVar[int]
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     RULES_FIELD_NUMBER: _ClassVar[int]
     CHARACTERISTICS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     sdk_stack: SDKStack
     sdk_version: str
     details: RequestDetails
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class DecideResponse(_message.Message):
     __slots__ = ()
@@ -602,19 +647,30 @@ class DecideResponse(_message.Message):
 
 class ReportRequest(_message.Message):
     __slots__ = ()
+    class MetadataJsonEntry(_message.Message):
+        __slots__ = ()
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     SDK_STACK_FIELD_NUMBER: _ClassVar[int]
     SDK_VERSION_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     DECISION_FIELD_NUMBER: _ClassVar[int]
     RULES_FIELD_NUMBER: _ClassVar[int]
     CHARACTERISTICS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    LOCAL_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     sdk_stack: SDKStack
     sdk_version: str
     details: RequestDetails
     decision: Decision
     rules: _containers.RepeatedCompositeFieldContainer[Rule]
     characteristics: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., decision: _Optional[_Union[Decision, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ...) -> None: ...
+    metadata_json: _containers.ScalarMap[str, str]
+    local_warnings: _containers.RepeatedCompositeFieldContainer[Warning]
+    def __init__(self, sdk_stack: _Optional[_Union[SDKStack, str]] = ..., sdk_version: _Optional[str] = ..., details: _Optional[_Union[RequestDetails, _Mapping]] = ..., decision: _Optional[_Union[Decision, _Mapping]] = ..., rules: _Optional[_Iterable[_Union[Rule, _Mapping]]] = ..., characteristics: _Optional[_Iterable[str]] = ..., metadata_json: _Optional[_Mapping[str, str]] = ..., local_warnings: _Optional[_Iterable[_Union[Warning, _Mapping]]] = ...) -> None: ...
 
 class ReportResponse(_message.Message):
     __slots__ = ()

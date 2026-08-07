@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence, overload
+from typing import Optional, Sequence, overload
 
 from arcjet._errors import ArcjetError
+from arcjet._metadata import Metadata
+from arcjet._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    backend_only_error_message,
+    is_invalid_backend,
+    unsupported_backend_only_types,
+)
 
 from .._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
@@ -42,6 +49,9 @@ class SensitiveInfoConfig:
     deny: tuple[str, ...] = ()
     """Entity types to detect and **deny** on."""
 
+    backend: SensitiveInfoBackend | None = None
+    """Alternative detection backend (default: the bundled WASM engine)."""
+
 
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoWithInput:
@@ -53,7 +63,7 @@ class SensitiveInfoWithInput:
     text: str
     mode: Mode = "LIVE"
     label: Optional[str] = None
-    metadata: Optional[Mapping[str, str]] = None
+    metadata: Optional[Metadata] = None
 
     def results(self, decision: Decision) -> list[RuleResultSensitiveInfo]:
         """Get this input's results as a list (empty or single-element)."""
@@ -88,15 +98,19 @@ class SensitiveInfoWithInput:
 
 
 class LocalDetectSensitiveInfo:
-    """Sensitive information detection rule (local WASM evaluation).
+    """Sensitive information detection rule (local evaluation).
 
-    Detects PII (email addresses, phone numbers, etc.) in text locally
-    via WASM.  The raw text never leaves the SDK — only a SHA-256 hash
-    is sent to the server alongside the locally-computed result.
+    Detects PII (email addresses, phone numbers, etc.) in text locally,
+    using the bundled WASM backend by default or an alternative ``backend``
+    when one is configured.  The raw text never leaves the SDK — only a
+    SHA-256 hash is sent to the server alongside the locally-computed result.
 
     Specify either ``allow`` or ``deny`` to control which entity types
-    are evaluated.  Valid types: ``"EMAIL"``, ``"PHONE_NUMBER"``,
-    ``"IP_ADDRESS"``, ``"CREDIT_CARD_NUMBER"``.
+    are evaluated.  The default (WASM) backend detects ``"EMAIL"``,
+    ``"PHONE_NUMBER"``, ``"IP_ADDRESS"``, and ``"CREDIT_CARD_NUMBER"``.
+    Additional types (names, addresses, SSN, tax IDs, etc.) are only detected
+    when a ``backend`` that supports them is configured, such as
+    ``arcjet_sensitive_info_rampart.rampart()``.
 
     Args:
         allow: Entity types to detect and report without blocking.
@@ -106,12 +120,15 @@ class LocalDetectSensitiveInfo:
             Validated server-side as a slug: lowercase letters, digits,
             dash (``-``), and dot (``.``) only; must start and end with a
             lowercase letter or digit; max 256 bytes.
-        metadata: Optional key-value metadata for analytics.
+        metadata: Optional metadata for analytics — string keys mapped to any
+            JSON-serializable value, including nested objects and arrays.
+        backend: Alternative detection backend (default: the bundled WASM
+            engine).
 
     Raises:
         ArcjetError: If any entity type in *allow* or *deny* is not a
-            valid built-in type, or if both *allow* and *deny* are
-            specified.
+            recognized type; if both *allow* and *deny* are specified; or if a
+            backend-only type is listed without a supporting *backend*.
 
     Example::
 
@@ -129,7 +146,8 @@ class LocalDetectSensitiveInfo:
         allow: Sequence[str],
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
+        backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
     @overload
@@ -139,7 +157,8 @@ class LocalDetectSensitiveInfo:
         deny: Sequence[str],
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
+        backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
     @overload
@@ -148,7 +167,8 @@ class LocalDetectSensitiveInfo:
         *,
         mode: Mode = ...,
         label: Optional[str] = ...,
-        metadata: Optional[Mapping[str, str]] = ...,
+        metadata: Optional[Metadata] = ...,
+        backend: Optional[SensitiveInfoBackend] = ...,
     ) -> None: ...
 
     def __init__(
@@ -158,24 +178,40 @@ class LocalDetectSensitiveInfo:
         deny: Sequence[str] = (),
         mode: Mode = "LIVE",
         label: Optional[str] = None,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
+        backend: Optional[SensitiveInfoBackend] = None,
     ) -> None:
         if allow and deny:
             raise ArcjetError("Specify either 'allow' or 'deny', not both.")
-        for entity in allow:
+        if backend is not None and is_invalid_backend(backend):
+            raise ArcjetError(
+                "backend must be None or an instance with a callable `detect` "
+                "method (not a class)."
+            )
+        for entity in (*allow, *deny):
             if entity not in SENSITIVE_INFO_ENTITY_TYPES:
                 raise ArcjetError(
                     f"Invalid sensitive info entity type: {entity!r}. "
                     f"Valid types: {sorted(SENSITIVE_INFO_ENTITY_TYPES)}"
                 )
-        for entity in deny:
-            if entity not in SENSITIVE_INFO_ENTITY_TYPES:
+        # A configured backend handles its own supported entity types. Without
+        # one, only the default (WASM) backend runs, which detects EMAIL,
+        # PHONE_NUMBER, IP_ADDRESS, and CREDIT_CARD_NUMBER. Listing any other
+        # type can never match, so surface it as a configuration error.
+        if backend is None:
+            unsupported = unsupported_backend_only_types((*allow, *deny))
+            if unsupported:
                 raise ArcjetError(
-                    f"Invalid sensitive info entity type: {entity!r}. "
-                    f"Valid types: {sorted(SENSITIVE_INFO_ENTITY_TYPES)}"
+                    backend_only_error_message(
+                        unsupported,
+                        prefix="LocalDetectSensitiveInfo config error",
+                        mention_detect=False,
+                    )
                 )
         self._config_id = str(uuid.uuid4())
-        self._config = SensitiveInfoConfig(allow=tuple(allow), deny=tuple(deny))
+        self._config = SensitiveInfoConfig(
+            allow=tuple(allow), deny=tuple(deny), backend=backend
+        )
         self._mode: Mode = mode
         self._label = label
         self._metadata = metadata
@@ -189,7 +225,7 @@ class LocalDetectSensitiveInfo:
         self,
         text: str,
         *,
-        metadata: Optional[Mapping[str, str]] = None,
+        metadata: Optional[Metadata] = None,
     ) -> SensitiveInfoWithInput:
         return SensitiveInfoWithInput(
             _input_id=str(uuid.uuid4()),

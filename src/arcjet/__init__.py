@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ._client import Arcjet, ArcjetSync, arcjet, arcjet_sync
-from ._dataclasses import IpDetails
+from ._dataclasses import IpDetails, ThreatIntelligence
 from ._decision import (
     Decision,
     IpInfo,
@@ -10,6 +10,7 @@ from ._decision import (
     is_spoofed_bot,
 )
 from ._enums import Mode
+from ._metadata import Metadata, MetadataValue
 from ._rules import (
     BotCategory,
     EmailType,
@@ -26,6 +27,11 @@ from ._rules import (
     token_bucket,
     validate_email,
 )
+from ._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
+)
 
 __all__ = [
     "arcjet_sync",
@@ -39,11 +45,17 @@ __all__ = [
     "detect_sensitive_info",
     "EmailType",
     "SensitiveInfoEntityType",
+    "SensitiveInfoBackend",
+    "SensitiveInfoBackendContext",
+    "SensitiveInfoBackendOptions",
     "filter_request",
     "fixed_window",
     "IpInfo",
     "IpDetails",
+    "ThreatIntelligence",
     "is_spoofed_bot",
+    "Metadata",
+    "MetadataValue",
     "Mode",
     "PromptInjectionDetection",
     "Reason",

@@ -13,12 +13,16 @@
   </picture>
 </p>
 
-[Arcjet](https://arcjet.com) is the runtime security platform that ships with your AI code. Stop bots and automated attacks from burning your AI budget, leaking data, or misusing tools with Arcjet's AI security building blocks.
+[Arcjet](https://arcjet.com) is the runtime security platform that ships in your AI code. Detect prompt injection, authorize agent tool calls, redact sensitive data, and block bots and abuse. Real-time security building blocks you call inside your app, before an action happens.
 
 This is the Python SDK for [Arcjet](https://arcjet.com) — use `arcjet` /
 `arcjet_sync` for **request protection** (FastAPI, Flask, Django route handlers)
 and `arcjet.guard` for **guard protection** (AI agent tool calls, MCP servers,
 background jobs).
+
+## Why Arcjet?
+
+Your app's AI features and agents take real actions, calling tools, reading data, hitting APIs. Arcjet runs inside that code and lets you enforce security on each action in real time, then audit what happened.
 
 ## Getting started
 
@@ -192,6 +196,7 @@ async def chat(request: Request, body: ChatRequest):
 | Request Filters | ✅ | — |
 | IP Analysis | ✅ | — |
 | Custom Rules | — | ✅ |
+| Capture (visibility events) | — | ✅ |
 
 - 🔒 [Prompt Injection Detection](#prompt-injection-detection) — detect and block
   prompt injection attacks before they reach your LLM.
@@ -489,9 +494,10 @@ details.
 ## Sensitive information detection
 
 Detect and block PII in request content before it reaches your LLM or data
-store. Built-in entity types: `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`,
-`CREDIT_CARD_NUMBER`. You can also provide a custom `detect` callback for
-additional patterns.
+store. The default (local WebAssembly) backend detects `EMAIL`, `PHONE_NUMBER`,
+`IP_ADDRESS`, and `CREDIT_CARD_NUMBER`. You can provide a custom `detect`
+callback for additional patterns, or the optional on-device Rampart `backend`
+(see below) for names, addresses, and government/financial identifiers.
 
 ```py
 from arcjet import arcjet, detect_sensitive_info, SensitiveInfoEntityType, Mode
@@ -527,6 +533,44 @@ rules = [
     ),
 ]
 ```
+
+### On-device Rampart backend (more entity types)
+
+The default backend detects the four types above. To detect names, addresses,
+and government/financial identifiers, install the optional
+`arcjet[sensitive-info-rampart]` extra and pass its `backend` to the rule. It
+runs the on-device [Rampart](https://huggingface.co/nationaldesignstudio/rampart)
+NER model entirely locally, so no data leaves your environment:
+
+```sh
+pip install "arcjet[sensitive-info-rampart]"
+```
+
+```py
+from arcjet import arcjet, detect_sensitive_info, Mode
+from arcjet_sensitive_info_rampart import rampart
+
+aj = arcjet(
+    key=arcjet_key,
+    rules=[
+        detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["EMAIL", "GIVEN_NAME", "SURNAME", "STREET_NAME", "SSN"],
+            backend=rampart(),
+        ),
+    ],
+)
+```
+
+The backend adds these entity types: `GIVEN_NAME`, `SURNAME`, `SSN`, `URL`,
+`TAX_ID`, `BANK_ACCOUNT`, `ROUTING_NUMBER`, `GOVERNMENT_ID`, `PASSPORT`,
+`DRIVERS_LICENSE`, `BUILDING_NUMBER`, `STREET_NAME`, `SECONDARY_ADDRESS`,
+`CITY`, `STATE`, `ZIP_CODE`. Listing one of these **without** a supporting
+`backend` (or a custom `detect` function) raises, since the default engine can
+never match it. The bundled model loads once on first use and is reused for
+every request. See the
+[`arcjet-sensitive-info-rampart` README](./sensitive-info-rampart/README.md) and
+the [`examples/fastapi-rampart`](./examples/fastapi-rampart) example.
 
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
@@ -706,12 +750,22 @@ if ip:
     print(ip.city, ip.country_name)   # geolocation
     print(ip.asn, ip.asn_name)        # ASN / network
     print(ip.is_vpn, ip.is_hosting)   # reputation
+    if ip.threat:                     # optional threat intelligence
+        threat = ip.threat
+        print(threat.risk_level, threat.confidence, threat.reputation)
+        print(threat.is_safe, threat.network_types, threat.activities)
+        print(threat.entities, threat.entity_name, threat.service)
 ```
 
 Available fields include geolocation (`latitude`, `longitude`, `city`,
 `region`, `country`, `continent`), network (`asn`, `asn_name`, `asn_domain`,
 `asn_type`, `asn_country`), and reputation (`is_vpn`, `is_proxy`, `is_tor`,
-`is_hosting`, `is_relay`).
+`is_hosting`, `is_relay`). Threat intelligence provides `risk_level`,
+`confidence`, `reputation`, `is_safe`, `network_types`, `activities`,
+`entities`, `entity_name`, and `service`.
+
+`decision.ip_details` and its `threat` field are optional because metadata or
+threat intelligence may not be available for every IP.
 
 ## LangChain example
 
@@ -958,12 +1012,20 @@ decision = await aj.guard(
 
 if decision.conclusion == "DENY":
     print("Prompt injection detected")
+
+result = prompt_scan.result(decision)
+if result and result.billing:
+    print(result.billing.unit, result.billing.count)
 ```
+
+Guard billing is optional. Prompt injection usage is reported in `tokens`,
+while content moderation usage is reported in `text_units` (text chunks), so
+always inspect `billing.unit` rather than assuming the unit.
 
 ### Sensitive information detection
 
-Detects PII locally via WASM — the raw text never leaves the SDK. Built-in
-entity types: `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`, `CREDIT_CARD_NUMBER`.
+Detects PII locally — the raw text never leaves the SDK. The default backend
+detects `EMAIL`, `PHONE_NUMBER`, `IP_ADDRESS`, `CREDIT_CARD_NUMBER`.
 
 ```py
 from arcjet.guard import LocalDetectSensitiveInfo
@@ -977,6 +1039,18 @@ decision = await aj.guard(
     rules=[sensitive(user_input)],
 )
 ```
+
+For additional entity types (names, addresses, SSN, etc.), install
+`arcjet[sensitive-info-rampart]` and pass the on-device Rampart `backend`:
+
+```py
+from arcjet.guard import LocalDetectSensitiveInfo
+from arcjet_sensitive_info_rampart import rampart
+
+sensitive = LocalDetectSensitiveInfo(deny=["GIVEN_NAME", "SSN"], backend=rampart())
+```
+
+Listing a backend-only type without a supporting `backend` raises.
 
 ### Custom rules
 
@@ -1068,7 +1142,69 @@ for result in decision.results:
 | ----------- | ------------------------- | ----------- |
 | `rules`     | `Sequence[RuleWithInput]` | Bound rule inputs (required) |
 | `label`     | `str`                     | Label identifying this guard call (required) |
-| `metadata`  | `dict[str, str] \| None`  | Optional key-value metadata |
+| `metadata`  | `Metadata \| None`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id` | `str \| None`       | Opaque id correlating this call with other `guard()`/`protect()` calls |
+
+### Metadata
+
+`guard()`, `protect()`, and every guard rule accept `metadata`: a mapping of
+string keys to **any JSON-serializable value**, including nested objects and
+arrays. It is attached to the decision for correlation and analytics.
+
+```py
+decision = await aj.guard(
+    label="tools.weather",
+    rules=[user_limit(key=user_id)],
+    metadata={
+        "user": {"id": user_id, "plan": "pro"},
+        "tool_name": "get_weather",
+        "duration_ms": 160,
+        "success": True,
+    },
+)
+```
+
+Each top-level value is JSON-encoded by the SDK and stored verbatim, so exact
+integers and value formatting survive. Server-enforced limits:
+
+| Limit                    | Value    | Over the limit          |
+| ------------------------ | -------- | ----------------------- |
+| Top-level keys           | 128      | Extra keys dropped      |
+| Serialized bytes / value | 4 KiB    | That key dropped        |
+| Nesting depth / value    | 10       | That key dropped        |
+| Key names                | letters, digits, `-`, `.`, `_` | That key dropped |
+
+Nothing here can fail a call or change a decision — metadata is excluded from
+fingerprinting and from the decision cache key. Every dropped key is reported:
+server-side drops arrive on `decision.warnings`, one per key. Keys the SDK itself
+could not encode (a `datetime`, a set, `NaN`, a circular reference) are collected
+into a single warning naming them all, added to `decision.warnings` and reported
+to the server. For `protect()`, which has no warnings channel on its `Decision`,
+that warning is logged at `WARNING` instead.
+
+Metadata is untrusted and is not redacted — do not put secrets or PII in it.
+
+Some limits are the SDK's own, not the server's. The SDK drops keys once one
+request's metadata exceeds 768 KiB in total (keys plus JSON-encoded values,
+counted before compression). That ceiling sits well above anything the server
+would accept — its own caps allow roughly 512 KiB in a single map — and exists
+only so oversized metadata cannot push a request past the 1 MiB protocol limit,
+where it would be rejected outright and fail open.
+
+Two behaviours differ between the Python and JavaScript SDKs:
+
+- **Integer precision.** Python integers are arbitrary-precision and are sent
+  verbatim, so a value past 2^53 survives exactly. The JavaScript SDK cannot do
+  this — its numbers are IEEE-754 doubles before they reach the wire — so send
+  such values as strings if both SDKs must agree.
+- **Objects with a `toJSON()` method**, including JavaScript `Date`, are
+  serialized by that method in the JS SDK. Python has no equivalent protocol, so
+  a `datetime` (or any other non-JSON type) is dropped with a warning. Convert
+  explicitly — `datetime.isoformat()` — if both SDKs must agree.
+
+Rule-level metadata is merged with `guard()`-level metadata shallowly: a
+duplicate key's whole value is replaced, never deep-merged.
+
 
 ### DRY_RUN mode
 
@@ -1083,6 +1219,82 @@ user_limit = TokenBucket(
     mode="DRY_RUN",
 )
 ```
+
+### Recording what happened with `capture()`
+
+`guard()` decides whether something is allowed. `capture()` records that it
+happened. Use it for the actions you want to see in a security trace but do not
+want to gate — a refund issued, a document exported, a tool call completed.
+
+```py
+decision = await aj.guard(label="refund", rules=[inp])
+if decision.conclusion == "ALLOW":
+    refund_id = issue_refund(...)
+
+    aj.capture(
+        action="refund.issued",
+        correlation_id=workflow_id,   # ties this to other calls in the workflow
+        decision_id=decision.id,      # ties it to the decision above
+        metadata={"amount_cents": 4999, "invoice": {"id": "inv_123"}},
+    )
+```
+
+`capture()` returns immediately and is not awaited, even on the async client.
+Events are queued and sent in the background, batched together.
+
+It is **best-effort and never affects a decision**:
+
+- It never raises. A bad field is dropped and the rest of the event is sent; an
+  event with no usable `action` is dropped entirely.
+- Under sustained load or a failing backend, events are dropped rather than
+  slowing your request down. A failed send is never retried.
+- Nothing is dropped silently. Drops are reported through the `arcjet` logger
+  with a stable code — `AJ3001` (queue full), `AJ3002` (send failed), `AJ3003`
+  (flush deadline). The `arcjet` logger is already at `WARNING`, so you only
+  need to attach a handler to see them.
+
+  Repeats of the same code are coalesced for a minute and the suppressed count
+  is reported with the next line for that code, or by the next `flush()`. A
+  burst that ends without either will under-report its total — the figure is a
+  count of events seen, not a guaranteed total.
+
+  Pass your own logger to receive **every** diagnostic uncoalesced, which is what
+  you need to keep a metric of dropped events:
+
+  ```py
+  aj = launch_arcjet_sync(key=arcjet_key, logger=my_logger)
+  ```
+
+  Each record carries `code` and `count` attributes alongside the message, so a
+  handler can route or count on them without parsing text.
+
+Do not put secrets or PII in `metadata`; it is stored as untrusted data.
+
+#### Delivering events before shutdown
+
+Delivery is asynchronous, so events queued as your process exits may never be
+sent — the sync worker is a daemon thread and will not hold the interpreter
+open. Call `flush()` at a shutdown point:
+
+```py
+# Async (FastAPI lifespan, or any async teardown)
+await aj.flush()
+
+# Sync (Flask teardown, atexit, or the end of a script)
+arcjet_sync_guard.flush()
+```
+
+`flush()` waits up to `timeout_ms` (default 1000) for the events outstanding
+when you called it. On expiry, queued events are dropped and a request already
+on the wire is abandoned — not cancelled, so it may still arrive, and nothing
+will tell you either way. Both are counted in the `AJ3003` report.
+
+Events captured *while* a flush is waiting are not its responsibility and
+survive its deadline, so calling `flush()` per request in a concurrent server
+cannot discard another request's telemetry.
+
+There is no `close()`: a client holds no connection of its own to release, so
+flushing is the only shutdown step that changes what gets delivered.
 
 ## Best practices
 
@@ -1176,6 +1388,8 @@ All parameters are optional keyword arguments passed alongside the `request`:
 | `sensitive_info_value`             | `str`             | Sensitive info detection |
 | `email`                            | `str`             | Email validation         |
 | `filter_local`                     | `dict[str, str]`  | Request filters (`local.*` fields) |
+| `metadata`                         | `Metadata`        | Structured metadata — see [Metadata](#metadata) |
+| `correlation_id`                   | `str`             | Opaque id correlating this call with other `protect()`/`guard()` calls |
 | `ip_src`                           | `str`             | Manual IP override (advanced) |
 
 ### Decision response

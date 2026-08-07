@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Mapping, Optional
+from typing import Optional
+
+from arcjet._metadata import Metadata, MetadataValue
 
 from .._types import Decision, InternalResult, RuleResultError
 
@@ -60,18 +62,19 @@ def _hash_key(key: str) -> str:
 
 
 def _merge_metadata(
-    config_metadata: Optional[Mapping[str, str]],
-    input_metadata: Optional[Mapping[str, str]],
-) -> Optional[Mapping[str, str]]:
+    config_metadata: Optional[Metadata],
+    input_metadata: Optional[Metadata],
+) -> Optional[Metadata]:
     """Merge config-level and input-level metadata.
 
-    Config metadata is added first; input metadata is merged on top.
-    Duplicate keys are replaced by input values.  Returns ``None`` if
-    both are empty.
+    Config metadata is added first; input metadata is merged on top.  The merge
+    is shallow and top-level only: a duplicate key's value is *replaced*, never
+    deep-merged, so last writer wins for the whole nested value.  Returns
+    ``None`` if both are empty.
     """
     if not config_metadata and not input_metadata:
         return None
-    merged: dict[str, str] = {}
+    merged: dict[str, MetadataValue] = {}
     if config_metadata:
         merged.update(config_metadata)
     if input_metadata:

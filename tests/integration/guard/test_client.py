@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from arcjet._errors import ArcjetMisconfiguration
+from arcjet._metadata import LocalWarning
 from arcjet.guard import (
     ArcjetGuard,
     ArcjetGuardSync,
@@ -249,11 +250,56 @@ class TestHelpers:
         )
         assert req.user_agent == "test/1.0"
         assert req.label == "my-label"
-        assert dict(req.metadata) == {"env": "test"}
+        # metadata goes on the wire JSON-encoded per top-level key.
+        assert dict(req.metadata_json) == {"env": '"test"'}
+        assert len(req.metadata) == 0
         assert req.local_eval_duration_ms == 5
         assert req.sent_at_unix_ms > 0
         assert req.correlation_id == "wf_abcdef"
         assert len(req.rule_submissions) == 1
+
+    def test_build_request_nested_metadata(self) -> None:
+        req = _build_request(
+            [],
+            user_agent="test",
+            label="l",
+            metadata={"user": {"id": "u_1"}, "duration_ms": 160},
+            local_eval_duration_ms=0,
+        )
+        assert dict(req.metadata_json) == {
+            "user": '{"id":"u_1"}',
+            "duration_ms": "160",
+        }
+        # The legacy plain-string map is not dual-written: the server prefers
+        # metadata_json and only falls back to `metadata` for older SDKs.
+        assert len(req.metadata) == 0
+        assert len(req.local_warnings) == 0
+
+    def test_build_request_drops_unencodable_metadata_with_local_warning(
+        self,
+    ) -> None:
+        req = _build_request(
+            [],
+            user_agent="test",
+            label="l",
+            metadata={"ok": 1, "bad": object()},  # type: ignore[invalid-argument-type]
+            local_eval_duration_ms=0,
+        )
+        assert dict(req.metadata_json) == {"ok": "1"}
+        assert len(req.local_warnings) == 1
+        assert req.local_warnings[0].code == "AJ1017"
+        assert '"bad"' in req.local_warnings[0].message
+
+    def test_build_request_carries_rule_local_warnings(self) -> None:
+        req = _build_request(
+            [],
+            user_agent="test",
+            label="l",
+            metadata=None,
+            local_eval_duration_ms=0,
+            local_warnings=[LocalWarning(code="AJ1017", message="rules[0]. dropped")],
+        )
+        assert [w.message for w in req.local_warnings] == ["rules[0]. dropped"]
 
     def test_build_request_no_metadata(self) -> None:
         req = _build_request(
@@ -264,6 +310,8 @@ class TestHelpers:
             local_eval_duration_ms=0,
         )
         assert len(req.metadata) == 0
+        assert len(req.metadata_json) == 0
+        assert len(req.local_warnings) == 0
 
     def test_make_error_decision(self) -> None:
         d = _make_error_decision("oops")
@@ -312,8 +360,42 @@ class TestArcjetGuardSync:
         req = client.last_request
         assert req is not None
         assert req.label == "my-guard"
-        assert dict(req.metadata) == {"version": "2"}
+        assert dict(req.metadata_json) == {"version": '"2"'}
         assert req.user_agent == "arcjet-py/test"
+
+    def test_rule_metadata_is_json_encoded_and_prefixed(self) -> None:
+        client = FakeSyncClient()
+        guard = _make_guard_sync(client)
+        rule = TokenBucket(
+            refill_rate=10,
+            interval_seconds=60,
+            max_tokens=100,
+            metadata={"tier": {"name": "gold"}, "bad": object()},  # type: ignore[invalid-argument-type]
+        )
+        decision = guard.guard([rule(key="x")], label="my-guard")
+        req = client.last_request
+        assert req is not None
+        assert dict(req.rule_submissions[0].metadata_json) == {
+            "tier": '{"name":"gold"}'
+        }
+        # A per-rule drop rides on the request envelope (GuardRuleSubmission has
+        # no local_warnings field) and is prefixed with the rule index.
+        assert len(req.local_warnings) == 1
+        assert req.local_warnings[0].message.startswith("rules[0].")
+        # The server never echoes local_warnings back, so the SDK merges its own
+        # drops into decision.warnings — a drop is never silent.
+        assert [w.code for w in decision.warnings] == ["AJ1017"]
+
+    def test_local_warnings_surface_on_transport_error_decision(self) -> None:
+        guard = _make_guard_sync(FakeErrorSyncClient())
+        rule = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        decision = guard.guard(
+            [rule(key="x")],
+            label="test",
+            metadata={"bad": object()},  # type: ignore[invalid-argument-type]
+        )
+        assert decision.conclusion == "ALLOW"
+        assert [w.code for w in decision.warnings] == ["AJ1017"]
 
     def test_fail_open_on_transport_error(self) -> None:
         guard = _make_guard_sync(FakeErrorSyncClient())
@@ -343,7 +425,7 @@ class TestArcjetGuardSync:
         guard = _make_guard_sync(client)
         rule = LocalDetectSensitiveInfo()
         inp = rule("no pii here")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 
@@ -409,7 +491,7 @@ class TestArcjetGuardAsync:
         req = client.last_request
         assert req is not None
         assert req.label == "async-guard"
-        assert dict(req.metadata) == {"k": "v"}
+        assert dict(req.metadata_json) == {"k": '"v"'}
 
     def test_fail_open_on_transport_error(self) -> None:
         guard = _make_guard(FakeErrorAsyncClient())

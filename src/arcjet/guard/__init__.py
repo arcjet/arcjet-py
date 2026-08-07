@@ -32,7 +32,14 @@ Public API
 
     launch_arcjet, launch_arcjet_sync
     ArcjetGuard, ArcjetGuardSync
+
+Both clients expose ``.guard()`` for decisions and ``.capture()`` /
+``.flush()`` for visibility events.  ``capture()`` is fire-and-forget: it
+records what your application did without affecting any decision, and is
+delivered in the background in batches.
 """
+
+from arcjet._metadata import Metadata, MetadataValue
 
 from ._client import (
     ArcjetGuard,
@@ -68,6 +75,7 @@ experimental_ModerateContent = ModerateContent
 from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     ArcjetWarning,
+    Billing,
     Conclusion,
     CustomEvaluateResult,
     Decision,
@@ -88,9 +96,12 @@ from ._types import (
 
 __all__ = [
     # Types
+    "Billing",
     "Conclusion",
     "CustomEvaluateResult",
     "Decision",
+    "Metadata",
+    "MetadataValue",
     "Mode",
     "Reason",
     "RuleResult",

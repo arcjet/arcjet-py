@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from arcjet.guard import (
     ArcjetWarning,
+    Billing,
     DetectPromptInjection,
     FixedWindow,
     LocalDetectSensitiveInfo,
@@ -92,7 +93,7 @@ class TestRuleToProto:
         )
         rule = LocalDetectSensitiveInfo(allow=["EMAIL"])
         inp = rule("my email is foo@bar.com")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -237,6 +238,7 @@ class TestDecisionFromProto:
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
                         detected=True,
+                        billing=pb.Billing(unit="tokens", count=2**64 - 1),
                     ),
                 ),
             ],
@@ -245,6 +247,50 @@ class TestDecisionFromProto:
         decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "PROMPT_INJECTION"
+        r = inp.result(decision)
+        assert r is not None
+        assert r.billing == Billing(unit="tokens", count=2**64 - 1)
+
+    def test_prompt_injection_with_empty_billing(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        billing=pb.Billing(),
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing == Billing(unit="", count=0)
+
+    def test_prompt_injection_without_billing(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing is None
 
     def test_deny_with_moderate_content(self) -> None:
         rule = experimental_ModerateContent()
@@ -261,6 +307,7 @@ class TestDecisionFromProto:
                     moderate_content=pb.ResultModerateContent(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
                         detected=True,
+                        billing=pb.Billing(unit="text_units", count=3),
                     ),
                 ),
             ],
@@ -272,6 +319,27 @@ class TestDecisionFromProto:
         r = inp.result(decision)
         assert r is not None
         assert r.detected is True
+        assert r.billing == Billing(unit="text_units", count=3)
+
+    def test_moderate_content_without_billing(self) -> None:
+        rule = experimental_ModerateContent()
+        inp = rule("harmless")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing is None
 
     def test_deny_with_sensitive_info(self) -> None:
         rule = LocalDetectSensitiveInfo()
@@ -644,7 +712,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("my email is test@example.com")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -665,7 +733,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("no sensitive data")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -695,7 +763,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         )
         rule = LocalDetectSensitiveInfo()
         inp = rule("test@example.com and more")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -714,7 +782,7 @@ class TestRuleToProtoLocalSensitiveInfo:
         mock_component.detect_sensitive_info.side_effect = RuntimeError("wasm crash")
         rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
-        with patch("arcjet.guard._local._get_component", return_value=mock_component):
+        with patch("arcjet._local._get_component", return_value=mock_component):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )
@@ -722,15 +790,18 @@ class TestRuleToProtoLocalSensitiveInfo:
         local_results = {inp._input_id: local_result}
         proto = rule_to_proto(inp, local_results)
         si = proto.rule.local_sensitive_info
-        assert si.result_error.code == "WASM_ERROR"
-        assert "wasm crash" in si.result_error.message
+        assert si.result_error.code == "SENSITIVE_INFO_ERROR"
+        # The message carries only the exception type, not str(exc) ("wasm
+        # crash"), so scanned PII cannot leak into the upstream proto.
+        assert "RuntimeError" in si.result_error.message
+        assert "wasm crash" not in si.result_error.message
 
     def test_attaches_not_run_when_wasm_unavailable(self) -> None:
         from arcjet.guard._local import evaluate_sensitive_info_locally
 
         rule = LocalDetectSensitiveInfo()
         inp = rule("test text")
-        with patch("arcjet.guard._local._get_component", return_value=None):
+        with patch("arcjet._local._get_component", return_value=None):
             local_result = evaluate_sensitive_info_locally(
                 inp.text, allow=inp.config.allow, deny=inp.config.deny
             )

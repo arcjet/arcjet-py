@@ -52,6 +52,14 @@ from typing import Callable, Iterable, Sequence, Tuple, Union
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._enums import Mode, _mode_to_proto
+from ._sensitive_info_backend import (
+    BACKEND_ONLY_SENSITIVE_INFO_TYPES,
+    NATIVE_SENSITIVE_INFO_TYPES,
+    SensitiveInfoBackend,
+    backend_only_error_message,
+    is_invalid_backend,
+    unsupported_backend_only_types,
+)
 
 
 class RuleSpec:
@@ -475,16 +483,81 @@ class SensitiveInfoEntityType(str, Enum):
     """
 
     EMAIL = "EMAIL"
-    """Email addresses."""
+    """Email addresses. Detected natively by the default (WASM) backend."""
 
     PHONE_NUMBER = "PHONE_NUMBER"
-    """Phone numbers."""
+    """Phone numbers. Detected natively by the default (WASM) backend."""
 
     IP_ADDRESS = "IP_ADDRESS"
-    """IP addresses."""
+    """IP addresses. Detected natively by the default (WASM) backend."""
 
     CREDIT_CARD_NUMBER = "CREDIT_CARD_NUMBER"
-    """Credit card numbers."""
+    """Credit card numbers. Detected natively by the default (WASM) backend."""
+
+    # The following types are only detected when a ``backend`` that supports
+    # them is configured (such as ``arcjet-sensitive-info-rampart``). Listing one
+    # in ``allow``/``deny`` without such a backend (and without a custom
+    # ``detect`` function) raises, since the default backend can never match it.
+
+    GIVEN_NAME = "GIVEN_NAME"
+    """Given (first) names. Backend-only."""
+
+    SURNAME = "SURNAME"
+    """Surnames (last names). Backend-only."""
+
+    SSN = "SSN"
+    """US Social Security numbers. Backend-only."""
+
+    URL = "URL"
+    """URLs. Backend-only."""
+
+    TAX_ID = "TAX_ID"
+    """Tax identifiers. Backend-only."""
+
+    BANK_ACCOUNT = "BANK_ACCOUNT"
+    """Bank account numbers. Backend-only."""
+
+    ROUTING_NUMBER = "ROUTING_NUMBER"
+    """Bank routing numbers. Backend-only."""
+
+    GOVERNMENT_ID = "GOVERNMENT_ID"
+    """Government identifiers. Backend-only."""
+
+    PASSPORT = "PASSPORT"
+    """Passport numbers. Backend-only."""
+
+    DRIVERS_LICENSE = "DRIVERS_LICENSE"
+    """Driver's license numbers. Backend-only."""
+
+    BUILDING_NUMBER = "BUILDING_NUMBER"
+    """Street/building numbers. Backend-only."""
+
+    STREET_NAME = "STREET_NAME"
+    """Street names. Backend-only."""
+
+    SECONDARY_ADDRESS = "SECONDARY_ADDRESS"
+    """Secondary address lines (apartment, suite, etc.). Backend-only."""
+
+    CITY = "CITY"
+    """Cities. Backend-only."""
+
+    STATE = "STATE"
+    """States/regions. Backend-only."""
+
+    ZIP_CODE = "ZIP_CODE"
+    """Postal/ZIP codes. Backend-only."""
+
+
+# Fail fast if the enum drifts from the frozensets in ``_sensitive_info_backend``
+# (which ``guard/_types.py`` also derives from). Adding a member here without
+# updating the frozensets — or vice versa — would silently break validation. An
+# explicit check (not ``assert``) so it still runs under ``python -O``.
+if {member.value for member in SensitiveInfoEntityType} != (
+    NATIVE_SENSITIVE_INFO_TYPES | BACKEND_ONLY_SENSITIVE_INFO_TYPES
+):
+    raise RuntimeError(
+        "SensitiveInfoEntityType is out of sync with the sensitive-info type frozensets"
+    )
 
 
 # A sensitive info specifier can be a known entity type or an arbitrary string
@@ -506,10 +579,16 @@ class SensitiveInfoDetection(RuleSpec):
     context_window_size: int | None = None
     detect: Callable[[list[str]], Sequence[str | None]] | None = None
     characteristics: tuple[str, ...] = ()
+    backend: SensitiveInfoBackend | None = None
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("SensitiveInfoDetection.mode must be a Mode enum")
+        if self.backend is not None and is_invalid_backend(self.backend):
+            raise TypeError(
+                "SensitiveInfoDetection.backend must be None or an instance with "
+                "a callable `detect` method (not a class)"
+            )
         for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
             if not isinstance(seq, tuple):
                 raise TypeError(
@@ -533,6 +612,23 @@ class SensitiveInfoDetection(RuleSpec):
                 "SensitiveInfoDetection: expressions must be passed in either "
                 "allow or deny, not both"
             )
+        # Without a backend or custom `detect`, only the default (WASM) engine
+        # runs, which can never match a backend-only type. Surface that as a
+        # configuration error here — not just in the factory — so directly
+        # constructing the rule cannot silently allow all traffic.
+        if self.backend is None and self.detect is None:
+            unsupported = unsupported_backend_only_types(
+                e.value if isinstance(e, SensitiveInfoEntityType) else e
+                for e in (*self.allow, *self.deny)
+            )
+            if unsupported:
+                raise ValueError(
+                    backend_only_error_message(
+                        unsupported,
+                        prefix="SensitiveInfoDetection options error",
+                        mention_detect=True,
+                    )
+                )
         if not isinstance(self.characteristics, tuple):
             raise TypeError(
                 "SensitiveInfoDetection.characteristics must be a tuple of strings"
@@ -1096,6 +1192,7 @@ def detect_sensitive_info(
     context_window_size: int | None = None,
     detect: Callable[[list[str]], Sequence[str | None]] | None = None,
     characteristics: Sequence[str] = (),
+    backend: SensitiveInfoBackend | None = None,
 ) -> SensitiveInfoDetection:
     """Detect sensitive information (PII) in request content.
 
@@ -1121,6 +1218,14 @@ def detect_sensitive_info(
             detection. The WASM component calls this during analysis to
             supplement its built-in detectors.
         characteristics: Optional characteristics for rate limiting.
+        backend: Alternative detection backend (default: the
+            bundled WebAssembly engine). Provide a backend such as
+            ``arcjet_sensitive_info_rampart.rampart()`` to detect sensitive
+            information with an on-device model. Types beyond ``EMAIL``,
+            ``PHONE_NUMBER``, ``IP_ADDRESS``, and ``CREDIT_CARD_NUMBER`` are
+            only detected when a backend that supports them is configured (or a
+            custom ``detect`` function is provided) — listing one in
+            ``allow``/``deny`` without either raises ``ValueError``.
 
     Returns:
         A ``SensitiveInfoDetection`` rule to include in the ``rules`` list
@@ -1164,6 +1269,27 @@ def detect_sensitive_info(
     deny_tuple: tuple[SensitiveInfoSpecifier, ...] = tuple(
         e if isinstance(e, SensitiveInfoEntityType) else str(e) for e in deny
     )
+
+    # A configured backend handles its own supported entity types, and a custom
+    # `detect` function can identify anything the caller lists. Without either,
+    # only the default (WASM) backend runs, which detects EMAIL, PHONE_NUMBER,
+    # IP_ADDRESS, and CREDIT_CARD_NUMBER. Listing any other built-in type in that
+    # case can never match, so surface it as a configuration error rather than
+    # silently doing nothing.
+    if backend is None and detect is None:
+        unsupported = unsupported_backend_only_types(
+            e.value if isinstance(e, SensitiveInfoEntityType) else e
+            for e in (*allow_tuple, *deny_tuple)
+        )
+        if unsupported:
+            raise ValueError(
+                backend_only_error_message(
+                    unsupported,
+                    prefix="detect_sensitive_info() options error",
+                    mention_detect=True,
+                )
+            )
+
     return SensitiveInfoDetection(
         mode=_coerce_mode(mode),
         allow=allow_tuple,
@@ -1171,6 +1297,7 @@ def detect_sensitive_info(
         context_window_size=context_window_size,
         detect=detect,
         characteristics=tuple(str(c) for c in characteristics),
+        backend=backend,
     )
 
 

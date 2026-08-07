@@ -19,6 +19,9 @@ class DecideService(Protocol):
     async def guard(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
+    async def capture(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
+        raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
+
 
 class DecideServiceASGIApplication(ConnectASGIApplication[DecideService]):
     def __init__(self, service: DecideService | AsyncGenerator[DecideService], *, interceptors: Iterable[Interceptor]=(), read_max_bytes: int | None = None) -> None:
@@ -34,6 +37,16 @@ class DecideServiceASGIApplication(ConnectASGIApplication[DecideService]):
                         idempotency_level=IdempotencyLevel.UNKNOWN,
                     ),
                     function=svc.guard,
+                ),
+                "/proto.decide.v2.DecideService/Capture": Endpoint.unary(
+                    method=MethodInfo(
+                        name="Capture",
+                        service_name="proto.decide.v2.DecideService",
+                        input=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+                        output=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse,
+                        idempotency_level=IdempotencyLevel.UNKNOWN,
+                    ),
+                    function=svc.capture,
                 ),
             },
             interceptors=interceptors,
@@ -67,9 +80,31 @@ class DecideServiceClient(ConnectClient):
             timeout_ms=timeout_ms,
         )
 
+    async def capture(
+        self,
+        request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+        *,
+        headers: Headers | Mapping[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
+        return await self.execute_unary(
+            request=request,
+            method=MethodInfo(
+                name="Capture",
+                service_name="proto.decide.v2.DecideService",
+                input=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+                output=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse,
+                idempotency_level=IdempotencyLevel.UNKNOWN,
+            ),
+            headers=headers,
+            timeout_ms=timeout_ms,
+        )
+
 
 class DecideServiceSync(Protocol):
     def guard(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse:
+        raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
+    def capture(self, request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest, ctx: RequestContext) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
         raise ConnectError(Code.UNIMPLEMENTED, "Not implemented")
 
 
@@ -86,6 +121,16 @@ class DecideServiceWSGIApplication(ConnectWSGIApplication):
                         idempotency_level=IdempotencyLevel.UNKNOWN,
                     ),
                     function=service.guard,
+                ),
+                "/proto.decide.v2.DecideService/Capture": EndpointSync.unary(
+                    method=MethodInfo(
+                        name="Capture",
+                        service_name="proto.decide.v2.DecideService",
+                        input=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+                        output=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse,
+                        idempotency_level=IdempotencyLevel.UNKNOWN,
+                    ),
+                    function=service.capture,
                 ),
             },
             interceptors=interceptors,
@@ -113,6 +158,26 @@ class DecideServiceClientSync(ConnectClientSync):
                 service_name="proto.decide.v2.DecideService",
                 input=proto_dot_decide_dot_v2_dot_decide__pb2.GuardRequest,
                 output=proto_dot_decide_dot_v2_dot_decide__pb2.GuardResponse,
+                idempotency_level=IdempotencyLevel.UNKNOWN,
+            ),
+            headers=headers,
+            timeout_ms=timeout_ms,
+        )
+
+    def capture(
+        self,
+        request: proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+        *,
+        headers: Headers | Mapping[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse:
+        return self.execute_unary(
+            request=request,
+            method=MethodInfo(
+                name="Capture",
+                service_name="proto.decide.v2.DecideService",
+                input=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureRequest,
+                output=proto_dot_decide_dot_v2_dot_decide__pb2.CaptureResponse,
                 idempotency_level=IdempotencyLevel.UNKNOWN,
             ),
             headers=headers,
