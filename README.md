@@ -909,7 +909,10 @@ async def handle_tool_call(user_id: str, message: str):
     if decision.conclusion == "DENY":
         raise RuntimeError(f"Blocked: {decision.reason}")
 
-    # safe to proceed
+    if decision.has_failed_open():
+        raise RuntimeError("Guard unavailable; refusing to run the tool")
+
+    # Allowed by a fully evaluated policy; safe to proceed.
 ```
 
 ### Remotely configured policy inputs
@@ -951,6 +954,7 @@ guarded_send_email = guard_tool(
     guard=aj,
     tool=send_email_tool,
     action="email.sent",
+    on_guard_error="deny",  # default — blocks if Guard is unavailable
     actor=lambda config: config["configurable"]["user_id"],
     inputs=lambda arguments, _config: {
         "recipient": server_input.string(arguments["to"]),
@@ -961,8 +965,30 @@ guarded_send_email = guard_tool(
 ```
 
 The wrapper preserves the tool schema and delegates through `invoke()` or
-`ainvoke()`. Denied or unavailable checks do not execute the wrapped tool;
-`on_guard_error="allow"` explicitly opts into fail-open execution.
+`ainvoke()`.
+
+The core `guard()` API and the LangChain helper have intentionally different
+defaults when evaluation is unavailable:
+
+| API | Default when Guard is unavailable | How to change it |
+| --- | --- | --- |
+| `guard()` (core) | Allow (fail open), with `has_failed_open()` returning `True` | Gate manually on `has_failed_open()` |
+| `guard_tool()` | Block (fail closed) | Set `on_guard_error="allow"` |
+
+For `guard_tool()`, unavailable means either that the pre-execution checkpoint
+raised while normalizing arguments, resolving the actor or policy inputs, or
+calling Guard, or that Guard returned an `ALLOW` decision whose
+`has_failed_open()` is `True`. The latter can result from a deadline, response
+parse failure, local rule failure, missing decision, or server-returned rule
+error—not only an Arcjet Cloud outage.
+
+With the default `on_guard_error="deny"`, the wrapped tool does not execute and
+`ArcjetToolUnavailableError` is raised. This is distinct from
+`ArcjetToolDeniedError`, which represents a real `DENY` decision and carries
+that decision. Handle an unavailable evaluation as an operational failure that
+may warrant alerting or retrying; do not treat it as a policy denial. Set
+`on_guard_error="allow"` only at call sites where availability matters more
+than enforcement, such as a read-only lookup.
 
 ### Sync usage
 
@@ -982,6 +1008,9 @@ def handle_tool_call(user_id: str):
 
     if decision.conclusion == "DENY":
         raise RuntimeError("Rate limited")
+
+    if decision.has_failed_open():
+        raise RuntimeError("Guard unavailable; refusing to run the tool")
 ```
 
 ### Rate limiting

@@ -259,7 +259,21 @@ def guard_tool(
     rules: Sequence[RuleWithInput] = (),
     on_guard_error: OnGuardError = "deny",
 ) -> BaseTool:
-    """Wrap a LangChain tool with an Arcjet pre-execution checkpoint."""
+    """Wrap a LangChain tool with an Arcjet pre-execution checkpoint.
+
+    Unlike the core Guard client, which returns a fail-open ``ALLOW`` decision
+    when evaluation is degraded, this helper fails closed by default. With
+    ``on_guard_error="deny"``, an exception from the pre-execution checkpoint
+    (argument normalization, actor or input resolution, or Guard itself) or a
+    decision whose ``has_failed_open()`` is true raises
+    :class:`ArcjetToolUnavailableError` without executing the tool. Set
+    ``on_guard_error="allow"`` to execute the tool in either case.
+
+    A real ``DENY`` decision blocks execution regardless of ``on_guard_error``
+    and is represented by :class:`ArcjetToolDeniedError`; the wrapped tool's
+    ``handle_tool_error`` may convert it into a LangChain error result. It is
+    distinct from an unavailable evaluation.
+    """
     return _GuardedTool(
         guard=guard,
         tool=tool,
