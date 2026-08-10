@@ -750,12 +750,22 @@ if ip:
     print(ip.city, ip.country_name)   # geolocation
     print(ip.asn, ip.asn_name)        # ASN / network
     print(ip.is_vpn, ip.is_hosting)   # reputation
+    if ip.threat:                     # optional threat intelligence
+        threat = ip.threat
+        print(threat.risk_level, threat.confidence, threat.reputation)
+        print(threat.is_safe, threat.network_types, threat.activities)
+        print(threat.entities, threat.entity_name, threat.service)
 ```
 
 Available fields include geolocation (`latitude`, `longitude`, `city`,
 `region`, `country`, `continent`), network (`asn`, `asn_name`, `asn_domain`,
 `asn_type`, `asn_country`), and reputation (`is_vpn`, `is_proxy`, `is_tor`,
-`is_hosting`, `is_relay`).
+`is_hosting`, `is_relay`). Threat intelligence provides `risk_level`,
+`confidence`, `reputation`, `is_safe`, `network_types`, `activities`,
+`entities`, `entity_name`, and `service`.
+
+`decision.ip_details` and its `threat` field are optional because metadata or
+threat intelligence may not be available for every IP.
 
 ## LangChain example
 
@@ -1083,7 +1093,15 @@ decision = await aj.guard(
 
 if decision.conclusion == "DENY":
     print("Prompt injection detected")
+
+result = prompt_scan.result(decision)
+if result and result.billing:
+    print(result.billing.unit, result.billing.count)
 ```
+
+Guard billing is optional. Prompt injection usage is reported in `tokens`,
+while content moderation usage is reported in `text_units` (text chunks), so
+always inspect `billing.unit` rather than assuming the unit.
 
 ### Sensitive information detection
 

@@ -270,6 +270,21 @@ Example::
 
 
 @dataclass(frozen=True, slots=True)
+class ThreatIntelligence:
+    """Threat intelligence associated with an IP address."""
+
+    risk_level: str
+    confidence: str
+    reputation: str
+    is_safe: bool
+    network_types: tuple[str, ...]
+    activities: tuple[str, ...]
+    entities: tuple[str, ...]
+    entity_name: str | None
+    service: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class IpDetails:
     """IP analysis data returned as part of a ``Decision``.
 
@@ -354,3 +369,6 @@ class IpDetails:
 
     is_abuser: bool | None = None
     """``True`` if the IP is associated with a known abuser."""
+
+    threat: ThreatIntelligence | None = None
+    """Threat intelligence for the IP, when available."""

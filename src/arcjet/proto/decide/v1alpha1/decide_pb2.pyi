@@ -189,6 +189,7 @@ class IpDetails(_message.Message):
     IS_RELAY_FIELD_NUMBER: _ClassVar[int]
     IS_ABUSER_FIELD_NUMBER: _ClassVar[int]
     BOTS_FIELD_NUMBER: _ClassVar[int]
+    THREAT_FIELD_NUMBER: _ClassVar[int]
     latitude: float
     longitude: float
     accuracy_radius: int
@@ -213,7 +214,32 @@ class IpDetails(_message.Message):
     is_relay: bool
     is_abuser: bool
     bots: _containers.ScalarMap[str, str]
-    def __init__(self, latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_radius: _Optional[int] = ..., timezone: _Optional[str] = ..., postal_code: _Optional[str] = ..., city: _Optional[str] = ..., region: _Optional[str] = ..., country: _Optional[str] = ..., country_name: _Optional[str] = ..., continent: _Optional[str] = ..., continent_name: _Optional[str] = ..., asn: _Optional[str] = ..., asn_name: _Optional[str] = ..., asn_domain: _Optional[str] = ..., asn_type: _Optional[str] = ..., asn_country: _Optional[str] = ..., service: _Optional[str] = ..., is_hosting: _Optional[bool] = ..., is_vpn: _Optional[bool] = ..., is_proxy: _Optional[bool] = ..., is_tor: _Optional[bool] = ..., is_relay: _Optional[bool] = ..., is_abuser: _Optional[bool] = ..., bots: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    threat: ThreatIntelligence
+    def __init__(self, latitude: _Optional[float] = ..., longitude: _Optional[float] = ..., accuracy_radius: _Optional[int] = ..., timezone: _Optional[str] = ..., postal_code: _Optional[str] = ..., city: _Optional[str] = ..., region: _Optional[str] = ..., country: _Optional[str] = ..., country_name: _Optional[str] = ..., continent: _Optional[str] = ..., continent_name: _Optional[str] = ..., asn: _Optional[str] = ..., asn_name: _Optional[str] = ..., asn_domain: _Optional[str] = ..., asn_type: _Optional[str] = ..., asn_country: _Optional[str] = ..., service: _Optional[str] = ..., is_hosting: _Optional[bool] = ..., is_vpn: _Optional[bool] = ..., is_proxy: _Optional[bool] = ..., is_tor: _Optional[bool] = ..., is_relay: _Optional[bool] = ..., is_abuser: _Optional[bool] = ..., bots: _Optional[_Mapping[str, str]] = ..., threat: _Optional[_Union[ThreatIntelligence, _Mapping]] = ...) -> None: ...
+
+class ThreatIntelligence(_message.Message):
+    __slots__ = ()
+    RISK_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    REPUTATION_FIELD_NUMBER: _ClassVar[int]
+    IS_SAFE_FIELD_NUMBER: _ClassVar[int]
+    NETWORK_TYPES_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
+    ENTITIES_FIELD_NUMBER: _ClassVar[int]
+    ENTITY_NAME_FIELD_NUMBER: _ClassVar[int]
+    SERVICE_FIELD_NUMBER: _ClassVar[int]
+    BACKGROUND_NOISE_FIELD_NUMBER: _ClassVar[int]
+    risk_level: str
+    confidence: str
+    reputation: str
+    is_safe: bool
+    network_types: _containers.RepeatedScalarFieldContainer[str]
+    activities: _containers.RepeatedScalarFieldContainer[str]
+    entities: _containers.RepeatedScalarFieldContainer[str]
+    entity_name: str
+    service: str
+    background_noise: int
+    def __init__(self, risk_level: _Optional[str] = ..., confidence: _Optional[str] = ..., reputation: _Optional[str] = ..., is_safe: _Optional[bool] = ..., network_types: _Optional[_Iterable[str]] = ..., activities: _Optional[_Iterable[str]] = ..., entities: _Optional[_Iterable[str]] = ..., entity_name: _Optional[str] = ..., service: _Optional[str] = ..., background_noise: _Optional[int] = ...) -> None: ...
 
 class Reason(_message.Message):
     __slots__ = ()

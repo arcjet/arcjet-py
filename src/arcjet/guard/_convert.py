@@ -30,6 +30,7 @@ from ._rules import (
 )
 from ._types import (
     ArcjetWarning,
+    Billing,
     Conclusion,
     Decision,
     InputConstraintType,
@@ -151,6 +152,11 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         v = pr.prompt_injection
         return RuleResultPromptInjection(
             conclusion=_conclusion_from_proto(v.conclusion),
+            billing=(
+                Billing(unit=v.billing.unit, count=v.billing.count)
+                if v.HasField("billing")
+                else None
+            ),
         )
 
     if which == "moderate_content":
@@ -158,6 +164,11 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         return RuleResultModerateContent(
             conclusion=_conclusion_from_proto(v.conclusion),
             detected=v.detected,
+            billing=(
+                Billing(unit=v.billing.unit, count=v.billing.count)
+                if v.HasField("billing")
+                else None
+            ),
         )
 
     if which == "local_sensitive_info":

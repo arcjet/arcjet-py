@@ -236,6 +236,17 @@ class RuleResultSlidingWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class Billing:
+    """Usage billed for a Guard rule evaluation."""
+
+    unit: str
+    """Billing unit, such as ``"tokens"`` or ``"text_units"``."""
+
+    count: int
+    """Number of billing units consumed."""
+
+
+@dataclass(frozen=True, slots=True)
 class RuleResultPromptInjection:
     """Result from a prompt injection detection evaluation."""
 
@@ -253,6 +264,9 @@ class RuleResultPromptInjection:
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
     per-rule diagnostics."""
+
+    billing: Billing | None = None
+    """Usage billed for this evaluation, when reported by the service."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +290,9 @@ class RuleResultModerateContent:
     trustworthy) but something about it should be fixed. Informational; never
     changes the rule's conclusion. Empty until the Decide service emits
     per-rule diagnostics."""
+
+    billing: Billing | None = None
+    """Usage billed for this evaluation, when reported by the service."""
 
 
 @dataclass(frozen=True, slots=True)

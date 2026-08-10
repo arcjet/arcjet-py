@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from arcjet.guard import (
     ArcjetWarning,
+    Billing,
     DetectPromptInjection,
     FixedWindow,
     LocalDetectSensitiveInfo,
@@ -237,6 +238,7 @@ class TestDecisionFromProto:
                     prompt_injection=pb.ResultPromptInjection(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
                         detected=True,
+                        billing=pb.Billing(unit="tokens", count=2**64 - 1),
                     ),
                 ),
             ],
@@ -245,6 +247,50 @@ class TestDecisionFromProto:
         decision = decision_from_proto(response)
         assert decision.conclusion == "DENY"
         assert decision.reason == "PROMPT_INJECTION"
+        r = inp.result(decision)
+        assert r is not None
+        assert r.billing == Billing(unit="tokens", count=2**64 - 1)
+
+    def test_prompt_injection_with_empty_billing(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        billing=pb.Billing(),
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing == Billing(unit="", count=0)
+
+    def test_prompt_injection_without_billing(self) -> None:
+        rule = DetectPromptInjection()
+        inp = rule("hello")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    prompt_injection=pb.ResultPromptInjection(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing is None
 
     def test_deny_with_moderate_content(self) -> None:
         rule = experimental_ModerateContent()
@@ -261,6 +307,7 @@ class TestDecisionFromProto:
                     moderate_content=pb.ResultModerateContent(
                         conclusion=pb.GUARD_CONCLUSION_DENY,
                         detected=True,
+                        billing=pb.Billing(unit="text_units", count=3),
                     ),
                 ),
             ],
@@ -272,6 +319,27 @@ class TestDecisionFromProto:
         r = inp.result(decision)
         assert r is not None
         assert r.detected is True
+        assert r.billing == Billing(unit="text_units", count=3)
+
+    def test_moderate_content_without_billing(self) -> None:
+        rule = experimental_ModerateContent()
+        inp = rule("harmless")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert result.billing is None
 
     def test_deny_with_sensitive_info(self) -> None:
         rule = LocalDetectSensitiveInfo()

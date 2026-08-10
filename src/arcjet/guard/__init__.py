@@ -76,6 +76,7 @@ experimental_ModerateContent = ModerateContent
 from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     ArcjetWarning,
+    Billing,
     Conclusion,
     CustomEvaluateResult,
     Decision,
@@ -100,6 +101,7 @@ from ._types import (
 
 __all__ = [
     # Types
+    "Billing",
     "Conclusion",
     "CustomEvaluateResult",
     "Decision",
