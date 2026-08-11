@@ -78,7 +78,7 @@ dev = [
   "langchain-core>=1,<2",                  # For testing integration with LangChain
   "pyright==1.1.411",
   "hypothesis>=6.100.0",
-  "pytest==9.0.3",                         # Held <9.1: 9.1 cut the unraisableexception plugin's gc.collect() passes 5→1, deferring wasmtime's __del__ finalizers and corrupting its internal slab under the concurrency tests (wasmtime-py#322). Bump once wasmtime object lifecycle is fixed.
+  "pytest==9.1.1",                         # Held <9.1: 9.1 cut the unraisableexception plugin's gc.collect() passes 5→1, deferring wasmtime's __del__ finalizers and corrupting its internal slab under the concurrency tests (wasmtime-py#322). Bump once wasmtime object lifecycle is fixed.
   "pytest-cov>=7.0.0",
   "ruff==0.15.22",
   "tomli>=2.0.0; python_version < '3.11'",
