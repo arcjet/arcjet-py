@@ -33,12 +33,18 @@ from ._types import (
     Billing,
     Conclusion,
     Decision,
+    InputConstraintType,
     InternalResult,
+    PolicyEvaluation,
+    PolicyExecution,
+    PolicyRuleResult,
+    PolicyStatus,
     Reason,
     RuleResult,
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultInputConstraint,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
@@ -46,6 +52,7 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
+    StringMatchOperator,
 )
 
 _CONCLUSION_MAP: dict[int, Conclusion] = {
@@ -89,6 +96,7 @@ _REASON_MAP: dict[int, Reason] = {
     pb.GUARD_REASON_PROMPT_INJECTION: "PROMPT_INJECTION",
     pb.GUARD_REASON_MODERATE_CONTENT: "MODERATE_CONTENT",
     pb.GUARD_REASON_SENSITIVE_INFO: "SENSITIVE_INFO",
+    pb.GUARD_REASON_INPUT_CONSTRAINT: "INPUT_CONSTRAINT",
 }
 
 
@@ -188,6 +196,67 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
         return RuleResultNotRun()
 
     return RuleResultUnknown()
+
+
+def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
+    which = pr.WhichOneof("result")
+    if which == "prompt_injection":
+        result: RuleResult = RuleResultPromptInjection(
+            conclusion=_conclusion_from_proto(pr.prompt_injection.conclusion)
+        )
+    elif which == "local_sensitive_info":
+        result = RuleResultSensitiveInfo(
+            conclusion=_conclusion_from_proto(pr.local_sensitive_info.conclusion),
+            detected_entity_types=tuple(pr.local_sensitive_info.detected_entity_types),
+        )
+    elif which in ("allowed_string_values", "denied_string_values", "string_length"):
+        constraint_types: dict[str, InputConstraintType] = {
+            "allowed_string_values": "ALLOWED_STRING_VALUES",
+            "denied_string_values": "DENIED_STRING_VALUES",
+            "string_length": "STRING_LENGTH",
+        }
+        constraint = getattr(pr, which)
+        match_operators: dict[int, StringMatchOperator] = {
+            pb.GUARD_STRING_MATCH_OPERATOR_UNSPECIFIED: "EXACT",
+            pb.GUARD_STRING_MATCH_OPERATOR_EXACT: "EXACT",
+            pb.GUARD_STRING_MATCH_OPERATOR_EMAIL_DOMAIN: "EMAIL_DOMAIN",
+        }
+        result = RuleResultInputConstraint(
+            conclusion=_conclusion_from_proto(constraint.conclusion),
+            type=constraint_types[which],
+            match_operator=(
+                None
+                if which == "string_length"
+                else match_operators.get(constraint.match_operator, "UNKNOWN")
+            ),
+        )
+    elif which == "string_list_membership":
+        result = RuleResultInputConstraint(
+            conclusion=_conclusion_from_proto(pr.string_list_membership.conclusion),
+            type="STRING_LIST_MEMBERSHIP",
+            matched=pr.string_list_membership.matched,
+        )
+    elif which == "error":
+        result = RuleResultError(
+            message=pr.error.message or "Unknown error", code=pr.error.code or "UNKNOWN"
+        )
+    elif which == "not_run":
+        result = RuleResultNotRun()
+    else:
+        result = RuleResultUnknown()
+    executions: dict[int, PolicyExecution] = {
+        pb.GUARD_RULE_EXECUTION_SDK: "SDK",
+        pb.GUARD_RULE_EXECUTION_SERVER: "SERVER",
+    }
+    execution = executions.get(pr.execution, "UNKNOWN")
+    return PolicyRuleResult(
+        policy_id=pr.policy_id,
+        policy_revision=pr.policy_revision,
+        rule_id=pr.rule_id,
+        mode="DRY_RUN" if pr.mode == pb.GUARD_RULE_MODE_DRY_RUN else "LIVE",
+        execution=execution,
+        result=result,
+    )
 
 
 _MODE_MAP = {
@@ -332,6 +401,10 @@ def _rule_body_to_proto(
                     ),
                     detected=len(local_result.detected_entity_types) > 0,
                     detected_entity_types=local_result.detected_entity_types,
+                    detected_entities=[
+                        pb.GuardSensitiveInfoEntity(type=entity, start=start, end=end)
+                        for entity, start, end in local_result.detected_entities
+                    ],
                 )
             )
             local_si.result_duration_ms = local_result.elapsed_ms
@@ -465,6 +538,31 @@ def decision_from_proto(
         )
 
     results = tuple(ir.result for ir in internal_results)
+    policy_errors: tuple[RuleResultError, ...] = ()
+    policy_evaluation: PolicyEvaluation | None = None
+    if proto.HasField("policy_evaluation"):
+        statuses: dict[int, PolicyStatus] = {
+            pb.GUARD_POLICY_STATUS_NOT_CONFIGURED: "NOT_CONFIGURED",
+            pb.GUARD_POLICY_STATUS_APPLIED: "APPLIED",
+            pb.GUARD_POLICY_STATUS_INCOMPLETE: "INCOMPLETE",
+            pb.GUARD_POLICY_STATUS_UNAVAILABLE: "UNAVAILABLE",
+        }
+        status = statuses.get(proto.policy_evaluation.status, "UNKNOWN")
+        policy_evaluation = PolicyEvaluation(
+            revision=proto.policy_evaluation.revision,
+            status=status,
+            refresh_required=proto.policy_evaluation.refresh_required,
+        )
+    if proto.HasField("policy_evaluation") and proto.policy_evaluation.status in (
+        pb.GUARD_POLICY_STATUS_INCOMPLETE,
+        pb.GUARD_POLICY_STATUS_UNAVAILABLE,
+    ):
+        policy_errors = (
+            RuleResultError(
+                message="Remote Guard policy could not be fully evaluated",
+                code="REMOTE_POLICY_UNAVAILABLE",
+            ),
+        )
     conclusion = _conclusion_from_proto(proto.conclusion)
 
     # Use the server-computed reason (priority-based).  Fall back to
@@ -488,4 +586,9 @@ def decision_from_proto(
         reason=reason,
         warnings=warnings,
         _internal_results=tuple(internal_results),
+        _policy_errors=policy_errors,
+        policy_evaluation=policy_evaluation,
+        policy_results=tuple(
+            _policy_result_from_proto(r) for r in proto.policy_rule_results
+        ),
     )

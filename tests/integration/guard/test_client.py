@@ -8,13 +8,24 @@ Both async and sync paths are tested.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
+from arcjet._analyze import (
+    DetectedSensitiveInfoEntity,
+    SensitiveInfoEntities,
+    SensitiveInfoEntityEmail,
+    SensitiveInfoResult,
+)
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._metadata import LocalWarning
+from arcjet._sensitive_info_backend import (
+    SensitiveInfoBackend,
+    SensitiveInfoBackendContext,
+    SensitiveInfoBackendOptions,
+)
 from arcjet.guard import (
     ArcjetGuard,
     ArcjetGuardSync,
@@ -26,8 +37,11 @@ from arcjet.guard import (
     TokenBucket,
     launch_arcjet,
     launch_arcjet_sync,
+    local_input,
+    server_input,
 )
 from arcjet.guard._client import _auth_headers, _build_request, _make_error_decision
+from arcjet.guard._remote_policy import POLICY_CAPABILITIES
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 
@@ -124,6 +138,185 @@ class FakeSyncClient:
         self.last_request = request
         self.last_headers = headers
         return self._response_factory(list(request.rule_submissions))
+
+
+def _projected_sensitive_info_policy(
+    revision: str, mode: int
+) -> pb.GetGuardPolicyResponse:
+    response = pb.GetGuardPolicyResponse(
+        status=pb.GUARD_POLICY_LOOKUP_STATUS_AVAILABLE,
+        policy=pb.GuardLocalPolicyProjection(
+            policy_id="policy-1", revision=revision, label="test"
+        ),
+    )
+    response.policy.sensitive_info_rules.add(
+        rule_id="pii-1",
+        input_name="message",
+        mode=mode,
+        entities_deny=pb.EntityList(entities=["EMAIL"]),
+    )
+    return response
+
+
+class DenyingSensitiveInfoBackend:
+    def detect(
+        self,
+        _context: SensitiveInfoBackendContext,
+        _value: str,
+        _entities: SensitiveInfoEntities,
+        _options: SensitiveInfoBackendOptions | None = None,
+    ) -> SensitiveInfoResult:
+        finding = DetectedSensitiveInfoEntity(
+            start=0, end=len(_value), identified_type=SensitiveInfoEntityEmail()
+        )
+        return SensitiveInfoResult(allowed=[], denied=[finding])
+
+
+class DenyingOnSecondCallSensitiveInfoBackend(DenyingSensitiveInfoBackend):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def detect(self, *args: Any, **kwargs: Any) -> SensitiveInfoResult:
+        self.calls += 1
+        if self.calls == 1:
+            return SensitiveInfoResult(allowed=[], denied=[])
+        return super().detect(*args, **kwargs)
+
+
+class DenyingOnFirstCallSensitiveInfoBackend(DenyingSensitiveInfoBackend):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def detect(self, *args: Any, **kwargs: Any) -> SensitiveInfoResult:
+        self.calls += 1
+        if self.calls > 1:
+            return SensitiveInfoResult(allowed=[], denied=[])
+        return super().detect(*args, **kwargs)
+
+
+class PolicySyncClient(FakeSyncClient):
+    def __init__(self, policies: list[pb.GetGuardPolicyResponse]) -> None:
+        super().__init__()
+        self.policies = policies
+        self.guard_requests: list[pb.GuardRequest] = []
+        self.conclusion = pb.GUARD_CONCLUSION_DENY
+
+    def get_guard_policy(
+        self, *_args: Any, **_kwargs: Any
+    ) -> pb.GetGuardPolicyResponse:
+        return self.policies.pop(0)
+
+    def capture(self, *_args: Any, **_kwargs: Any) -> pb.CaptureResponse:
+        return pb.CaptureResponse()
+
+    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        return pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_policy",
+                conclusion=self.conclusion,
+                reason=pb.GUARD_REASON_SENSITIVE_INFO,
+                policy_evaluation=pb.GuardPolicyEvaluation(
+                    revision=request.local_policy_revision,
+                    refresh_required=bool(self.policies),
+                ),
+            )
+        )
+
+
+class PolicyAsyncClient(FakeAsyncClient):
+    def __init__(self, policies: list[pb.GetGuardPolicyResponse]) -> None:
+        super().__init__()
+        self.policies = policies
+        self.guard_requests: list[pb.GuardRequest] = []
+        self.conclusion = pb.GUARD_CONCLUSION_DENY
+
+    async def get_guard_policy(
+        self, *_args: Any, **_kwargs: Any
+    ) -> pb.GetGuardPolicyResponse:
+        return self.policies.pop(0)
+
+    async def capture(self, *_args: Any, **_kwargs: Any) -> pb.CaptureResponse:
+        return pb.CaptureResponse()
+
+    async def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        return pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_policy",
+                conclusion=self.conclusion,
+                reason=pb.GUARD_REASON_SENSITIVE_INFO,
+                policy_evaluation=pb.GuardPolicyEvaluation(
+                    revision=request.local_policy_revision,
+                    refresh_required=bool(self.policies),
+                ),
+            )
+        )
+
+
+class FailingPolicySyncClient(PolicySyncClient):
+    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        raise ConnectionError("network down")
+
+
+class FailingPolicyAsyncClient(PolicyAsyncClient):
+    async def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        raise ConnectionError("network down")
+
+
+def _assert_sanitized_policy_request(
+    request: pb.GuardRequest, *, revision: str, submissions: int
+) -> None:
+    assert request.label == "test"
+    assert request.user_agent == "arcjet-py/test"
+    assert request.actor == "envelope-actor"
+    assert dict(request.metadata) == {}
+    assert dict(request.metadata_json) == {"safe": '"envelope-metadata"'}
+    assert request.correlation_id == "envelope-correlation"
+    assert len(request.rule_submissions) == submissions
+    assert set(request.policy_inputs) == {"message"}
+    assert request.policy_inputs["message"].WhichOneof("representation") == "local"
+    assert request.local_policy_revision == revision
+    assert list(request.local_policy_results)
+    assert list(request.policy_capabilities) == list(POLICY_CAPABILITIES)
+
+
+class MalformedPolicySyncClient(PolicySyncClient):
+    def __init__(
+        self, policies: list[pb.GetGuardPolicyResponse], response: pb.GuardResponse
+    ) -> None:
+        super().__init__(policies)
+        self.response = response
+
+    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        return self.response
+
+
+class MalformedPolicyAsyncClient(PolicyAsyncClient):
+    def __init__(
+        self, policies: list[pb.GetGuardPolicyResponse], response: pb.GuardResponse
+    ) -> None:
+        super().__init__(policies)
+        self.response = response
+
+    async def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        self.guard_requests.append(
+            pb.GuardRequest.FromString(request.SerializeToString())
+        )
+        return self.response
 
 
 class FakeErrorAsyncClient:
@@ -323,6 +516,260 @@ class TestHelpers:
 
 
 class TestArcjetGuardSync:
+    def test_initial_live_policy_denial_never_builds_or_sends_guard_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = PolicySyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)]
+        )
+        guard = ArcjetGuardSync(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+        prepare_guard = MagicMock(side_effect=AssertionError("must not build request"))
+        monkeypatch.setattr("arcjet.guard._client._prepare_guard", prepare_guard)
+
+        decision = guard.guard(
+            [DetectPromptInjection()("raw prompt secret")],
+            label="test",
+            actor="envelope-actor",
+            metadata={"safe": "envelope-metadata", "bad": float("nan")},
+            correlation_id="envelope-correlation",
+            inputs={
+                "message": local_input.string("raw local secret@example.com"),
+                "server": server_input.string("server-policy-secret"),
+            },
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        prepare_guard.assert_not_called()
+        assert len(client.guard_requests) == 1
+        request = client.guard_requests[0]
+        _assert_sanitized_policy_request(request, revision="one", submissions=0)
+        assert [warning.code for warning in request.local_warnings] == ["AJ1017"]
+        assert [warning.code for warning in decision.warnings] == ["AJ1017"]
+        assert b"server-policy-secret" not in request.SerializeToString()
+
+    def test_initial_live_policy_denial_fails_closed_without_server_id(self) -> None:
+        client = FailingPolicySyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)]
+        )
+        guard = ArcjetGuardSync(
+            "key",
+            client,
+            1000,
+            "test-agent",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+
+        decision = guard.guard(
+            label="test", inputs={"message": local_input.string("secret@example.com")}
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == ""
+        assert len(client.guard_requests) == 1
+
+    def test_refresh_live_policy_denial_sends_sanitized_second_guard_rpc(self) -> None:
+        client = PolicySyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_LIVE),
+            ]
+        )
+        guard = ArcjetGuardSync(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+
+        decision = guard.guard(
+            [DetectPromptInjection()("raw prompt secret")],
+            label="test",
+            actor="envelope-actor",
+            metadata={"safe": "envelope-metadata", "bad": float("nan")},
+            correlation_id="envelope-correlation",
+            inputs={
+                "message": local_input.string("secret@example.com"),
+                "server": server_input.string("server-policy-secret"),
+            },
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        assert len(client.guard_requests) == 2
+        _assert_sanitized_policy_request(
+            client.guard_requests[0], revision="one", submissions=1
+        )
+        _assert_sanitized_policy_request(
+            client.guard_requests[1], revision="two", submissions=1
+        )
+        assert [w.code for w in client.guard_requests[1].local_warnings] == ["AJ1017"]
+        assert (
+            b"server-policy-secret" not in client.guard_requests[1].SerializeToString()
+        )
+
+    @pytest.mark.parametrize(
+        "response",
+        [pb.GuardResponse(), pb.GuardResponse(decision=pb.GuardDecision())],
+        ids=["missing-decision", "missing-decision-id"],
+    )
+    def test_sanitized_response_without_decision_id_falls_back_to_local_denial(
+        self, response: pb.GuardResponse
+    ) -> None:
+        client = MalformedPolicySyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)],
+            response,
+        )
+        guard = ArcjetGuardSync(
+            "key",
+            client,
+            1000,
+            "test-agent",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+        decision = guard.guard(
+            label="test", inputs={"message": local_input.string("secret@example.com")}
+        )
+        assert decision.conclusion == "DENY"
+        assert decision.id == ""
+
+    def test_dry_run_policy_denial_still_calls_guard(self) -> None:
+        client = PolicySyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN)]
+        )
+        guard = ArcjetGuardSync(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+
+        guard.guard(
+            [DetectPromptInjection()("sdk-rule-marker")],
+            label="test",
+            inputs={
+                "message": local_input.string("secret@example.com"),
+                "server": server_input.string("server-policy-marker"),
+            },
+        )
+
+        assert len(client.guard_requests) == 1
+        request = client.guard_requests[0]
+        assert len(request.rule_submissions) == 1
+        assert set(request.policy_inputs) == {"message"}
+        assert b"server-policy-marker" not in request.SerializeToString()
+
+    def test_refresh_introduced_dry_run_denial_sanitizes_retry(self) -> None:
+        client = PolicySyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        guard = ArcjetGuardSync(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            DenyingOnSecondCallSensitiveInfoBackend(),
+        )
+
+        guard.guard(
+            [DetectPromptInjection()("sdk-rule-marker")],
+            label="test",
+            inputs={
+                "message": local_input.string("secret@example.com"),
+                "server": server_input.string("server-policy-marker"),
+            },
+        )
+
+        assert len(client.guard_requests) == 2
+        assert set(client.guard_requests[0].policy_inputs) == {"message", "server"}
+        assert set(client.guard_requests[1].policy_inputs) == {"message"}
+        assert len(client.guard_requests[1].rule_submissions) == 1
+        assert (
+            b"server-policy-marker" not in client.guard_requests[1].SerializeToString()
+        )
+
+    def test_initial_live_denial_is_timed_and_skips_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = PolicySyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        guard = ArcjetGuardSync(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+        monkeypatch.setattr(
+            "arcjet.guard._client.time.perf_counter",
+            MagicMock(side_effect=[10.0, 10.125]),
+        )
+
+        decision = guard.guard(
+            label="test", inputs={"message": local_input.string("secret@example.com")}
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        assert len(client.guard_requests) == 1
+        assert client.guard_requests[0].local_eval_duration_ms == 125
+        assert len(client.policies) == 1
+
+    def test_initial_dry_run_sanitization_is_sticky_after_clean_refresh(self) -> None:
+        client = PolicySyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        client.conclusion = pb.GUARD_CONCLUSION_ALLOW
+        guard = ArcjetGuardSync(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            DenyingOnFirstCallSensitiveInfoBackend(),
+        )
+
+        decision = guard.guard(
+            [DetectPromptInjection()("submission-marker")],
+            label="test",
+            actor="envelope-actor",
+            metadata={"safe": "envelope-metadata"},
+            correlation_id="envelope-correlation",
+            inputs={
+                "message": local_input.string("secret@example.com"),
+                "server": server_input.string("server-policy-marker"),
+            },
+        )
+
+        assert decision.conclusion == "ALLOW"
+        assert len(client.guard_requests) == 2
+        retry = client.guard_requests[1]
+        _assert_sanitized_policy_request(retry, revision="two", submissions=1)
+        assert b"server-policy-marker" not in retry.SerializeToString()
+
     def test_token_bucket_allow(self) -> None:
         client = FakeSyncClient()
         guard = _make_guard_sync(client)
@@ -429,30 +876,297 @@ class TestArcjetGuardSync:
             decision = guard.guard([inp], label="test")
         assert decision.conclusion == "ALLOW"
 
-    def test_empty_rules_returns_validation_error(self) -> None:
+    def test_empty_rules_reaches_server(self) -> None:
         client = FakeSyncClient()
         guard = _make_guard_sync(client)
-        decision = guard.guard([], label="test")
+        decision = guard.guard(
+            [], label="policy-only", inputs={"tenant": server_input.string("acme")}
+        )
         assert decision.conclusion == "ALLOW"
-        assert decision.id == ""
-        assert decision.reason == "ERROR"
-        assert decision.has_error()
-        assert decision.has_failed_open()
-        assert len(decision.error_results()) == 1
-        assert decision.warnings == ()
-        assert len(decision.results) == 1
-        r = decision.results[0]
-        assert isinstance(r, RuleResultError)
-        assert r.type == "RULE_ERROR"
-        assert r.code == "VALIDATION_ERROR"
-        assert "at least one rule" in r.message
-        # Verify no network call was made
-        assert client.last_request is None
+        assert decision.id == "gdec_test"
+        assert not decision.has_failed_open()
+        assert client.last_request is not None
+        assert list(client.last_request.rule_submissions) == []
+        assert client.last_request.label == "policy-only"
+        assert client.last_request.policy_inputs["tenant"].server.string_value == "acme"
 
 
 class TestArcjetGuardAsync:
     def _run(self, coro: Any) -> Any:
         return asyncio.run(coro)
+
+    def test_initial_live_policy_denial_never_builds_or_sends_guard_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = PolicyAsyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)]
+        )
+        guard = ArcjetGuard(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+        prepare_guard = MagicMock(side_effect=AssertionError("must not build request"))
+        monkeypatch.setattr("arcjet.guard._client._prepare_guard", prepare_guard)
+
+        decision = self._run(
+            guard.guard(
+                [DetectPromptInjection()("raw prompt secret")],
+                label="test",
+                actor="envelope-actor",
+                metadata={"safe": "envelope-metadata", "bad": float("nan")},
+                correlation_id="envelope-correlation",
+                inputs={
+                    "message": local_input.string("raw local secret@example.com"),
+                    "server": server_input.string("server-policy-secret"),
+                },
+            )
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        prepare_guard.assert_not_called()
+        assert len(client.guard_requests) == 1
+        request = client.guard_requests[0]
+        _assert_sanitized_policy_request(request, revision="one", submissions=0)
+        assert [warning.code for warning in request.local_warnings] == ["AJ1017"]
+        assert [warning.code for warning in decision.warnings] == ["AJ1017"]
+        assert b"server-policy-secret" not in request.SerializeToString()
+
+    def test_initial_live_policy_denial_fails_closed_without_server_id(self) -> None:
+        client = FailingPolicyAsyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)]
+        )
+        guard = ArcjetGuard(
+            "key",
+            client,
+            1000,
+            "test-agent",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+
+        decision = self._run(
+            guard.guard(
+                label="test",
+                inputs={"message": local_input.string("secret@example.com")},
+            )
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == ""
+        assert len(client.guard_requests) == 1
+
+    def test_refresh_live_policy_denial_sends_sanitized_second_guard_rpc(self) -> None:
+        client = PolicyAsyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_LIVE),
+            ]
+        )
+        guard = ArcjetGuard(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+
+        decision = self._run(
+            guard.guard(
+                [DetectPromptInjection()("raw prompt secret")],
+                label="test",
+                actor="envelope-actor",
+                metadata={"safe": "envelope-metadata", "bad": float("nan")},
+                correlation_id="envelope-correlation",
+                inputs={
+                    "message": local_input.string("secret@example.com"),
+                    "server": server_input.string("server-policy-secret"),
+                },
+            )
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        assert len(client.guard_requests) == 2
+        _assert_sanitized_policy_request(
+            client.guard_requests[0], revision="one", submissions=1
+        )
+        _assert_sanitized_policy_request(
+            client.guard_requests[1], revision="two", submissions=1
+        )
+        assert [w.code for w in client.guard_requests[1].local_warnings] == ["AJ1017"]
+        assert (
+            b"server-policy-secret" not in client.guard_requests[1].SerializeToString()
+        )
+
+    @pytest.mark.parametrize(
+        "response",
+        [pb.GuardResponse(), pb.GuardResponse(decision=pb.GuardDecision())],
+        ids=["missing-decision", "missing-decision-id"],
+    )
+    def test_sanitized_response_without_decision_id_falls_back_to_local_denial(
+        self, response: pb.GuardResponse
+    ) -> None:
+        client = MalformedPolicyAsyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE)],
+            response,
+        )
+        guard = ArcjetGuard(
+            "key",
+            client,
+            1000,
+            "test-agent",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+        decision = self._run(
+            guard.guard(
+                label="test",
+                inputs={"message": local_input.string("secret@example.com")},
+            )
+        )
+        assert decision.conclusion == "DENY"
+        assert decision.id == ""
+
+    def test_dry_run_policy_denial_still_calls_guard(self) -> None:
+        client = PolicyAsyncClient(
+            [_projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN)]
+        )
+        guard = ArcjetGuard(
+            _key="test_key_123",
+            _client=client,
+            _timeout_ms=1000,
+            _user_agent="arcjet-py/test",
+            _sensitive_info_backend=cast(
+                SensitiveInfoBackend, DenyingSensitiveInfoBackend()
+            ),
+        )
+
+        self._run(
+            guard.guard(
+                [DetectPromptInjection()("sdk-rule-marker")],
+                label="test",
+                inputs={
+                    "message": local_input.string("secret@example.com"),
+                    "server": server_input.string("server-policy-marker"),
+                },
+            )
+        )
+
+        assert len(client.guard_requests) == 1
+        request = client.guard_requests[0]
+        assert len(request.rule_submissions) == 1
+        assert set(request.policy_inputs) == {"message"}
+        assert b"server-policy-marker" not in request.SerializeToString()
+
+    def test_refresh_introduced_dry_run_denial_sanitizes_retry(self) -> None:
+        client = PolicyAsyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        guard = ArcjetGuard(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            DenyingOnSecondCallSensitiveInfoBackend(),
+        )
+
+        self._run(
+            guard.guard(
+                [DetectPromptInjection()("sdk-rule-marker")],
+                label="test",
+                inputs={
+                    "message": local_input.string("secret@example.com"),
+                    "server": server_input.string("server-policy-marker"),
+                },
+            )
+        )
+
+        assert len(client.guard_requests) == 2
+        assert set(client.guard_requests[0].policy_inputs) == {"message", "server"}
+        assert set(client.guard_requests[1].policy_inputs) == {"message"}
+        assert len(client.guard_requests[1].rule_submissions) == 1
+        assert (
+            b"server-policy-marker" not in client.guard_requests[1].SerializeToString()
+        )
+
+    def test_initial_live_denial_is_timed_and_skips_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = PolicyAsyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_LIVE),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        guard = ArcjetGuard(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            cast(SensitiveInfoBackend, DenyingSensitiveInfoBackend()),
+        )
+        monkeypatch.setattr(
+            "arcjet.guard._client.time.perf_counter",
+            MagicMock(side_effect=[20.0, 20.25]),
+        )
+
+        decision = self._run(
+            guard.guard(
+                label="test",
+                inputs={"message": local_input.string("secret@example.com")},
+            )
+        )
+
+        assert decision.conclusion == "DENY"
+        assert decision.id == "gdec_policy"
+        assert len(client.guard_requests) == 1
+        assert client.guard_requests[0].local_eval_duration_ms == 250
+        assert len(client.policies) == 1
+
+    def test_initial_dry_run_sanitization_is_sticky_after_clean_refresh(self) -> None:
+        client = PolicyAsyncClient(
+            [
+                _projected_sensitive_info_policy("one", pb.GUARD_RULE_MODE_DRY_RUN),
+                _projected_sensitive_info_policy("two", pb.GUARD_RULE_MODE_DRY_RUN),
+            ]
+        )
+        client.conclusion = pb.GUARD_CONCLUSION_ALLOW
+        guard = ArcjetGuard(
+            "key",
+            client,
+            1000,
+            "arcjet-py/test",
+            DenyingOnFirstCallSensitiveInfoBackend(),
+        )
+
+        decision = self._run(
+            guard.guard(
+                [DetectPromptInjection()("submission-marker")],
+                label="test",
+                actor="envelope-actor",
+                metadata={"safe": "envelope-metadata"},
+                correlation_id="envelope-correlation",
+                inputs={
+                    "message": local_input.string("secret@example.com"),
+                    "server": server_input.string("server-policy-marker"),
+                },
+            )
+        )
+
+        assert decision.conclusion == "ALLOW"
+        assert len(client.guard_requests) == 2
+        retry = client.guard_requests[1]
+        _assert_sanitized_policy_request(retry, revision="two", submissions=1)
+        assert b"server-policy-marker" not in retry.SerializeToString()
 
     def test_token_bucket_allow(self) -> None:
         client = FakeAsyncClient()
@@ -506,22 +1220,12 @@ class TestArcjetGuardAsync:
         assert errs[0].code == "TRANSPORT_ERROR"
         assert decision.warnings == ()
 
-    def test_empty_rules_returns_validation_error(self) -> None:
+    def test_empty_rules_reaches_server(self) -> None:
         client = FakeAsyncClient()
         guard = _make_guard(client)
         decision = self._run(guard.guard([], label="test"))
         assert decision.conclusion == "ALLOW"
-        assert decision.id == ""
-        assert decision.reason == "ERROR"
-        assert decision.has_error()
-        assert decision.has_failed_open()
-        assert len(decision.error_results()) == 1
-        assert decision.warnings == ()
-        assert len(decision.results) == 1
-        r = decision.results[0]
-        assert isinstance(r, RuleResultError)
-        assert r.type == "RULE_ERROR"
-        assert r.code == "VALIDATION_ERROR"
-        assert "at least one rule" in r.message
-        # Verify no network call was made
-        assert client.last_request is None
+        assert decision.id == "gdec_test"
+        assert not decision.has_failed_open()
+        assert client.last_request is not None
+        assert list(client.last_request.rule_submissions) == []

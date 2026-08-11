@@ -774,6 +774,12 @@ class TestRuleToProtoLocalSensitiveInfo:
         assert si.result_computed.conclusion == pb.GUARD_CONCLUSION_DENY
         assert si.result_computed.detected
         assert "EMAIL" in list(si.result_computed.detected_entity_types)
+        assert [
+            (entity.type, entity.start, entity.end)
+            for entity in si.result_computed.detected_entities
+        ] == [("EMAIL", 0, 10)]
+        assert not hasattr(si.result_computed.detected_entities[0], "value")
+        assert b"test@example.com" not in si.result_computed.SerializeToString()
 
     def test_attaches_error_on_wasm_failure(self) -> None:
         from arcjet.guard._local import evaluate_sensitive_info_locally

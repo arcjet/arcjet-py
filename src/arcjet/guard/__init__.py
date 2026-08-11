@@ -61,6 +61,7 @@ from ._client import (
     launch_arcjet,
     launch_arcjet_sync,
 )
+from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._registry import (
     capture,
     flush,
@@ -103,11 +104,14 @@ from ._types import (
     CustomEvaluateResult,
     Decision,
     Mode,
+    PolicyEvaluation,
+    PolicyRuleResult,
     Reason,
     RuleResult,
     RuleResultCustom,
     RuleResultError,
     RuleResultFixedWindow,
+    RuleResultInputConstraint,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPromptInjection,
@@ -115,6 +119,7 @@ from ._types import (
     RuleResultSlidingWindow,
     RuleResultTokenBucket,
     RuleResultUnknown,
+    StringMatchOperator,
 )
 
 __all__ = [
@@ -126,11 +131,16 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Mode",
+    "PolicyInput",
+    "PolicyInputMap",
+    "PolicyEvaluation",
+    "PolicyRuleResult",
     "Reason",
     "RuleResult",
     "RuleResultCustom",
     "RuleResultError",
     "RuleResultFixedWindow",
+    "RuleResultInputConstraint",
     "RuleResultModerateContent",
     "RuleResultNotRun",
     "RuleResultPromptInjection",
@@ -138,6 +148,7 @@ __all__ = [
     "RuleResultSlidingWindow",
     "RuleResultTokenBucket",
     "RuleResultUnknown",
+    "StringMatchOperator",
     "SENSITIVE_INFO_ENTITY_TYPES",
     "ArcjetWarning",
     # Rule classes
@@ -166,6 +177,8 @@ __all__ = [
     "ArcjetGuardSync",
     "launch_arcjet",
     "launch_arcjet_sync",
+    "local_input",
+    "server_input",
     # Optional registration, and the free calls it enables. Nothing here takes
     # effect until an application calls register_arcjet(); launch_arcjet()
     # touches no global state.

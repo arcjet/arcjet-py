@@ -76,6 +76,14 @@ mirroring Rampart's deterministic redaction layer. Phone numbers are left to
 the model because their digit shape overlaps with financial and government
 identifiers. On overlapping text the recognizer result wins over the model.
 
+### Phone recognizer migration
+
+The default recognizer set no longer includes the deterministic phone
+recognizer. Phone numbers are detected by the model by default, reducing false
+positives for bank accounts, routing numbers, and government identifiers. If
+you intentionally relied on the previous deterministic behavior, opt back in
+with `RampartOptions(recognizers=(*default_recognizers, phone_recognizer))`.
+
 The full set is exported as `rampart_entities`:
 
 ```python

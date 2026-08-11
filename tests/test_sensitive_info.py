@@ -231,7 +231,10 @@ class TestBackendOption:
                 return object()
 
         ctx = RequestContext(sensitive_info_value="Alex")
-        rule = detect_sensitive_info(deny=["GIVEN_NAME"], backend=Malformed())  # type: ignore[arg-type]
+        rule = detect_sensitive_info(
+            deny=["GIVEN_NAME"],
+            backend=Malformed(),  # pyright: ignore[reportArgumentType]
+        )
         result = evaluate_sensitive_info_locally(ctx, rule)
         assert result is None
 

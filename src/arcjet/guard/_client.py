@@ -28,6 +28,7 @@ from arcjet._metadata import (
     encode_metadata,
     enforce_metadata_budget,
 )
+from arcjet._sensitive_info_backend import SensitiveInfoBackend
 from arcjet._transport import build_async_transport, build_sync_transport
 
 from ._capture import build_capture_request, normalize_capture_event
@@ -43,6 +44,13 @@ from ._local import (
     LocalSensitiveInfoError,
     LocalSensitiveInfoResult,
     evaluate_sensitive_info_locally,
+)
+from ._policy_input import PolicyInputMap
+from ._remote_policy import (
+    POLICY_CAPABILITIES,
+    AsyncRemotePolicyRuntime,
+    PreparedPolicy,
+    SyncRemotePolicyRuntime,
 )
 from ._rules import RuleWithInput, SensitiveInfoWithInput
 from ._types import Decision, RuleResultError
@@ -148,6 +156,88 @@ def _with_local_warnings(decision: Decision, request: pb.GuardRequest) -> Decisi
     return replace(decision, warnings=(*decision.warnings, *local))
 
 
+def _apply_prepared_policy(request: pb.GuardRequest, policy: PreparedPolicy) -> None:
+    request.policy_inputs.clear()
+    for name, policy_input in policy.inputs.items():
+        request.policy_inputs[name].CopyFrom(policy_input)
+    request.local_policy_revision = policy.revision
+    del request.local_policy_results[:]
+    request.local_policy_results.extend(policy.results)
+
+
+def _apply_sanitized_policy(request: pb.GuardRequest, policy: PreparedPolicy) -> None:
+    """Attach policy evidence while retaining only local policy inputs."""
+    request.policy_inputs.clear()
+    for name, policy_input in policy.inputs.items():
+        if policy_input.WhichOneof("representation") == "local":
+            request.policy_inputs[name].CopyFrom(policy_input)
+    request.local_policy_revision = policy.revision
+    del request.local_policy_results[:]
+    request.local_policy_results.extend(policy.results)
+    del request.policy_capabilities[:]
+    request.policy_capabilities.extend(POLICY_CAPABILITIES)
+
+
+def _build_local_denial_request(
+    policy: PreparedPolicy,
+    *,
+    user_agent: str,
+    label: str,
+    metadata: Metadata | None,
+    local_eval_duration_ms: int,
+    correlation_id: str | None,
+) -> pb.GuardRequest:
+    request = _build_request(
+        [],
+        user_agent=user_agent,
+        label=label,
+        metadata=metadata,
+        local_eval_duration_ms=local_eval_duration_ms,
+        correlation_id=correlation_id,
+    )
+    _apply_sanitized_policy(request, policy)
+    return request
+
+
+def _sanitized_decision_or_local_denial(
+    response: pb.GuardResponse, policy: PreparedPolicy
+) -> Decision:
+    if not response.HasField("decision") or not response.decision.id:
+        return _make_local_policy_denial(policy)
+    return decision_from_proto(response)
+
+
+def _make_local_policy_denial(policy: PreparedPolicy) -> Decision:
+    """Build the server-shaped decision returned for an enforced local rule."""
+    decision = pb.GuardDecision(
+        # decision_from_proto treats an absent ID as a malformed server response.
+        # Use a conversion-only sentinel, then remove it from the public decision:
+        # locally enforced denials have no corresponding server decision.
+        id="local-conversion-sentinel",
+        conclusion=pb.GUARD_CONCLUSION_DENY,
+        reason=pb.GUARD_REASON_SENSITIVE_INFO,
+        policy_evaluation=pb.GuardPolicyEvaluation(
+            revision=policy.revision,
+            status=pb.GUARD_POLICY_STATUS_APPLIED,
+        ),
+    )
+    for result, mode in zip(policy.results, policy.result_modes):
+        policy_result = decision.policy_rule_results.add(
+            policy_id=result.policy_id,
+            policy_revision=result.policy_revision,
+            rule_id=result.rule_id,
+            type=result.type,
+            mode=mode,
+            execution=pb.GUARD_RULE_EXECUTION_SDK,
+            source=pb.GUARD_RULE_SOURCE_REMOTE,
+        )
+        which = result.WhichOneof("result")
+        if which is not None:
+            getattr(policy_result, which).CopyFrom(getattr(result, which))
+    converted = decision_from_proto(pb.GuardResponse(decision=decision))
+    return replace(converted, id="")
+
+
 def _make_error_decision(message: str) -> Decision:
     return Decision(
         conclusion="ALLOW",
@@ -198,19 +288,6 @@ def _prepare_guard(
     """
     rule_list = list(rules)
 
-    if not rule_list:
-        return Decision(
-            conclusion="ALLOW",
-            id="",
-            results=(
-                RuleResultError(
-                    message="at least one rule is required",
-                    code="VALIDATION_ERROR",
-                ),
-            ),
-            reason="ERROR",
-        )
-
     t0 = time.perf_counter()
     local_results = _run_local_evaluations(rule_list)
     # Per-rule metadata keys the SDK could not encode ride on the request
@@ -247,6 +324,14 @@ class _AsyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    async def get_guard_policy(
+        self,
+        request: pb.GetGuardPolicyRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GetGuardPolicyResponse: ...
+
     async def capture(
         self,
         request: pb.CaptureRequest,
@@ -265,6 +350,14 @@ class _SyncGuardTransport(Protocol):
         timeout_ms: int | None = None,
     ) -> pb.GuardResponse: ...
 
+    def get_guard_policy(
+        self,
+        request: pb.GetGuardPolicyRequest,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_ms: int | None = None,
+    ) -> pb.GetGuardPolicyResponse: ...
+
     def capture(
         self,
         request: pb.CaptureRequest,
@@ -282,12 +375,30 @@ class ArcjetGuard:
     _client: _AsyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker task. Not a constructor argument.
     _delivery: AsyncCaptureDelivery | None = field(default=None, repr=False, init=False)
     # Where this client reports drops. Defaults to the shared coalescing
     # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
     _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
+    _remote_policy: AsyncRemotePolicyRuntime = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        async def fetch(label: str) -> pb.GetGuardPolicyResponse:
+            return await self._client.get_guard_policy(
+                pb.GetGuardPolicyRequest(
+                    user_agent=self._user_agent,
+                    label=label,
+                    policy_capabilities=POLICY_CAPABILITIES,
+                ),
+                headers=_auth_headers(self._key),
+                timeout_ms=self._timeout_ms,
+            )
+
+        self._remote_policy = AsyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -375,11 +486,13 @@ class ArcjetGuard:
 
     async def guard(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Metadata | None = None,
         correlation_id: str | None = None,
+        actor: str | None = None,
+        inputs: PolicyInputMap | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (async).
 
@@ -409,15 +522,39 @@ class ArcjetGuard:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
-        result = _prepare_guard(
-            rules,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            correlation_id=correlation_id,
-        )
+        policy_eval_start = time.perf_counter()
+        prepared = await self._remote_policy.prepare(label, inputs)
+        sanitizes_inputs = prepared.sanitizes_inputs
+        if prepared.has_live_denial:
+            result = _build_local_denial_request(
+                prepared,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                local_eval_duration_ms=int(
+                    (time.perf_counter() - policy_eval_start) * 1000
+                ),
+                correlation_id=correlation_id,
+            )
+            local_denial = True
+        else:
+            result = _prepare_guard(
+                rules,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                correlation_id=correlation_id,
+            )
+            local_denial = False
         if isinstance(result, Decision):
             return result
+        if actor is not None:
+            result.actor = actor
+        if sanitizes_inputs:
+            _apply_sanitized_policy(result, prepared)
+        else:
+            _apply_prepared_policy(result, prepared)
+            result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = await self._client.guard(
@@ -425,15 +562,46 @@ class ArcjetGuard:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            if local_denial and resp.HasField("decision") and resp.decision.id:
+                return _with_local_warnings(decision_from_proto(resp), result)
+            evaluation = resp.decision.policy_evaluation
+            should_refresh = bool(inputs) and (
+                evaluation.refresh_required
+                or (
+                    prepared.revision
+                    and evaluation.revision
+                    and evaluation.revision != prepared.revision
+                )
+            )
+            if should_refresh:
+                prepared = await self._remote_policy.prepare(label, inputs, force=True)
+                sanitizes_inputs = sanitizes_inputs or prepared.sanitizes_inputs
+                if sanitizes_inputs:
+                    _apply_sanitized_policy(result, prepared)
+                else:
+                    _apply_prepared_policy(result, prepared)
+                local_denial = prepared.has_live_denial
+                resp = await self._client.guard(
+                    result,
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
         except ArcjetError:
             raise
         except Exception as e:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
+            if local_denial:
+                return _with_local_warnings(_make_local_policy_denial(prepared), result)
             return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return _with_local_warnings(decision_from_proto(resp), result)
+        decision = (
+            _sanitized_decision_or_local_denial(resp, prepared)
+            if local_denial
+            else decision_from_proto(resp)
+        )
+        return _with_local_warnings(decision, result)
 
 
 @dataclass(slots=True)
@@ -444,12 +612,30 @@ class ArcjetGuardSync:
     _client: _SyncGuardTransport
     _timeout_ms: int
     _user_agent: str
+    _sensitive_info_backend: SensitiveInfoBackend | None = None
     # Built on the first capture() call, so a client that never captures never
     # starts a worker thread. Not a constructor argument.
     _delivery: SyncCaptureDelivery | None = field(default=None, repr=False, init=False)
     # Where this client reports drops. Defaults to the shared coalescing
     # sink; `launch_arcjet(logger=...)` replaces it, and tests inject it.
     _diagnose: Diagnose = field(default=_default_diagnose, repr=False)
+    _remote_policy: SyncRemotePolicyRuntime = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        def fetch(label: str) -> pb.GetGuardPolicyResponse:
+            return self._client.get_guard_policy(
+                pb.GetGuardPolicyRequest(
+                    user_agent=self._user_agent,
+                    label=label,
+                    policy_capabilities=POLICY_CAPABILITIES,
+                ),
+                headers=_auth_headers(self._key),
+                timeout_ms=self._timeout_ms,
+            )
+
+        self._remote_policy = SyncRemotePolicyRuntime(
+            fetch, self._sensitive_info_backend
+        )
 
     def capture(
         self,
@@ -549,11 +735,13 @@ class ArcjetGuardSync:
 
     def guard(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Metadata | None = None,
         correlation_id: str | None = None,
+        actor: str | None = None,
+        inputs: PolicyInputMap | None = None,
     ) -> Decision:
         """Evaluate *rules* via the Arcjet Guard v2 API (sync).
 
@@ -583,15 +771,39 @@ class ArcjetGuardSync:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
-        result = _prepare_guard(
-            rules,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            correlation_id=correlation_id,
-        )
+        policy_eval_start = time.perf_counter()
+        prepared = self._remote_policy.prepare(label, inputs)
+        sanitizes_inputs = prepared.sanitizes_inputs
+        if prepared.has_live_denial:
+            result = _build_local_denial_request(
+                prepared,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                local_eval_duration_ms=int(
+                    (time.perf_counter() - policy_eval_start) * 1000
+                ),
+                correlation_id=correlation_id,
+            )
+            local_denial = True
+        else:
+            result = _prepare_guard(
+                rules,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                correlation_id=correlation_id,
+            )
+            local_denial = False
         if isinstance(result, Decision):
             return result
+        if actor is not None:
+            result.actor = actor
+        if sanitizes_inputs:
+            _apply_sanitized_policy(result, prepared)
+        else:
+            _apply_prepared_policy(result, prepared)
+            result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = self._client.guard(
@@ -599,15 +811,46 @@ class ArcjetGuardSync:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            if local_denial and resp.HasField("decision") and resp.decision.id:
+                return _with_local_warnings(decision_from_proto(resp), result)
+            evaluation = resp.decision.policy_evaluation
+            should_refresh = bool(inputs) and (
+                evaluation.refresh_required
+                or (
+                    prepared.revision
+                    and evaluation.revision
+                    and evaluation.revision != prepared.revision
+                )
+            )
+            if should_refresh:
+                prepared = self._remote_policy.prepare(label, inputs, force=True)
+                sanitizes_inputs = sanitizes_inputs or prepared.sanitizes_inputs
+                if sanitizes_inputs:
+                    _apply_sanitized_policy(result, prepared)
+                else:
+                    _apply_prepared_policy(result, prepared)
+                local_denial = prepared.has_live_denial
+                resp = self._client.guard(
+                    result,
+                    headers=_auth_headers(self._key),
+                    timeout_ms=self._timeout_ms,
+                )
         except ArcjetError:
             raise
         except Exception as e:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
+            if local_denial:
+                return _with_local_warnings(_make_local_policy_denial(prepared), result)
             return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return _with_local_warnings(decision_from_proto(resp), result)
+        decision = (
+            _sanitized_decision_or_local_denial(resp, prepared)
+            if local_denial
+            else decision_from_proto(resp)
+        )
+        return _with_local_warnings(decision, result)
 
 
 def launch_arcjet(
@@ -616,6 +859,7 @@ def launch_arcjet(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuard:
     """Create an async Arcjet Guard client.
 
@@ -653,6 +897,7 @@ def launch_arcjet(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(
@@ -669,6 +914,7 @@ def launch_arcjet_sync(
     base_url: str = _DEFAULT_BASE_URL,
     timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     logger: logging.Logger | None = None,
+    sensitive_info_backend: SensitiveInfoBackend | None = None,
 ) -> ArcjetGuardSync:
     """Create a sync Arcjet Guard client.
 
@@ -706,6 +952,7 @@ def launch_arcjet_sync(
         _client=client,
         _timeout_ms=timeout_ms,
         _user_agent=_build_user_agent(),
+        _sensitive_info_backend=sensitive_info_backend,
         # A caller-supplied logger sees every diagnostic: they control filtering,
         # so coalescing would only hide detail they asked for.
         _diagnose=(
