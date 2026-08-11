@@ -82,6 +82,59 @@ def test_local_sensitive_info_result_reports_denied_findings_only() -> None:
     ] == [("EMAIL", 0, 19)]
 
 
+def test_local_sensitive_info_rules_stop_sequentially_after_live_denial() -> None:
+    finding = DetectedSensitiveInfoEntity(
+        start=0, end=19, identified_type=SensitiveInfoEntityEmail()
+    )
+    calls: list[str] = []
+
+    class Backend:
+        def detect(
+            self,
+            _context: SensitiveInfoBackendContext,
+            value: str,
+            _entities: SensitiveInfoEntities,
+            _options: SensitiveInfoBackendOptions | None = None,
+        ) -> SensitiveInfoResult:
+            calls.append(value)
+            return SensitiveInfoResult(allowed=[], denied=[finding])
+
+    response = _available("one")
+    for rule_id, input_name, mode in (
+        ("dry-run", "first", pb.GUARD_RULE_MODE_DRY_RUN),
+        ("live", "second", pb.GUARD_RULE_MODE_LIVE),
+        ("not-run", "third", pb.GUARD_RULE_MODE_LIVE),
+    ):
+        response.policy.sensitive_info_rules.add(
+            rule_id=rule_id,
+            input_name=input_name,
+            mode=mode,
+            entities_deny=pb.EntityList(entities=["EMAIL"]),
+        )
+    runtime = remote_policy.SyncRemotePolicyRuntime(
+        lambda _label: response,
+        sensitive_info_backend=cast(SensitiveInfoBackend, Backend()),
+    )
+
+    prepared = runtime.prepare(
+        "test",
+        {
+            "first": local_input.string("first@example.com"),
+            "second": local_input.string("second@example.com"),
+            "third": local_input.string("third@example.com"),
+        },
+    )
+
+    assert calls == ["first@example.com", "second@example.com"]
+    assert [result.WhichOneof("result") for result in prepared.results] == [
+        "local_sensitive_info",
+        "local_sensitive_info",
+        "not_run",
+    ]
+    assert prepared.has_live_denial
+    assert prepared.sanitizes_inputs
+
+
 def test_sync_projection_refreshes_every_five_minutes_and_survives_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

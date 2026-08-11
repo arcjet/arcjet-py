@@ -950,6 +950,9 @@ print(decision.policy_evaluation, decision.policy_results)
 Rules are optional. Passing no rules (or ``rules=[]``) still calls Guard and
 sends the label, actor, and policy inputs, so a remotely configured policy can
 protect the action. An empty rules list does not mean “allow without checking.”
+When a local input triggers an enforced remote-policy rule, the SDK omits raw
+and server-exposed policy inputs and sends only privacy-safe local evidence to
+Guard. Guard records and returns the final decision and decision ID.
 
 ### LangChain tool checkpoints
 

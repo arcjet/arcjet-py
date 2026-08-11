@@ -165,6 +165,79 @@ def _apply_prepared_policy(request: pb.GuardRequest, policy: PreparedPolicy) -> 
     request.local_policy_results.extend(policy.results)
 
 
+def _apply_sanitized_policy(request: pb.GuardRequest, policy: PreparedPolicy) -> None:
+    """Attach policy evidence while retaining only local policy inputs."""
+    request.policy_inputs.clear()
+    for name, policy_input in policy.inputs.items():
+        if policy_input.WhichOneof("representation") == "local":
+            request.policy_inputs[name].CopyFrom(policy_input)
+    request.local_policy_revision = policy.revision
+    del request.local_policy_results[:]
+    request.local_policy_results.extend(policy.results)
+    del request.policy_capabilities[:]
+    request.policy_capabilities.extend(POLICY_CAPABILITIES)
+
+
+def _build_local_denial_request(
+    policy: PreparedPolicy,
+    *,
+    user_agent: str,
+    label: str,
+    metadata: Metadata | None,
+    local_eval_duration_ms: int,
+    correlation_id: str | None,
+) -> pb.GuardRequest:
+    request = _build_request(
+        [],
+        user_agent=user_agent,
+        label=label,
+        metadata=metadata,
+        local_eval_duration_ms=local_eval_duration_ms,
+        correlation_id=correlation_id,
+    )
+    _apply_sanitized_policy(request, policy)
+    return request
+
+
+def _sanitized_decision_or_local_denial(
+    response: pb.GuardResponse, policy: PreparedPolicy
+) -> Decision:
+    if not response.HasField("decision") or not response.decision.id:
+        return _make_local_policy_denial(policy)
+    return decision_from_proto(response)
+
+
+def _make_local_policy_denial(policy: PreparedPolicy) -> Decision:
+    """Build the server-shaped decision returned for an enforced local rule."""
+    decision = pb.GuardDecision(
+        # decision_from_proto treats an absent ID as a malformed server response.
+        # Use a conversion-only sentinel, then remove it from the public decision:
+        # locally enforced denials have no corresponding server decision.
+        id="local-conversion-sentinel",
+        conclusion=pb.GUARD_CONCLUSION_DENY,
+        reason=pb.GUARD_REASON_SENSITIVE_INFO,
+        policy_evaluation=pb.GuardPolicyEvaluation(
+            revision=policy.revision,
+            status=pb.GUARD_POLICY_STATUS_APPLIED,
+        ),
+    )
+    for result, mode in zip(policy.results, policy.result_modes):
+        policy_result = decision.policy_rule_results.add(
+            policy_id=result.policy_id,
+            policy_revision=result.policy_revision,
+            rule_id=result.rule_id,
+            type=result.type,
+            mode=mode,
+            execution=pb.GUARD_RULE_EXECUTION_SDK,
+            source=pb.GUARD_RULE_SOURCE_REMOTE,
+        )
+        which = result.WhichOneof("result")
+        if which is not None:
+            getattr(policy_result, which).CopyFrom(getattr(result, which))
+    converted = decision_from_proto(pb.GuardResponse(decision=decision))
+    return replace(converted, id="")
+
+
 def _make_error_decision(message: str) -> Decision:
     return Decision(
         conclusion="ALLOW",
@@ -449,20 +522,39 @@ class ArcjetGuard:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
+        policy_eval_start = time.perf_counter()
         prepared = await self._remote_policy.prepare(label, inputs)
-        result = _prepare_guard(
-            rules,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            correlation_id=correlation_id,
-        )
+        sanitizes_inputs = prepared.sanitizes_inputs
+        if prepared.has_live_denial:
+            result = _build_local_denial_request(
+                prepared,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                local_eval_duration_ms=int(
+                    (time.perf_counter() - policy_eval_start) * 1000
+                ),
+                correlation_id=correlation_id,
+            )
+            local_denial = True
+        else:
+            result = _prepare_guard(
+                rules,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                correlation_id=correlation_id,
+            )
+            local_denial = False
         if isinstance(result, Decision):
             return result
         if actor is not None:
             result.actor = actor
-        _apply_prepared_policy(result, prepared)
-        result.policy_capabilities.extend(POLICY_CAPABILITIES)
+        if sanitizes_inputs:
+            _apply_sanitized_policy(result, prepared)
+        else:
+            _apply_prepared_policy(result, prepared)
+            result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = await self._client.guard(
@@ -470,6 +562,8 @@ class ArcjetGuard:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            if local_denial and resp.HasField("decision") and resp.decision.id:
+                return _with_local_warnings(decision_from_proto(resp), result)
             evaluation = resp.decision.policy_evaluation
             should_refresh = bool(inputs) and (
                 evaluation.refresh_required
@@ -481,7 +575,12 @@ class ArcjetGuard:
             )
             if should_refresh:
                 prepared = await self._remote_policy.prepare(label, inputs, force=True)
-                _apply_prepared_policy(result, prepared)
+                sanitizes_inputs = sanitizes_inputs or prepared.sanitizes_inputs
+                if sanitizes_inputs:
+                    _apply_sanitized_policy(result, prepared)
+                else:
+                    _apply_prepared_policy(result, prepared)
+                local_denial = prepared.has_live_denial
                 resp = await self._client.guard(
                     result,
                     headers=_auth_headers(self._key),
@@ -493,9 +592,16 @@ class ArcjetGuard:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
+            if local_denial:
+                return _with_local_warnings(_make_local_policy_denial(prepared), result)
             return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return _with_local_warnings(decision_from_proto(resp), result)
+        decision = (
+            _sanitized_decision_or_local_denial(resp, prepared)
+            if local_denial
+            else decision_from_proto(resp)
+        )
+        return _with_local_warnings(decision, result)
 
 
 @dataclass(slots=True)
@@ -665,20 +771,39 @@ class ArcjetGuardSync:
         Returns:
             A :class:`Decision` with conclusion, reason, and per-rule results.
         """
+        policy_eval_start = time.perf_counter()
         prepared = self._remote_policy.prepare(label, inputs)
-        result = _prepare_guard(
-            rules,
-            user_agent=self._user_agent,
-            label=label,
-            metadata=metadata,
-            correlation_id=correlation_id,
-        )
+        sanitizes_inputs = prepared.sanitizes_inputs
+        if prepared.has_live_denial:
+            result = _build_local_denial_request(
+                prepared,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                local_eval_duration_ms=int(
+                    (time.perf_counter() - policy_eval_start) * 1000
+                ),
+                correlation_id=correlation_id,
+            )
+            local_denial = True
+        else:
+            result = _prepare_guard(
+                rules,
+                user_agent=self._user_agent,
+                label=label,
+                metadata=metadata,
+                correlation_id=correlation_id,
+            )
+            local_denial = False
         if isinstance(result, Decision):
             return result
         if actor is not None:
             result.actor = actor
-        _apply_prepared_policy(result, prepared)
-        result.policy_capabilities.extend(POLICY_CAPABILITIES)
+        if sanitizes_inputs:
+            _apply_sanitized_policy(result, prepared)
+        else:
+            _apply_prepared_policy(result, prepared)
+            result.policy_capabilities.extend(POLICY_CAPABILITIES)
 
         try:
             resp = self._client.guard(
@@ -686,6 +811,8 @@ class ArcjetGuardSync:
                 headers=_auth_headers(self._key),
                 timeout_ms=self._timeout_ms,
             )
+            if local_denial and resp.HasField("decision") and resp.decision.id:
+                return _with_local_warnings(decision_from_proto(resp), result)
             evaluation = resp.decision.policy_evaluation
             should_refresh = bool(inputs) and (
                 evaluation.refresh_required
@@ -697,7 +824,12 @@ class ArcjetGuardSync:
             )
             if should_refresh:
                 prepared = self._remote_policy.prepare(label, inputs, force=True)
-                _apply_prepared_policy(result, prepared)
+                sanitizes_inputs = sanitizes_inputs or prepared.sanitizes_inputs
+                if sanitizes_inputs:
+                    _apply_sanitized_policy(result, prepared)
+                else:
+                    _apply_prepared_policy(result, prepared)
+                local_denial = prepared.has_live_denial
                 resp = self._client.guard(
                     result,
                     headers=_auth_headers(self._key),
@@ -709,9 +841,16 @@ class ArcjetGuardSync:
             logger.warning(
                 "arcjet guard transport error: %s", e, extra={"event": "guard_error"}
             )
+            if local_denial:
+                return _with_local_warnings(_make_local_policy_denial(prepared), result)
             return _with_local_warnings(_make_error_decision(str(e)), result)
 
-        return _with_local_warnings(decision_from_proto(resp), result)
+        decision = (
+            _sanitized_decision_or_local_denial(resp, prepared)
+            if local_denial
+            else decision_from_proto(resp)
+        )
+        return _with_local_warnings(decision, result)
 
 
 def launch_arcjet(

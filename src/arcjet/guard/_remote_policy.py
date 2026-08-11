@@ -32,6 +32,24 @@ class PreparedPolicy:
     inputs: dict[str, pb.GuardPolicyInput]
     revision: str = ""
     results: tuple[pb.GuardLocalPolicyResult, ...] = ()
+    result_modes: tuple[int, ...] = ()
+
+    @property
+    def has_live_denial(self) -> bool:
+        return any(
+            mode == pb.GUARD_RULE_MODE_LIVE
+            and result.WhichOneof("result") == "local_sensitive_info"
+            and result.local_sensitive_info.conclusion == pb.GUARD_CONCLUSION_DENY
+            for result, mode in zip(self.results, self.result_modes)
+        )
+
+    @property
+    def sanitizes_inputs(self) -> bool:
+        return any(
+            result.WhichOneof("result") == "local_sensitive_info"
+            and result.local_sensitive_info.conclusion == pb.GUARD_CONCLUSION_DENY
+            for result in self.results
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,8 +136,13 @@ def _local_results(
     policy: pb.GuardLocalPolicyProjection,
     local: dict[str, tuple[str, bytes]],
     backend: SensitiveInfoBackend | None,
-) -> tuple[pb.GuardLocalPolicyResult, ...]:
+) -> tuple[
+    tuple[pb.GuardLocalPolicyResult, ...],
+    tuple[int, ...],
+]:
     results: list[pb.GuardLocalPolicyResult] = []
+    modes: list[int] = []
+    stopped = False
     for rule in policy.sensitive_info_rules:
         bound = local.get(rule.input_name)
         if bound is None:
@@ -128,8 +151,12 @@ def _local_results(
         which = rule.WhichOneof("entity_filter")
         allow = tuple(rule.entities_allow.entities) if which == "entities_allow" else ()
         deny = tuple(rule.entities_deny.entities) if which == "entities_deny" else ()
-        evaluated = evaluate_sensitive_info_locally(
-            value, allow=allow, deny=deny, backend=backend
+        evaluated = (
+            None
+            if stopped
+            else evaluate_sensitive_info_locally(
+                value, allow=allow, deny=deny, backend=backend
+            )
         )
         result = pb.GuardLocalPolicyResult(
             policy_id=policy.policy_id,
@@ -165,7 +192,14 @@ def _local_results(
         else:
             result.not_run.CopyFrom(pb.ResultNotRun())
         results.append(result)
-    return tuple(results)
+        modes.append(rule.mode)
+        if (
+            rule.mode == pb.GUARD_RULE_MODE_LIVE
+            and isinstance(evaluated, LocalSensitiveInfoResult)
+            and evaluated.conclusion == "DENY"
+        ):
+            stopped = True
+    return tuple(results), tuple(modes)
 
 
 def _available_state(
@@ -218,11 +252,10 @@ class SyncRemotePolicyRuntime:
         state = self._get(label, force=force) if local else None
         if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
-        return PreparedPolicy(
-            wire,
-            state.policy.revision,
-            _local_results(state.policy, local, self._sensitive_info_backend),
+        results, modes = _local_results(
+            state.policy, local, self._sensitive_info_backend
         )
+        return PreparedPolicy(wire, state.policy.revision, results, modes)
 
     def _get(self, label: str, *, force: bool) -> _CachedState:
         now = time.monotonic()
@@ -263,11 +296,10 @@ class AsyncRemotePolicyRuntime:
         state = await self._get(label, force=force) if local else None
         if not isinstance(state, _AvailableState):
             return PreparedPolicy(wire)
-        return PreparedPolicy(
-            wire,
-            state.policy.revision,
-            _local_results(state.policy, local, self._sensitive_info_backend),
+        results, modes = _local_results(
+            state.policy, local, self._sensitive_info_backend
         )
+        return PreparedPolicy(wire, state.policy.revision, results, modes)
 
     async def _get(self, label: str, *, force: bool) -> _CachedState:
         now = time.monotonic()
