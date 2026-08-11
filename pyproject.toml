@@ -9,7 +9,7 @@ license = { text = "Apache-2.0" }
 dependencies = [
   "connect-python>=0.8.1",
   "pyqwest>=0.7.0,<0.8.0",
-  "wasmtime>=42.0.0,<42.1.0",
+  "wasmtime>=47.0.1,<47.1.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
