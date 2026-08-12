@@ -10,6 +10,17 @@ on:
       # Publish on any tag starting with a `v`, e.g., v1.2.3
       - v*
 
+permissions:
+  # Reading the repository is the only default permission either job needs.
+  contents: read
+
+# Never run two releases at once: the two distributions are published in
+# sequence, so interleaved runs could upload them out of order. Queue instead
+# of cancelling so an in-flight release always finishes.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   # Runs without approval so the pypi environment reviewer can see, before
   # approving, that the pushed tag actually matches the version declared in
@@ -28,7 +39,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
-      - name: Assert the tag matches the project version
+      - name: Assert the package versions match the tag
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
@@ -40,21 +51,91 @@ jobs:
               exit 1
               ;;
           esac
+          # Every distribution's version must equal the tag being released: the
+          # workspace ships in lockstep, since `arcjet-sensitive-info-rampart`
+          # imports private `arcjet` modules. Report every mismatch at once so a
+          # re-tag fixes all of them in one pass.
           expected="${TAG_NAME#v}"
-          actual="$(uv version --short)"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::pyproject.toml version '$actual' does not match tag '$TAG_NAME'; bump the version and re-tag."
+          mismatched=""
+          for package in arcjet arcjet-sensitive-info-rampart; do
+            actual="$(uv version --short --package "$package")"
+            if [ "$actual" != "$expected" ]; then
+              mismatched="$mismatched $package==$actual"
+            fi
+          done
+          if [ -n "$mismatched" ]; then
+            for entry in $mismatched; do echo "$entry"; done
+            echo "::error::These package versions do not match tag '$TAG_NAME'; bump every package to '$expected' and re-tag."
             exit 1
           fi
+      # The two distributions pin each other exactly, and `uv version` bumps
+      # versions without touching dependency pins — so a release whose versions
+      # match the tag can still carry a stale pin, which publishes a pair that
+      # cannot be installed together. Fail before the publish is approved.
+      - name: Assert the packages pin each other at the tag version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 - "${TAG_NAME#v}" <<'PY'
+          import sys
+          import tomllib
+
+          version = sys.argv[1]
+          failed = False
+
+          def check(path, requirements, expected):
+              global failed
+              for requirement in requirements:
+                  if requirement.replace(" ", "").startswith(f"{expected}=="):
+                      if requirement.replace(" ", "") != f"{expected}=={version}":
+                          print(
+                              f"::error file={path}::'{requirement}' does not pin "
+                              f"{expected} to '{version}'; update the pin to match."
+                          )
+                          failed = True
+                      return
+              print(f"::error file={path}::no exact `{expected}==` pin found.")
+              failed = True
+
+          with open("sensitive-info-rampart/pyproject.toml", "rb") as handle:
+              backend_project = tomllib.load(handle)
+          check(
+              "sensitive-info-rampart/pyproject.toml",
+              backend_project["project"]["dependencies"],
+              "arcjet",
+          )
+
+          with open("pyproject.toml", "rb") as handle:
+              core_project = tomllib.load(handle)
+          check(
+              "pyproject.toml",
+              core_project["project"]["optional-dependencies"]["sensitive-info-rampart"],
+              "arcjet-sensitive-info-rampart",
+          )
+
+          sys.exit(1 if failed else 0)
+          PY
       - name: Summarize the release request
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
+          # Name every distribution being published, so the environment reviewer
+          # approves a concrete list rather than a single unlabelled version.
           {
             echo "## Release request"
             echo "- tag: \`$TAG_NAME\`"
-            echo "- project version: \`$(uv version --short)\`"
-            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- ref: \`$GITHUB_REF_NAME\` (\`$GITHUB_SHA\`)"
+            echo
+            echo "<details><summary>Versions</summary>"
+            echo
+            echo '```'
+            for package in arcjet arcjet-sensitive-info-rampart; do
+              echo "$package==$(uv version --short --package "$package")"
+            done
+            echo '```'
+            echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
   pypi:
@@ -87,7 +168,18 @@ jobs:
       # upload to two different projects. `arcjet-*` matches only the core
       # package (hyphen); `arcjet_sensitive_info_rampart-*` matches only the
       # backend (underscore).
-      - name: Publish arcjet-sensitive-info-rampart
-        run: uv publish dist/arcjet_sensitive_info_rampart-*
+      #
+      # Publish in dependency order — `arcjet` first, then the backend that
+      # pins it. PyPI does not validate dependencies at upload time, so either
+      # order uploads cleanly, but the order decides how bad a half-published
+      # release is. If the second upload fails here, the missing distribution
+      # was never uploaded and can be retried at the same version, and plain
+      # `pip install arcjet` still works because the backend is only reachable
+      # through an extra. Publishing the backend first inverts both: its `arcjet`
+      # pin would name a version that does not exist on PyPI, and PyPI does not
+      # allow re-uploading a version, so recovering means burning a version
+      # number on both packages.
       - name: Publish arcjet
         run: uv publish dist/arcjet-*
+      - name: Publish arcjet-sensitive-info-rampart
+        run: uv publish dist/arcjet_sensitive_info_rampart-*

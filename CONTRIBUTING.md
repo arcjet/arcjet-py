@@ -101,13 +101,55 @@ breaking changes.
 
 ## Releasing
 
-1. Create a new branch `git checkout -b release-0.1.0`
-2. Bump the version using `uv version --bump` e.g. `uv version --bump patch`.
-3. Commit and push the changes to GitHub, then open a PR.
-4. Once merged to `main`, create a new Git tag with the new version e.g. `git
-   tag -a v0.1.0 -m v0.1.0`
-5. Push the tag to GitHub e.g. `git push --tags`
-6. The release workflow will be triggered automatically and must be approved by
-   another member of the team.
-7. Once approved, the package will be pushed to PyPI
-8. Create a new release in GitHub and link the release to the newly created tag.
+This repository publishes **two** distributions from one uv workspace: the core
+`arcjet` package and the `arcjet-sensitive-info-rampart` backend in
+`sensitive-info-rampart/`. The backend imports private core modules, so the two
+pin each other exactly (`==`) and are always released together at the same
+version. `uv version` updates versions but **not** dependency pins, so the two
+`==` pins are edited by hand. The release workflow's preflight job fails the
+release if the versions or either pin are out of lockstep.
+
+1. Create a new branch, e.g. `git checkout -b release-0.10.0`.
+
+2. Bump both versions to the same value:
+
+   ```sh
+   # Core package.
+   uv version --bump minor            # or: patch, major
+   # Backend, in lockstep.
+   uv version --package arcjet-sensitive-info-rampart --bump minor
+   ```
+
+   For a prerelease, bump a release component and the prerelease component
+   together; add `--dry-run` to preview any of these:
+
+   ```sh
+   uv version --bump minor --bump beta   # 0.9.0  -> 0.10.0b1
+   uv version --bump beta                # 0.10.0b1 -> 0.10.0b2
+   uv version --bump stable              # 0.10.0b1 -> 0.10.0
+   ```
+
+3. Update both `==` pins to the new version by hand:
+
+   - `sensitive-info-rampart/pyproject.toml` → `"arcjet==<version>"`
+   - `pyproject.toml` → `sensitive-info-rampart = ["arcjet-sensitive-info-rampart==<version>"]`
+
+4. Run `uv lock`, then `make check` and `make test`.
+
+5. Commit and push the changes to GitHub, then open a PR.
+
+6. Once merged to `main`, tag the merge commit with the version, e.g.
+   `git tag -a v0.10.0 -m v0.10.0`. The tag must match the version in
+   `pyproject.toml` exactly, including any prerelease suffix (`v0.10.0b1`).
+
+7. Push the tag, e.g. `git push origin v0.10.0`.
+
+8. The release workflow is triggered automatically. Its preflight job runs
+   without approval so the reviewer can confirm the tag, versions, and pins
+   before approving; the publish job must then be approved by another member of
+   the team.
+
+9. Once approved, both distributions are published to PyPI.
+
+10. Create a new release in GitHub and link it to the new tag. Tick
+    **Set as a pre-release** for prerelease versions.
