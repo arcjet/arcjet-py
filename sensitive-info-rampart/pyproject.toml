@@ -5,13 +5,8 @@ description = "On-device Rampart NER model backend for Arcjet sensitive informat
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
-# Compound: the archives bundle the CC BY 4.0 Rampart model (NOTICE attributes it).
 license = "Apache-2.0 AND CC-BY-4.0"
-license-files = [
-  "LICENSE",
-  "NOTICE",
-  "src/arcjet_sensitive_info_rampart/models/rampart/LICENSE",
-]
+license-files = ["LICENSE", "NOTICE"]
 dependencies = [
   # Imports private modules (`arcjet._sensitive_info_backend`, `arcjet._analyze`),
   # so it is coupled to the core version — release the two in lockstep. The
