@@ -101,13 +101,12 @@ breaking changes.
 
 ## Releasing
 
-This repository publishes **two** distributions from one uv workspace: the core
-`arcjet` package and the `arcjet-sensitive-info-rampart` backend in
-`sensitive-info-rampart/`. The backend imports private core modules, so the two
-pin each other exactly (`==`) and are always released together at the same
-version. `uv version` updates versions but **not** dependency pins, so the two
-`==` pins are edited by hand. The release workflow's preflight job fails the
-release if the versions or either pin are out of lockstep.
+This repository publishes **two** distributions from one uv workspace: `arcjet`
+and the `arcjet-sensitive-info-rampart` backend in `sensitive-info-rampart/`.
+The backend imports private core modules, so both are released together at the
+same version and pin each other exactly (`==`). `uv version` does not update
+dependency pins, so those are edited by hand; preflight fails the release if any
+version or pin is out of lockstep.
 
 1. Create a new branch, e.g. `git checkout -b release-0.10.0`.
 

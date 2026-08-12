@@ -5,16 +5,8 @@ description = "On-device Rampart NER model backend for Arcjet sensitive informat
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
-# Covers the distribution as a whole, not just our own code: the wheel bundles
-# the third-party Rampart model under CC BY 4.0, so declaring bare `Apache-2.0`
-# would hide the attribution obligation a consumer takes on. Our source is
-# Apache-2.0; the bundled model in `models/rampart/` is CC BY 4.0.
+# Compound: the archives bundle the CC BY 4.0 Rampart model (NOTICE attributes it).
 license = "Apache-2.0 AND CC-BY-4.0"
-# Ship every legal file in the built artifacts (PEP 639). NOTICE is required
-# rather than decorative: it carries the CC BY 4.0 attribution for the bundled
-# model, and README.md points readers at it. The model's own license text is
-# declared too so it lands in the standard `.dist-info/licenses/` location that
-# license scanners read, backing the `CC-BY-4.0` half of the expression above.
 license-files = [
   "LICENSE",
   "NOTICE",
