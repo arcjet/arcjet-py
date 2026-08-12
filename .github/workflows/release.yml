@@ -163,11 +163,12 @@ jobs:
       - name: Build
         # Build every workspace member (arcjet and arcjet-sensitive-info-rampart).
         run: uv build --all-packages
-      # Publish each distribution separately: PyPI trusted publishing mints a
-      # project-scoped token per OIDC exchange, so one `uv publish` run cannot
-      # upload to two different projects. `arcjet-*` matches only the core
-      # package (hyphen); `arcjet_sensitive_info_rampart-*` matches only the
-      # backend (underscore).
+      # Publish each distribution with its own command so the upload order is
+      # explicit. Trusted publishing needs no per-package setup — each `uv
+      # publish` exchanges the workflow's OIDC token for a short-lived PyPI key
+      # automatically — so the split is about ordering, not authentication.
+      # `arcjet-*` matches only the core package (hyphen);
+      # `arcjet_sensitive_info_rampart-*` matches only the backend (underscore).
       #
       # Publish in dependency order — `arcjet` first, then the backend that
       # pins it. PyPI does not validate dependencies at upload time, so either

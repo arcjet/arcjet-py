@@ -5,7 +5,10 @@ description = "Arcjet Python SDK. Runtime security for AI applications. Prompt i
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+# Ship the license in the built artifacts (PEP 639); without this the wheel and
+# sdist carry the license only as metadata, not as a file.
+license-files = ["LICENSE"]
 dependencies = [
   "connect-python>=0.8.1",
   "pyqwest>=0.8.0,<0.9.0",
