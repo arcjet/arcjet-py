@@ -1,11 +1,12 @@
 [project]
 name = "arcjet"
-version = "0.9.0"
+version = "0.10.0b1"
 description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, sensitive data detection, and WAF for Python apps."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
   "connect-python>=0.8.1",
   "pyqwest>=0.8.0,<0.9.0",
@@ -45,9 +46,11 @@ keywords = [
 # runtime deps and the bundled model ship in the separate
 # `arcjet-sensitive-info-rampart` distribution, so they are only installed when
 # this extra is requested.
-# Pinned to the matching minor: the backend imports private core modules, so
-# the two are released in lockstep (see the reciprocal bound in that package).
-sensitive-info-rampart = ["arcjet-sensitive-info-rampart>=0.9.0,<0.10.0"]
+# Pinned to the exact matching version: the backend imports private core
+# modules, so the two are released in lockstep and must never resolve to
+# different versions (see the reciprocal pin in that package). Bump both
+# together every release.
+sensitive-info-rampart = ["arcjet-sensitive-info-rampart==0.10.0b1"]
 langchain = ["langchain-core>=1,<2"]
 
 [project.urls]
