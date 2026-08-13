@@ -13,11 +13,8 @@ from unittest.mock import patch
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from arcjet._client import (
-    _CROCKFORD_ALPHABET,
-    _new_local_request_id,
-    _uuidv7_bytes,
-)
+from arcjet._client import _new_local_request_id
+from arcjet._ids import _CROCKFORD_ALPHABET, uuidv7_bytes
 
 _CROCKFORD_RE = re.compile(r"^[0-9a-hj-km-np-tv-z]{26}$")
 
@@ -54,7 +51,7 @@ def test_format():
 
 def test_uuidv7_version_and_variant():
     """Raw bytes encode a valid UUIDv7 (version 7, RFC 4122 variant)."""
-    _assert_valid_uuidv7(_uuidv7_bytes())
+    _assert_valid_uuidv7(uuidv7_bytes())
 
 
 def test_suffix_first_char_max_7():
@@ -86,32 +83,32 @@ def test_ids_are_time_sortable():
 
 def test_zero_timestamp():
     """When the clock reads epoch-zero the ID is still well-formed."""
-    with patch("arcjet._client.time.time", return_value=0.0):
+    with patch("arcjet._ids.time.time", return_value=0.0):
         _assert_valid_typeid(_new_local_request_id())
 
 
 def test_max_timestamp():
     """A far-future timestamp still produces a valid 26-char suffix."""
-    with patch("arcjet._client.time.time", return_value=(2**48 - 1) / 1000.0):
+    with patch("arcjet._ids.time.time", return_value=(2**48 - 1) / 1000.0):
         _assert_valid_typeid(_new_local_request_id())
 
 
 def test_low_entropy_random():
     """All-zero random bytes still produce a structurally valid ID."""
-    with patch("arcjet._client.os.urandom", return_value=b"\x00" * 10):
+    with patch("arcjet._ids.os.urandom", return_value=b"\x00" * 10):
         _assert_valid_typeid(_new_local_request_id())
 
 
 def test_max_entropy_random():
     """All-0xFF random bytes still produce a valid ID (no overflow)."""
-    with patch("arcjet._client.os.urandom", return_value=b"\xff" * 10):
+    with patch("arcjet._ids.os.urandom", return_value=b"\xff" * 10):
         _assert_valid_typeid(_new_local_request_id())
 
 
 def test_uuidv7_all_ff_random_preserves_variant():
     """Even with max random bytes, variant bits (10xx) are correctly set."""
-    with patch("arcjet._client.os.urandom", return_value=b"\xff" * 10):
-        _assert_valid_uuidv7(_uuidv7_bytes())
+    with patch("arcjet._ids.os.urandom", return_value=b"\xff" * 10):
+        _assert_valid_uuidv7(uuidv7_bytes())
 
 
 def test_crockford_alphabet_excludes_ambiguous():
@@ -138,11 +135,11 @@ _fuzz_rand = st.binary(min_size=10, max_size=10)
 def test_fuzz_typeid_invariants(timestamp: float, rand_bytes: bytes):
     """Any timestamp + random bytes must produce a valid TypeID and UUIDv7."""
     with (
-        patch("arcjet._client.time.time", return_value=timestamp),
-        patch("arcjet._client.os.urandom", return_value=rand_bytes),
+        patch("arcjet._ids.time.time", return_value=timestamp),
+        patch("arcjet._ids.os.urandom", return_value=rand_bytes),
     ):
         _assert_valid_typeid(_new_local_request_id())
-        _assert_valid_uuidv7(_uuidv7_bytes())
+        _assert_valid_uuidv7(uuidv7_bytes())
 
 
 @given(timestamp=_fuzz_timestamp, rand_bytes=_fuzz_rand)
@@ -150,10 +147,10 @@ def test_fuzz_typeid_invariants(timestamp: float, rand_bytes: bytes):
 def test_fuzz_roundtrip_timestamp(timestamp: float, rand_bytes: bytes):
     """The embedded timestamp should match the input (truncated to integer ms)."""
     with (
-        patch("arcjet._client.time.time", return_value=timestamp),
-        patch("arcjet._client.os.urandom", return_value=rand_bytes),
+        patch("arcjet._ids.time.time", return_value=timestamp),
+        patch("arcjet._ids.os.urandom", return_value=rand_bytes),
     ):
-        raw = _uuidv7_bytes()
+        raw = uuidv7_bytes()
 
     expected_ms = int(timestamp * 1000)
     actual_ms = int.from_bytes(raw[:6], "big")

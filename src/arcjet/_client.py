@@ -45,6 +45,7 @@ from ._context import (
 )
 from ._decision import Decision
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
+from ._ids import crockford32, uuidv7_bytes
 from ._local import (
     evaluate_bot_locally,
     evaluate_email_locally,
@@ -102,36 +103,13 @@ def _get_report_pool() -> ThreadPoolExecutor:
         return _report_pool
 
 
-_CROCKFORD_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
-
-
-def _uuidv7_bytes() -> bytes:
-    """Generate a UUIDv7 as 16 raw bytes (RFC 9562)."""
-    timestamp_ms = int(time.time() * 1000)
-    rand_bytes = os.urandom(10)
-    rand_a = rand_bytes[0] << 4 | rand_bytes[1] >> 4
-    rand_b = int.from_bytes(rand_bytes[2:], "big") & ((1 << 62) - 1)
-
-    hi = (timestamp_ms << 16) | (0x7 << 12) | rand_a  # ver=7
-    lo = (0b10 << 62) | rand_b  # var=10
-    return hi.to_bytes(8, "big") + lo.to_bytes(8, "big")
-
-
 def _new_local_request_id() -> str:
     """Generate a TypeID-compatible local request ID with ``lreq`` prefix.
 
     The suffix is a Crockford base32 encoding of a UUIDv7 (26 chars).
     See https://github.com/jetify-com/typeid for the specification.
     """
-    raw = _uuidv7_bytes()
-    # Encode 128-bit UUID as 26-char Crockford base32 (big-endian)
-    n = int.from_bytes(raw, "big")
-    chars = []
-    for _ in range(26):
-        chars.append(_CROCKFORD_ALPHABET[n & 0x1F])
-        n >>= 5
-    chars.reverse()
-    return f"lreq_{''.join(chars)}"
+    return f"lreq_{crockford32(uuidv7_bytes())}"
 
 
 class ProtectOptions(TypedDict, total=False):
