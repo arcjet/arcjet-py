@@ -3233,3 +3233,1092 @@ def test_guarding_does_not_share_a_tools_mutable_state() -> None:
 
     assert cast(Any, original)._seen == []
     assert cast(Any, original).undeclared == ["a"]
+
+
+def test_guard_tool_raises_unavailable_on_failed_open_decision_under_default() -> None:
+    """Failed-open decision under default raises ArcjetToolUnavailableError without running the tool."""
+    from arcjet.guard.langchain import ArcjetToolUnavailableError
+
+    calls = 0
+
+    def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    class _FailedOpenTransport:
+        def guard(self, _request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+            return pb.GuardResponse(
+                decision=pb.GuardDecision(
+                    id="gdec_failed",
+                    conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                    rule_results=[
+                        pb.GuardRuleResult(
+                            result_id="gres_0",
+                            config_id="",
+                            input_id="",
+                            error=pb.ResultError(
+                                message="Rule evaluation error",
+                                code="EVAL_ERROR",
+                            ),
+                        )
+                    ],
+                )
+            )
+
+        def capture(
+            self, _request: pb.CaptureRequest, **_kwargs: Any
+        ) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuardSync(
+            "key",
+            _FailedOpenTransport(),  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(tool_fn, name="tool_fn", description="Tool"),
+        action="tool.called",
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        wrapped.invoke(cast(Any, {"value": "test"}))
+    assert calls == 0
+
+
+def test_guard_tool_raises_unavailable_on_guard_exception_under_default() -> None:
+    """A guard() that raises becomes ArcjetToolUnavailableError (captured as decision error)."""
+    from arcjet.guard.langchain import ArcjetToolUnavailableError
+
+    calls = 0
+
+    def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    class _RaisingTransport:
+        def guard(self, _request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+            raise ValueError("guard error")
+
+        def capture(
+            self, _request: pb.CaptureRequest, **_kwargs: Any
+        ) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuardSync(
+            "key",
+            _RaisingTransport(),  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(tool_fn, name="tool_fn", description="Tool"),
+        action="tool.called",
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        wrapped.invoke(cast(Any, {"value": "test"}))
+    assert calls == 0
+
+
+def test_guard_tool_raises_unavailable_on_resolver_exception_under_default() -> None:
+    """An actor/input resolver that raises becomes ArcjetToolUnavailableError, not the resolver's exception."""
+    from arcjet.guard.langchain import ArcjetToolUnavailableError
+
+    calls = 0
+
+    def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    def bad_resolver(_config: Any) -> str:
+        raise RuntimeError("resolver error")
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(tool_fn, name="tool_fn", description="Tool"),
+        action="tool.called",
+        actor=bad_resolver,
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError) as exc_info:
+        wrapped.invoke(cast(Any, {"value": "test"}))
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert calls == 0
+
+
+def test_guard_tool_executes_tool_on_guard_exception_with_allow_error_handling() -> (
+    None
+):
+    """on_guard_error="allow" with a raising guard() executes the tool instead."""
+
+    calls = 0
+
+    def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    class _RaisingTransport:
+        def guard(self, _request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+            raise ValueError("guard error")
+
+        def capture(
+            self, _request: pb.CaptureRequest, **_kwargs: Any
+        ) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuardSync(
+            "key",
+            _RaisingTransport(),  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(tool_fn, name="tool_fn", description="Tool"),
+        action="tool.called",
+        on_guard_error="allow",
+    )
+
+    result = wrapped.invoke(cast(Any, {"value": "test"}))
+    assert result == "test"
+    assert calls == 1
+
+
+def test_guard_tool_executes_tool_on_resolver_exception_with_allow_error_handling() -> (
+    None
+):
+    """on_guard_error="allow" with a resolver that raises executes the tool instead."""
+
+    calls = 0
+
+    def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    def bad_resolver(_config: Any) -> str:
+        raise RuntimeError("resolver error")
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(tool_fn, name="tool_fn", description="Tool"),
+        action="tool.called",
+        actor=bad_resolver,
+        on_guard_error="allow",
+    )
+
+    result = wrapped.invoke(cast(Any, {"value": "test"}))
+    assert result == "test"
+    assert calls == 1
+
+
+def test_unavailable_error_isinstance_toolexception_and_core_base() -> None:
+    """ArcjetToolUnavailableError satisfies isinstance checks for ToolException and ArcjetUnavailableError."""
+    from langchain_core.tools import ToolException
+
+    from arcjet.guard._errors import ArcjetUnavailableError
+    from arcjet.guard.langchain import ArcjetToolUnavailableError as ExportedError
+
+    class _RaisingTransport:
+        def guard(self, _request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+            raise ValueError("guard error")
+
+        def capture(
+            self, _request: pb.CaptureRequest, **_kwargs: Any
+        ) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuardSync(
+            "key",
+            _RaisingTransport(),  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="tool_fn", description="Tool"
+        ),
+        action="tool.called",
+    )
+
+    with pytest.raises(ExportedError) as exc_info:
+        wrapped.invoke(cast(Any, {"value": "test"}))
+
+    exc = exc_info.value
+    assert isinstance(exc, ToolException)
+    assert isinstance(exc, ArcjetUnavailableError)
+    assert isinstance(exc, ExportedError)
+
+
+def test_denied_error_isinstance_toolexception_and_core_base() -> None:
+    """ArcjetToolDeniedError satisfies isinstance checks for ToolException and ArcjetDeniedError."""
+    from langchain_core.tools import ToolException
+
+    from arcjet.guard._errors import ArcjetDeniedError
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="tool_fn", description="Tool"
+        ),
+        action="tool.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError) as exc_info:
+        wrapped.invoke(cast(Any, {"value": "test"}))
+
+    exc = exc_info.value
+    assert isinstance(exc, ToolException)
+    assert isinstance(exc, ArcjetDeniedError)
+    assert isinstance(exc, ArcjetToolDeniedError)
+
+
+def test_guard_tool_carries_correlation_id_in_guard_and_capture() -> None:
+    """One guard call and one capture, both carrying the same correlation_id."""
+    from arcjet.guard import arcjet_sequence
+
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    with arcjet_sequence(correlation_id="corr-123"):
+        wrapped.invoke(cast(Any, {"value": "test"}))
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "corr-123"
+
+
+def test_guard_tool_resolves_correlation_from_config_configurable() -> None:
+    """Config under configurable key provides correlation_id."""
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    wrapped.invoke(
+        cast(Any, {"value": "test"}),
+        config={"configurable": {"arcjet_correlation_id": "from-config"}},
+    )
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "from-config"
+
+
+def test_guard_tool_resolves_correlation_from_config_metadata() -> None:
+    """Config under metadata key provides correlation_id."""
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    wrapped.invoke(
+        cast(Any, {"value": "test"}),
+        config={"metadata": {"arcjet_correlation_id": "from-metadata"}},
+    )
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "from-metadata"
+
+
+def test_guard_tool_config_outranks_ambient_correlation() -> None:
+    """RunnableConfig correlation_id outranks ambient ContextVar."""
+    from arcjet.guard import arcjet_sequence
+
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    with arcjet_sequence(correlation_id="ambient"):
+        wrapped.invoke(
+            cast(Any, {"value": "test"}),
+            config={"configurable": {"arcjet_correlation_id": "from-config"}},
+        )
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "from-config"
+
+
+def test_guard_tool_explicit_parameter_outranks_ambient() -> None:
+    """Explicit guard_action_sync() parameter outranks ambient ContextVar. guard_tool exposes only lower two tiers."""
+    from guard_doubles import StubGuardClient, make_allow_decision
+
+    from arcjet.guard import arcjet_sequence, guard_action_sync
+
+    client = StubGuardClient(decision=make_allow_decision())
+
+    with arcjet_sequence(correlation_id="ambient"):
+        guard_action_sync(
+            lambda: None,
+            action="thing.done",
+            guard=client,  # type: ignore[arg-type]
+            correlation_id="explicit",
+        )
+
+    assert len(client.guards) == 1
+    assert client.guards[0]["correlation_id"] == "explicit"
+
+
+def test_guard_tool_falls_back_to_ambient_without_config() -> None:
+    """With no RunnableConfig correlation_id, guard_tool falls back to ambient ContextVar."""
+    from arcjet.guard import arcjet_sequence
+
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    with arcjet_sequence(correlation_id="ambient"):
+        wrapped.invoke(cast(Any, {"value": "test"}))
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "ambient"
+
+
+def test_guard_tool_falls_back_to_ambient_with_none_config() -> None:
+    """With config=None, guard_tool falls back to ambient ContextVar."""
+    from arcjet.guard import arcjet_sequence
+
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    with arcjet_sequence(correlation_id="ambient"):
+        wrapped.invoke(cast(Any, {"value": "test"}), config=None)
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "ambient"
+
+
+def test_guard_tool_malformed_config_correlation_does_not_raise() -> None:
+    """A 300-byte correlation_id in config does not raise; tool executes and falls back to ambient."""
+    from arcjet.guard import arcjet_sequence
+
+    transport = _Transport()
+
+    def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    malformed_id = "x" * 300
+
+    with arcjet_sequence(correlation_id="ambient"):
+        result = wrapped.invoke(
+            cast(Any, {"value": "test"}),
+            config={"configurable": {"arcjet_correlation_id": malformed_id}},
+        )
+
+    assert result == "test"
+    assert transport.request is not None
+    assert transport.request.correlation_id == "ambient"
+
+
+def test_guard_tool_no_mutation_on_allow_path() -> None:
+    """Dict arguments are not mutated on the allow path."""
+
+    transport = _Transport()
+
+    def echo_value(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(echo_value, name="echo", description="Echo"),
+        action="tool.called",
+    )
+
+    original_args = {"value": "test"}
+    args_copy = dict(original_args)
+
+    result = wrapped.invoke(cast(Any, original_args))
+
+    assert original_args == args_copy
+    assert result == original_args["value"]
+
+
+def test_guard_tool_no_mutation_on_deny_path() -> None:
+    """Dict arguments are not mutated on the deny path."""
+
+    transport = _Transport(pb.GUARD_CONCLUSION_DENY)
+
+    def echo_value(value: str) -> str:
+        return value
+
+    tool = StructuredTool.from_function(echo_value, name="echo", description="Echo")
+    tool.handle_tool_error = "blocked"
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=tool,
+        action="tool.called",
+    )
+
+    original_args = {"value": "test"}
+    args_copy = dict(original_args)
+
+    wrapped.invoke(cast(Any, original_args))
+
+    assert original_args == args_copy
+
+
+def test_guard_tool_async_unavailable_on_guard_exception() -> None:
+    """Async: A guard() that raises becomes ArcjetToolUnavailableError (captured as decision error)."""
+    from arcjet.guard.langchain import ArcjetToolUnavailableError
+
+    calls = 0
+
+    async def tool_fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    class _RaisingAsyncTransport:
+        async def guard(
+            self, _request: pb.GuardRequest, **_kwargs: Any
+        ) -> pb.GuardResponse:
+            raise ValueError("guard error")
+
+        async def capture(
+            self, _request: pb.CaptureRequest, **_kwargs: Any
+        ) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuard(
+            "key",
+            _RaisingAsyncTransport(),  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(
+            coroutine=tool_fn, name="tool_fn", description="Tool"
+        ),
+        action="tool.called",
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        asyncio.run(wrapped.ainvoke(cast(Any, {"value": "test"})))
+    assert calls == 0
+
+
+def test_guard_tool_async_resolves_correlation_from_config() -> None:
+    """Async: Config provides correlation_id."""
+    transport = _AsyncTransport()
+
+    async def simple_tool(value: str) -> str:
+        return value
+
+    wrapped = guard_tool(
+        guard=ArcjetGuard(
+            "key",
+            transport,  # type: ignore[arg-type]
+            1000,
+            "test-agent",
+        ),
+        tool=StructuredTool.from_function(
+            coroutine=simple_tool, name="simple_tool", description="Simple tool"
+        ),
+        action="tool.called",
+    )
+
+    asyncio.run(
+        wrapped.ainvoke(
+            cast(Any, {"value": "test"}),
+            config={"configurable": {"arcjet_correlation_id": "async-config"}},
+        )
+    )
+
+    assert transport.request is not None
+    assert transport.request.correlation_id == "async-config"
+
+
+# The doubles above record only guard requests. These also record capture
+# requests, which is what a Sequence assertion needs.
+import json
+
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import ToolException
+
+from arcjet.guard import arcjet_sequence
+from arcjet.guard.langchain import ArcjetToolUnavailableError
+
+
+class _RecordingTransport:
+    """Sync transport recording the guard request and every capture request."""
+
+    def __init__(self, conclusion: Any = pb.GUARD_CONCLUSION_ALLOW) -> None:
+        self.conclusion = conclusion
+        self.request: Any = None
+        self.captures: list[Any] = []
+
+    def guard(self, request: Any, **_k: Any) -> Any:
+        self.request = request
+        return pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_probe",
+                conclusion=self.conclusion,
+                reason=(
+                    pb.GUARD_REASON_INPUT_CONSTRAINT
+                    if self.conclusion == pb.GUARD_CONCLUSION_DENY
+                    else pb.GUARD_REASON_UNSPECIFIED
+                ),
+            )
+        )
+
+    def capture(self, request: Any, **_k: Any) -> Any:
+        self.captures.append(request)
+        return pb.CaptureResponse()
+
+
+class _AsyncRecordingTransport:
+    def __init__(self, conclusion: Any = pb.GUARD_CONCLUSION_ALLOW) -> None:
+        self.conclusion = conclusion
+        self.request: Any = None
+        self.captures: list[Any] = []
+
+    async def guard(self, request: Any, **_k: Any) -> Any:
+        self.request = request
+        return pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_probe_async",
+                conclusion=self.conclusion,
+                reason=(
+                    pb.GUARD_REASON_INPUT_CONSTRAINT
+                    if self.conclusion == pb.GUARD_CONCLUSION_DENY
+                    else pb.GUARD_REASON_UNSPECIFIED
+                ),
+            )
+        )
+
+    async def capture(self, request: Any, **_k: Any) -> Any:
+        self.captures.append(request)
+        return pb.CaptureResponse()
+
+
+def _failed_open_response() -> Any:
+    return pb.GuardResponse(
+        decision=pb.GuardDecision(
+            id="gdec_fo",
+            conclusion=pb.GUARD_CONCLUSION_ALLOW,
+            rule_results=[
+                pb.GuardRuleResult(
+                    result_id="gres_0",
+                    config_id="",
+                    input_id="",
+                    error=pb.ResultError(message="boom", code="EVAL_ERROR"),
+                )
+            ],
+        )
+    )
+
+
+class _FailedOpen:
+    def guard(self, _r: Any, **_k: Any) -> Any:
+        return _failed_open_response()
+
+    def capture(self, _r: Any, **_k: Any) -> Any:
+        return pb.CaptureResponse()
+
+
+class _AsyncFailedOpen:
+    async def guard(self, _r: Any, **_k: Any) -> Any:
+        return _failed_open_response()
+
+    async def capture(self, _r: Any, **_k: Any) -> Any:
+        return pb.CaptureResponse()
+
+
+def _sync(t: Any) -> ArcjetGuardSync:
+    return ArcjetGuardSync("key", t, 1000, "probe")
+
+
+def _async(t: Any) -> ArcjetGuard:
+    return ArcjetGuard("key", t, 1000, "probe")
+
+
+def _events(t: Any) -> list[Any]:
+    return [e for r in t.captures for e in r.events]
+
+
+# --- one call, one guard and one capture, joined by the correlation ID -----
+
+
+def test_guard_and_capture_share_correlation_id() -> None:
+    t = _RecordingTransport()
+    g = _sync(t)
+    w = guard_tool(
+        guard=g,
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="tool.called",
+    )
+    with arcjet_sequence(correlation_id="corr-1"):
+        w.invoke(cast(Any, {"value": "x"}))
+    g.flush()
+
+    assert t.request is not None
+    assert t.request.correlation_id == "corr-1"
+    events = _events(t)
+    assert len(events) == 1
+    assert events[0].correlation_id == "corr-1"
+    assert events[0].decision_id == "gdec_probe"
+    assert json.loads(events[0].metadata_json["outcome"]) == "success"
+
+
+def test_denial_emits_denied_capture_and_reaches_handle_tool_error() -> None:
+    """Capture-before-raise ordering survives the adapter's except wrapper."""
+    t = _RecordingTransport(pb.GUARD_CONCLUSION_DENY)
+    g = _sync(t)
+    tool = StructuredTool.from_function(lambda value: value, name="d", description="d")
+    tool.handle_tool_error = "blocked"
+    w = guard_tool(guard=g, tool=tool, action="tool.called")
+
+    assert w.invoke(cast(Any, {"value": "x"})) == "blocked"
+    g.flush()
+    events = _events(t)
+    assert len(events) == 1
+    assert json.loads(events[0].metadata_json["outcome"]) == "denied"
+
+
+# --- the missing third on_guard_error="allow" variant ---------------------
+
+
+def test_failed_open_with_allow_executes_tool() -> None:
+    calls = 0
+
+    def fn(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    w = guard_tool(
+        guard=_sync(_FailedOpen()),
+        tool=StructuredTool.from_function(fn, name="fn", description="d"),
+        action="a",
+        on_guard_error="allow",
+    )
+    assert w.invoke(cast(Any, {"value": "x"})) == "x"
+    assert calls == 1
+
+
+# --- the deliberate asymmetry: denial is handled, unavailability raises ----
+# Kills "adapter over-catches ToolException instead of ArcjetToolDeniedError".
+
+
+def test_unavailable_is_not_routed_through_handle_tool_error() -> None:
+    tool = StructuredTool.from_function(lambda value: value, name="d", description="d")
+    tool.handle_tool_error = "blocked"
+    w = guard_tool(guard=_sync(_FailedOpen()), tool=tool, action="a")
+    with pytest.raises(ArcjetToolUnavailableError):
+        w.invoke(cast(Any, {"value": "x"}))
+
+
+def test_async_unavailable_is_not_routed_through_handle_tool_error() -> None:
+    async def fn(value: str) -> str:
+        return value
+
+    tool = StructuredTool.from_function(coroutine=fn, name="d", description="d")
+    tool.handle_tool_error = "blocked"
+    w = guard_tool(guard=_async(_AsyncFailedOpen()), tool=tool, action="a")
+    with pytest.raises(ArcjetToolUnavailableError):
+        asyncio.run(w.ainvoke(cast(Any, {"value": "x"})))
+
+
+# --- async parity ---------------------------------------------------------
+# test_async_denial_uses_handle_tool_error kills "ainvoke's denied_error factory
+# dropped", the one surviving mutant with a real user-visible consequence.
+
+
+def test_async_denial_uses_handle_tool_error() -> None:
+    async def fn(value: str) -> str:
+        return value
+
+    tool = StructuredTool.from_function(coroutine=fn, name="d", description="d")
+    tool.handle_tool_error = "blocked-async"
+    w = guard_tool(
+        guard=_async(_AsyncRecordingTransport(pb.GUARD_CONCLUSION_DENY)),
+        tool=tool,
+        action="a",
+    )
+    assert asyncio.run(w.ainvoke(cast(Any, {"value": "x"}))) == "blocked-async"
+
+
+def test_async_denial_raises_tool_denied_error() -> None:
+    async def fn(value: str) -> str:
+        return value
+
+    w = guard_tool(
+        guard=_async(_AsyncRecordingTransport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(coroutine=fn, name="d", description="d"),
+        action="a",
+    )
+    with pytest.raises(ArcjetToolDeniedError):
+        asyncio.run(w.ainvoke(cast(Any, {"value": "x"})))
+
+
+def test_async_falls_back_to_ambient_correlation_id() -> None:
+    t = _AsyncRecordingTransport()
+
+    async def fn(value: str) -> str:
+        return value
+
+    w = guard_tool(
+        guard=_async(t),
+        tool=StructuredTool.from_function(coroutine=fn, name="d", description="d"),
+        action="a",
+    )
+
+    async def go() -> None:
+        with arcjet_sequence(correlation_id="ambient-async"):
+            await w.ainvoke(cast(Any, {"value": "x"}))
+
+    asyncio.run(go())
+    assert t.request is not None
+    assert t.request.correlation_id == "ambient-async"
+
+
+def test_async_resolves_correlation_from_config_metadata() -> None:
+    t = _AsyncRecordingTransport()
+
+    async def fn(value: str) -> str:
+        return value
+
+    w = guard_tool(
+        guard=_async(t),
+        tool=StructuredTool.from_function(coroutine=fn, name="d", description="d"),
+        action="a",
+    )
+    asyncio.run(
+        w.ainvoke(
+            cast(Any, {"value": "x"}),
+            config={"metadata": {"arcjet_correlation_id": "async-meta"}},
+        )
+    )
+    assert t.request is not None
+    assert t.request.correlation_id == "async-meta"
+
+
+def test_async_schema_defaults_reach_the_input_resolver() -> None:
+    """Async twin of test_guard_tool_uses_public_schema_validation_and_defaults."""
+    t = _AsyncRecordingTransport()
+    seen: list[dict[str, Any]] = []
+
+    async def greet(name: str, punctuation: str = "!") -> str:
+        return f"Hello {name}{punctuation}"
+
+    async def inputs(args: Any, _c: Any) -> Any:
+        seen.append(dict(args))
+        return {}
+
+    w = guard_tool(
+        guard=_async(t),
+        tool=StructuredTool.from_function(
+            coroutine=greet, name="greet", description="d"
+        ),
+        action="a",
+        inputs=inputs,
+    )
+    assert asyncio.run(w.ainvoke(cast(Any, {"name": "Ada"}))) == "Hello Ada!"
+    assert seen == [{"name": "Ada", "punctuation": "!"}]
+
+
+# --- correlation precedence inside a RunnableConfig ------------------------
+
+
+def test_configurable_outranks_metadata() -> None:
+    t = _RecordingTransport()
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    w.invoke(
+        cast(Any, {"value": "x"}),
+        config={
+            "configurable": {"arcjet_correlation_id": "cfg"},
+            "metadata": {"arcjet_correlation_id": "meta"},
+        },
+    )
+    assert t.request is not None
+    assert t.request.correlation_id == "cfg"
+
+
+def test_config_present_without_arcjet_key_uses_ambient() -> None:
+    """A config present but carrying no Arcjet key falls back to the sequence."""
+    t = _RecordingTransport()
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    with arcjet_sequence(correlation_id="ambient"):
+        w.invoke(
+            cast(Any, {"value": "x"}),
+            config={"configurable": {"user_id": "u"}, "metadata": {"trace": "t"}},
+        )
+    assert t.request is not None
+    assert t.request.correlation_id == "ambient"
+
+
+def test_malformed_metadata_tier_value_does_not_raise() -> None:
+    t = _RecordingTransport()
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    with arcjet_sequence(correlation_id="ambient"):
+        assert (
+            w.invoke(
+                cast(Any, {"value": "x"}),
+                config={"metadata": {"arcjet_correlation_id": "y" * 300}},
+            )
+            == "x"
+        )
+    assert t.request is not None
+    assert t.request.correlation_id == "ambient"
+
+
+def test_non_string_config_value_falls_back_to_ambient() -> None:
+    t = _RecordingTransport()
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    with arcjet_sequence(correlation_id="ambient"):
+        w.invoke(
+            cast(Any, {"value": "x"}),
+            config={"configurable": {"arcjet_correlation_id": 12345}},
+        )
+    assert t.request is not None
+    assert t.request.correlation_id == "ambient"
+
+
+# --- argument normalisation and error delegation, unchanged by the rewiring -
+
+
+def test_string_input_with_single_field_schema() -> None:
+    t = _RecordingTransport()
+    seen: list[dict[str, Any]] = []
+
+    def only(value: str) -> str:
+        return f"got:{value}"
+
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(only, name="only", description="d"),
+        action="a",
+        inputs=lambda args, _c: seen.append(dict(args)) or {},
+    )
+    assert w.invoke(cast(Any, "hello")) == "got:hello"
+    assert seen == [{"value": "hello"}]
+
+
+def test_string_input_with_multi_field_schema_matches_the_unguarded_tool() -> None:
+    """A bare string is the tool's business, not a failure to evaluate policy.
+
+    The checkpoint used to normalize arguments unconditionally, so anything
+    the tool's own parsing rejected surfaced as an Arcjet unavailability.
+    Arguments are read only when a resolver will look at them now, and a
+    rejection on this path is the tool's to raise — LangChain in fact coerces
+    a bare string into the first field, so there is nothing to reject here and
+    the guarded tool answers exactly as the unguarded one does.
+    """
+
+    def two(a: str, b: str = "x") -> str:
+        return a + b
+
+    original = StructuredTool.from_function(two, name="two", description="d")
+    seen: list[dict[str, Any]] = []
+    w = guard_tool(
+        guard=_sync(_RecordingTransport()),
+        tool=original,
+        action="a",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    assert w.invoke(cast(Any, "hello")) == original.invoke(cast(Any, "hello"))
+    assert seen == [{"a": "hello"}]
+
+
+def test_tool_call_dict_input_is_unwrapped_before_resolution() -> None:
+    t = _RecordingTransport()
+    seen: list[dict[str, Any]] = []
+
+    w = guard_tool(
+        guard=_sync(t),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="echo", description="d"
+        ),
+        action="a",
+        inputs=lambda args, _c: seen.append(dict(args)) or {},
+    )
+    out = w.invoke(
+        cast(
+            Any,
+            {
+                "type": "tool_call",
+                "name": "echo",
+                "id": "call-1",
+                "args": {"value": "v"},
+            },
+        )
+    )
+    assert seen == [{"value": "v"}]
+    assert isinstance(out, ToolMessage)
+
+
+def test_handle_tool_error_true_uses_the_error_message() -> None:
+    tool = StructuredTool.from_function(lambda value: value, name="d", description="d")
+    tool.handle_tool_error = True
+    w = guard_tool(
+        guard=_sync(_RecordingTransport(pb.GUARD_CONCLUSION_DENY)),
+        tool=tool,
+        action="a",
+    )
+    assert w.invoke(cast(Any, {"value": "x"})) == (
+        'Arcjet denied action "a" (INPUT_CONSTRAINT)'
+    )
+
+
+def test_tool_call_denial_returns_a_tool_message() -> None:
+    tool = StructuredTool.from_function(lambda value: value, name="d", description="d")
+    tool.handle_tool_error = "blocked"
+    w = guard_tool(
+        guard=_sync(_RecordingTransport(pb.GUARD_CONCLUSION_DENY)),
+        tool=tool,
+        action="a",
+    )
+    out = w.invoke(
+        cast(
+            Any,
+            {"type": "tool_call", "name": "d", "id": "call-9", "args": {"value": "x"}},
+        )
+    )
+    assert isinstance(out, ToolMessage)
+    assert out.content == "blocked"
+    assert out.tool_call_id == "call-9"
+    assert out.status == "error"
+
+
+def test_invoke_rejects_an_async_client() -> None:
+    w = guard_tool(
+        guard=_async(_AsyncRecordingTransport()),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    with pytest.raises(TypeError, match="ArcjetGuardSync"):
+        w.invoke(cast(Any, {"value": "x"}))
+
+
+def test_ainvoke_rejects_a_sync_client() -> None:
+    w = guard_tool(
+        guard=_sync(_RecordingTransport()),
+        tool=StructuredTool.from_function(
+            lambda value: value, name="d", description="d"
+        ),
+        action="a",
+    )
+    with pytest.raises(TypeError, match="ArcjetGuard"):
+        asyncio.run(w.ainvoke(cast(Any, {"value": "x"})))
+
+
+# --- the wrapped tool's own ToolException is not Arcjet's business --------
+
+
+def test_wrapped_tool_exception_reaches_langchain_handling() -> None:
+    def boom(value: str) -> str:
+        raise ToolException("inner failed")
+
+    tool = StructuredTool.from_function(boom, name="boom", description="d")
+    tool.handle_tool_error = "inner-handled"
+    w = guard_tool(guard=_sync(_RecordingTransport()), tool=tool, action="a")
+    assert w.invoke(cast(Any, {"value": "x"})) == "inner-handled"
+
+
+def test_wrapped_tool_exception_is_not_converted_by_arcjet() -> None:
+    def boom(value: str) -> str:
+        raise ToolException("inner failed")
+
+    w = guard_tool(
+        guard=_sync(_RecordingTransport()),
+        tool=StructuredTool.from_function(boom, name="boom", description="d"),
+        action="a",
+    )
+    with pytest.raises(ToolException) as ei:
+        w.invoke(cast(Any, {"value": "x"}))
+    assert not isinstance(ei.value, ArcjetToolDeniedError)
+    assert not isinstance(ei.value, ArcjetToolUnavailableError)
