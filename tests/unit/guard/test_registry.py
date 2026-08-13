@@ -567,3 +567,46 @@ class TestRegistryActorAndInputs:
 
         assert decision.has_failed_open()
         assert decision.conclusion == "ALLOW"
+
+
+class TestCaptureAmbientSequence:
+    """``capture`` joins the enclosing sequence without being told to."""
+
+    def test_capture_inherits_correlation_and_merges_metadata(self) -> None:
+        from arcjet.guard import arcjet_sequence
+        from arcjet.guard.testing import register_test_client
+
+        with register_test_client() as client:
+            with arcjet_sequence(correlation_id="seq-1", metadata={"tenant": "acme"}):
+                capture(action="side.effect", metadata={"step": "two"})
+
+            recorded = client.captures[0]
+            assert recorded.correlation_id == "seq-1"
+            assert recorded.metadata == {"tenant": "acme", "step": "two"}
+
+    def test_capture_arguments_win_over_the_sequence(self) -> None:
+        from arcjet.guard import arcjet_sequence
+        from arcjet.guard.testing import register_test_client
+
+        with register_test_client() as client:
+            with arcjet_sequence(correlation_id="seq-1", metadata={"tenant": "acme"}):
+                capture(
+                    action="side.effect",
+                    correlation_id="explicit-1",
+                    metadata={"tenant": "other"},
+                )
+
+            recorded = client.captures[0]
+            assert recorded.correlation_id == "explicit-1"
+            assert recorded.metadata == {"tenant": "other"}
+
+    def test_capture_outside_a_sequence_carries_no_correlation(self) -> None:
+        from arcjet.guard.testing import register_test_client
+
+        with register_test_client() as client:
+            capture(action="side.effect")
+
+            recorded = client.captures[0]
+            assert recorded.correlation_id is None
+            # Nothing to inherit, so nothing is invented either.
+            assert recorded.metadata == {}

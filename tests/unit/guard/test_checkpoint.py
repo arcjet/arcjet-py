@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
-import warnings
 from typing import Any
 
 import pytest
@@ -28,7 +27,11 @@ from arcjet.guard import (
     guard_action,
     guard_action_sync,
 )
-from arcjet.guard._checkpoint import run_checkpoint, run_checkpoint_sync
+from arcjet.guard._checkpoint import (
+    ResolvedInputs,
+    run_checkpoint,
+    run_checkpoint_sync,
+)
 from arcjet.guard._types import RuleResultError
 
 
@@ -147,6 +150,8 @@ class TestDenyOutcomeSync:
             )
 
         assert call_count == 0
+        assert len(client.captures) == 1
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
 
 
 class TestDenyOutcomeAsync:
@@ -172,6 +177,34 @@ class TestDenyOutcomeAsync:
 
             assert call_count == 0
             assert exc_info.value.decision is decision
+            assert exc_info.value.action == "thing.done"
+
+        asyncio.run(test())
+
+    def test_deny_always_blocks_on_guard_error_allow(self, reset_sequence_context):
+        """DENY blocks even with on_guard_error='allow'."""
+
+        async def test():
+            decision = make_deny_decision()
+            client = StubGuardClient(decision=decision)
+            call_count = 0
+
+            async def fn():
+                nonlocal call_count
+                call_count += 1
+                return "value"
+
+            with pytest.raises(ArcjetDeniedError):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                    on_guard_error="allow",
+                )
+
+            assert call_count == 0
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["outcome"] == "denied"
 
         asyncio.run(test())
 
@@ -241,7 +274,7 @@ class TestGuardRaisesAsync:
                 call_count += 1
                 return "value"
 
-            with pytest.raises(ArcjetUnavailableError):
+            with pytest.raises(ArcjetUnavailableError) as exc_info:
                 await run_checkpoint(
                     fn,
                     action="thing.done",
@@ -249,6 +282,11 @@ class TestGuardRaisesAsync:
                 )
 
             assert call_count == 0
+            error = exc_info.value
+            assert error.action == "thing.done"
+            assert error.__cause__ is exc
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
         asyncio.run(test())
 
@@ -332,8 +370,8 @@ class TestErrorOutcomeSync:
         assert len(client.captures) == 1
         assert client.captures[0]["metadata"]["outcome"] == "error"
 
-    def test_callable_error_with_deny_still_runs(self, reset_sequence_context):
-        """Error outcome is after policy, so DENY was not checked."""
+    def test_deny_short_circuits_before_callable(self, reset_sequence_context):
+        """A DENY raises before the callable, so only the denied capture is emitted."""
         decision = make_deny_decision()
         client = StubGuardClient(decision=decision)
 
@@ -680,24 +718,17 @@ class TestWrongFlavorSync:
                 guard=client,
             )
 
+    @pytest.mark.filterwarnings("error::RuntimeWarning")
     def test_wrong_flavor_no_coroutine_warning(self, reset_sequence_context):
-        """No 'coroutine was never awaited' warning."""
+        """Passing an async client to sync raises unavailability."""
         client = AsyncOnlyStubGuardClient(decision=make_allow_decision())
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            try:
-                run_checkpoint_sync(
-                    lambda: None,
-                    action="thing.done",
-                    guard=client,
-                )
-            except ArcjetUnavailableError:
-                pass
-
-            # No RuntimeWarning about un-awaited coroutine
-            runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-            assert len(runtime_warnings) == 0
+        with pytest.raises(ArcjetUnavailableError):
+            run_checkpoint_sync(
+                lambda: None,
+                action="thing.done",
+                guard=client,
+            )
 
 
 class TestWrongFlavorAsync:
@@ -713,6 +744,11 @@ class TestWrongFlavorAsync:
                     action="thing.done",
                     guard=client,
                 )
+
+            # The blocking method is rejected on sight, so it is never invoked.
+            # Awaiting its return value would raise too, but only after the
+            # call had already happened.
+            assert client.guards == []
 
         async def async_fn():
             return None
@@ -775,7 +811,7 @@ class TestInputsPassThroughAsync:
             await run_checkpoint(
                 async_fn,
                 action="thing.done",
-                guard=client,  # type: ignore[arg-type]
+                guard=client,
                 inputs=inputs,
             )
 
@@ -798,6 +834,11 @@ class BlockLangChain:
             raise ImportError(f"LangChain is blocked")
         return None
 
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.startswith("langchain"):
+            raise ImportError(f"LangChain is blocked")
+        return None
+
 sys.meta_path.insert(0, BlockLangChain())
 
 # Now import arcjet.guard
@@ -812,6 +853,7 @@ result = guard_action_sync(
 )
 
 assert result == "success"
+assert not [m for m in sys.modules if m.startswith("langchain")]
 print("ok")
 """
         result = subprocess.run(
@@ -844,6 +886,54 @@ class TestPrepareSync:
 
         assert exc_info.value.__cause__ is exc
 
+    def test_prepared_actor_and_inputs_reach_guard(self, reset_sequence_context):
+        """What prepare() returns is what gets evaluated."""
+        from arcjet.guard import local_input
+
+        client = StubGuardClient(decision=make_allow_decision())
+        inputs = {"message": local_input.string("hello")}
+
+        def prepare():
+            return ResolvedInputs(actor="u_1", inputs=inputs)
+
+        run_checkpoint_sync(
+            lambda: "value",
+            action="thing.done",
+            guard=client,
+            prepare=prepare,
+            actor="ignored",
+            inputs={"ignored": local_input.string("no")},
+        )
+
+        assert len(client.guards) == 1
+        assert client.guards[0]["actor"] == "u_1"
+        assert client.guards[0]["inputs"] is inputs
+
+
+class TestGuardCallArgumentsSync:
+    """What the engine sends to guard(), not just what it captures."""
+
+    def test_guard_receives_label_correlation_metadata_and_actor(
+        self, reset_sequence_context
+    ):
+        client = StubGuardClient(decision=make_allow_decision())
+
+        with arcjet_sequence(correlation_id="corr-1"):
+            run_checkpoint_sync(
+                lambda: "value",
+                action="checkout.refund",
+                guard=client,
+                actor="u_1",
+                metadata={"tier": "pro"},
+            )
+
+        assert len(client.guards) == 1
+        recorded = client.guards[0]
+        assert recorded["label"] == "checkout.refund"
+        assert recorded["correlation_id"] == "corr-1"
+        assert recorded["metadata"] == {"tier": "pro"}
+        assert recorded["actor"] == "u_1"
+
 
 class TestMetadataSync:
     """Metadata from arcjet_sequence is inherited."""
@@ -865,3 +955,858 @@ class TestMetadataSync:
         # Sequence metadata is in the capture
         assert client.captures[0]["metadata"]["user_id"] == "u_1"
         assert client.captures[0]["metadata"]["outcome"] == "success"
+
+
+class TestCaptureActionSync:
+    """capture_action guards an action with sequence context."""
+
+    def test_capture_action_outside_sequence(self, reset_sequence_context):
+        """capture_action works outside a sequence."""
+        from arcjet.guard import capture_action
+
+        # Should not raise even with no sequence
+        capture_action(action="item.created")
+
+    def test_capture_action_inside_sequence_inherits_correlation_id(
+        self, reset_sequence_context
+    ):
+        """Omitted correlation_id is inherited from sequence."""
+        from arcjet.guard import capture_action
+
+        client = StubGuardClient()
+        client.captures = []
+
+        def capture_impl(
+            action: str,
+            correlation_id: Any = None,
+            decision_id: Any = None,
+            occurred_at: Any = None,
+            metadata: Any = None,
+        ) -> None:
+            client.captures.append(
+                dict(
+                    action=action,
+                    correlation_id=correlation_id,
+                    decision_id=decision_id,
+                    metadata=metadata,
+                )
+            )
+
+        client.capture = capture_impl  # type: ignore[assignment]
+
+        # Simulate registration
+        import arcjet.guard._registry as reg
+
+        old_registered = reg._registered
+        try:
+            reg._registered = client  # type: ignore[assignment]
+
+            with arcjet_sequence(correlation_id="seq-456"):
+                capture_action(action="item.created")
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["correlation_id"] == "seq-456"
+        finally:
+            reg._registered = old_registered
+
+    def test_capture_action_explicit_correlation_id_wins(self, reset_sequence_context):
+        """Explicit correlation_id overrides sequence."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        client = StubGuardClient()
+        client.captures = []
+
+        def capture_impl(
+            action: str,
+            correlation_id: Any = None,
+            decision_id: Any = None,
+            occurred_at: Any = None,
+            metadata: Any = None,
+        ) -> None:
+            client.captures.append(
+                dict(
+                    action=action,
+                    correlation_id=correlation_id,
+                    decision_id=decision_id,
+                    metadata=metadata,
+                )
+            )
+
+        client.capture = capture_impl  # type: ignore[assignment]
+
+        old_registered = reg._registered
+        try:
+            reg._registered = client  # type: ignore[assignment]
+
+            with arcjet_sequence(correlation_id="seq-456"):
+                capture_action(action="item.created", correlation_id="explicit-789")
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["correlation_id"] == "explicit-789"
+        finally:
+            reg._registered = old_registered
+
+    def test_capture_action_metadata_merges_with_sequence(self, reset_sequence_context):
+        """Omitted metadata merges with sequence metadata."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        client = StubGuardClient()
+        client.captures = []
+
+        def capture_impl(
+            action: str,
+            correlation_id: Any = None,
+            decision_id: Any = None,
+            occurred_at: Any = None,
+            metadata: Any = None,
+        ) -> None:
+            client.captures.append(
+                dict(
+                    action=action,
+                    correlation_id=correlation_id,
+                    decision_id=decision_id,
+                    metadata=metadata,
+                )
+            )
+
+        client.capture = capture_impl  # type: ignore[assignment]
+
+        old_registered = reg._registered
+        try:
+            reg._registered = client  # type: ignore[assignment]
+
+            with arcjet_sequence(correlation_id="seq-789", metadata={"tenant": "acme"}):
+                capture_action(action="item.created")
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["tenant"] == "acme"
+        finally:
+            reg._registered = old_registered
+
+    def test_capture_action_metadata_collision_explicit_wins(
+        self, reset_sequence_context
+    ):
+        """When both have same key, explicit value wins."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        client = StubGuardClient()
+        client.captures = []
+
+        def capture_impl(
+            action: str,
+            correlation_id: Any = None,
+            decision_id: Any = None,
+            occurred_at: Any = None,
+            metadata: Any = None,
+        ) -> None:
+            client.captures.append(
+                dict(
+                    action=action,
+                    correlation_id=correlation_id,
+                    decision_id=decision_id,
+                    metadata=metadata,
+                )
+            )
+
+        client.capture = capture_impl  # type: ignore[assignment]
+
+        old_registered = reg._registered
+        try:
+            reg._registered = client  # type: ignore[assignment]
+
+            with arcjet_sequence(
+                correlation_id="seq-789",
+                metadata={"tenant": "acme", "key": "ambient"},
+            ):
+                capture_action(action="item.created", metadata={"key": "explicit"})
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["tenant"] == "acme"
+            assert client.captures[0]["metadata"]["key"] == "explicit"
+        finally:
+            reg._registered = old_registered
+
+    def test_capture_action_decision_id_passed_through(self, reset_sequence_context):
+        """decision_id is passed through unchanged."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        client = StubGuardClient()
+        client.captures = []
+
+        def capture_impl(
+            action: str,
+            correlation_id: Any = None,
+            decision_id: Any = None,
+            occurred_at: Any = None,
+            metadata: Any = None,
+        ) -> None:
+            client.captures.append(
+                dict(
+                    action=action,
+                    correlation_id=correlation_id,
+                    decision_id=decision_id,
+                    metadata=metadata,
+                )
+            )
+
+        client.capture = capture_impl  # type: ignore[assignment]
+
+        old_registered = reg._registered
+        try:
+            reg._registered = client  # type: ignore[assignment]
+
+            capture_action(action="item.created", decision_id="dec_123")
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["decision_id"] == "dec_123"
+        finally:
+            reg._registered = old_registered
+
+
+class TestCaptureActionAsync:
+    """capture_action async tests mirror sync behavior."""
+
+    def test_capture_action_async_inside_sequence_inherits_correlation_id(
+        self, reset_sequence_context
+    ):
+        """Async: omitted correlation_id is inherited from sequence."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        async def test():
+            client = StubGuardClient()
+            client.captures = []
+
+            def capture_impl(
+                action: str,
+                correlation_id: Any = None,
+                decision_id: Any = None,
+                occurred_at: Any = None,
+                metadata: Any = None,
+            ) -> None:
+                client.captures.append(
+                    dict(
+                        action=action,
+                        correlation_id=correlation_id,
+                        decision_id=decision_id,
+                        metadata=metadata,
+                    )
+                )
+
+            client.capture = capture_impl  # type: ignore[assignment]
+
+            old_registered = reg._registered
+            try:
+                reg._registered = client  # type: ignore[assignment]
+
+                with arcjet_sequence(correlation_id="seq-456"):
+                    capture_action(action="item.created")
+
+                assert len(client.captures) == 1
+                assert client.captures[0]["correlation_id"] == "seq-456"
+            finally:
+                reg._registered = old_registered
+
+        asyncio.run(test())
+
+    def test_capture_action_async_metadata_collision_explicit_wins(
+        self, reset_sequence_context
+    ):
+        """Async: explicit metadata wins on collision."""
+        import arcjet.guard._registry as reg
+        from arcjet.guard import capture_action
+
+        async def test():
+            client = StubGuardClient()
+            client.captures = []
+
+            def capture_impl(
+                action: str,
+                correlation_id: Any = None,
+                decision_id: Any = None,
+                occurred_at: Any = None,
+                metadata: Any = None,
+            ) -> None:
+                client.captures.append(
+                    dict(
+                        action=action,
+                        correlation_id=correlation_id,
+                        decision_id=decision_id,
+                        metadata=metadata,
+                    )
+                )
+
+            client.capture = capture_impl  # type: ignore[assignment]
+
+            old_registered = reg._registered
+            try:
+                reg._registered = client  # type: ignore[assignment]
+
+                with arcjet_sequence(
+                    correlation_id="seq-789",
+                    metadata={"tenant": "acme", "key": "ambient"},
+                ):
+                    capture_action(action="item.created", metadata={"key": "explicit"})
+
+                assert len(client.captures) == 1
+                assert client.captures[0]["metadata"]["tenant"] == "acme"
+                assert client.captures[0]["metadata"]["key"] == "explicit"
+            finally:
+                reg._registered = old_registered
+
+        asyncio.run(test())
+
+
+class TestPolicyInputIntegration:
+    """Policy input rules (prompt injection, sensitive info) in checkpoint."""
+
+    def test_prompt_injection_rule_in_checkpoint(self, reset_sequence_context):
+        """DetectPromptInjection rule arrives in recorded guard call."""
+        from arcjet.guard._rules import DetectPromptInjection
+
+        client = StubGuardClient(decision=make_allow_decision())
+        rule = DetectPromptInjection()("test message")
+
+        def fn():
+            return "ok"
+
+        run_checkpoint_sync(
+            fn,
+            action="thing.done",
+            guard=client,
+            rules=[rule],
+        )
+
+        # Rule is recorded unchanged
+        assert len(client.guards) == 1
+        assert len(client.guards[0]["rules"]) == 1
+        assert client.guards[0]["rules"][0] is rule
+
+    def test_sensitive_info_rule_in_checkpoint(self, reset_sequence_context):
+        """LocalDetectSensitiveInfo rule arrives unchanged."""
+        from arcjet.guard._rules import LocalDetectSensitiveInfo
+
+        client = StubGuardClient(decision=make_allow_decision())
+        rule = LocalDetectSensitiveInfo()("test value")
+
+        def fn():
+            return "ok"
+
+        run_checkpoint_sync(
+            fn,
+            action="thing.done",
+            guard=client,
+            rules=[rule],
+        )
+
+        # Rule is recorded unchanged
+        assert len(client.guards) == 1
+        assert len(client.guards[0]["rules"]) == 1
+        assert client.guards[0]["rules"][0] is rule
+
+
+class TestContentMutationSync:
+    """Argument and return value mutation are forbidden."""
+
+    def test_no_mutation_on_allow_path(self, reset_sequence_context):
+        """ALLOW path does not mutate argument object."""
+        client = StubGuardClient(decision=make_allow_decision())
+
+        class MutableArg:
+            def __init__(self):
+                self.value = "original"
+
+        mutable = MutableArg()
+        inputs = {"arg": mutable}
+
+        def fn():
+            return "success"
+
+        run_checkpoint_sync(
+            fn,
+            action="thing.done",
+            guard=client,
+            inputs=inputs,  # type: ignore[arg-type]
+        )
+
+        assert mutable.value == "original"
+        assert client.guards[0]["inputs"] is inputs
+        assert client.guards[0]["inputs"]["arg"] is mutable
+
+    def test_no_mutation_on_deny_path(self, reset_sequence_context):
+        """DENY path does not mutate argument object."""
+        client = StubGuardClient(decision=make_deny_decision())
+
+        class MutableArg:
+            def __init__(self):
+                self.value = "original"
+
+        mutable = MutableArg()
+        inputs = {"arg": mutable}
+
+        def fn():
+            return "success"
+
+        with pytest.raises(ArcjetDeniedError):
+            run_checkpoint_sync(
+                fn,
+                action="thing.done",
+                guard=client,
+                inputs=inputs,  # type: ignore[arg-type]
+            )
+
+        assert mutable.value == "original"
+        # The same mapping reached the client; nothing was rewritten on the way.
+        assert client.guards[0]["inputs"] is inputs
+
+
+class TestSensitiveInfoDenial:
+    """Sensitive info detection denies rather than redacts."""
+
+    def test_sensitive_info_deny_raises_before_callable(self, reset_sequence_context):
+        """DENY from sensitive info raises before callable runs."""
+        from arcjet.guard import local_input
+        from arcjet.guard._rules import LocalDetectSensitiveInfo
+
+        client = StubGuardClient(decision=make_deny_decision())
+        rule = LocalDetectSensitiveInfo()("sensitive_value_here")
+        inputs = {"message": local_input.string("card 4111111111111111")}
+        call_count = 0
+
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            return "never_reaches_here"
+
+        with pytest.raises(ArcjetDeniedError):
+            run_checkpoint_sync(
+                fn,
+                action="thing.done",
+                guard=client,
+                rules=[rule],
+                inputs=inputs,
+            )
+
+        assert call_count == 0
+        # Denied, not redacted: the mapping arrives as the caller built it.
+        assert client.guards[0]["inputs"] is inputs
+        assert client.guards[0]["rules"] == [rule]
+
+
+class TestMetadataPreferenceSync:
+    """When both tiers set same key, explicit wins."""
+
+    def test_metadata_explicit_wins_over_sequence(self, reset_sequence_context):
+        """Explicit metadata overrides sequence on key collision."""
+        decision = make_allow_decision()
+        client = StubGuardClient(decision=decision)
+
+        with arcjet_sequence(
+            correlation_id="seq-123",
+            metadata={"key": "ambient", "other": "value"},
+        ):
+            run_checkpoint_sync(
+                lambda: None,
+                action="thing.done",
+                guard=client,
+                metadata={"key": "explicit", "extra": "data"},
+            )
+
+        # Sequence metadata applied first, then explicit
+        capture_metadata = client.captures[0]["metadata"]
+        assert capture_metadata["key"] == "explicit"  # Explicit wins
+        assert capture_metadata["other"] == "value"  # Ambient preserved
+        assert capture_metadata["extra"] == "data"  # Explicit added
+        assert capture_metadata["outcome"] == "success"
+
+
+class TestCorrelationIdPreferenceSync:
+    """Explicit correlation_id always wins over sequence."""
+
+    def test_correlation_id_explicit_wins_over_sequence(self, reset_sequence_context):
+        """Explicit correlation_id overrides sequence."""
+        decision = make_allow_decision()
+        client = StubGuardClient(decision=decision)
+
+        with arcjet_sequence(correlation_id="seq-123"):
+            run_checkpoint_sync(
+                lambda: None,
+                action="thing.done",
+                guard=client,
+                correlation_id="explicit-456",
+            )
+
+        assert client.captures[0]["correlation_id"] == "explicit-456"
+
+
+class TestMetadataPreferenceAsync:
+    """Async: explicit metadata overrides sequence."""
+
+    def test_metadata_explicit_wins_over_sequence_async(self, reset_sequence_context):
+        """Async: explicit metadata overrides sequence on key collision."""
+
+        async def test():
+            decision = make_allow_decision()
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            with arcjet_sequence(
+                correlation_id="seq-123",
+                metadata={"key": "ambient", "other": "value"},
+            ):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                    metadata={"key": "explicit", "extra": "data"},
+                )
+
+            capture_metadata = client.captures[0]["metadata"]
+            assert capture_metadata["key"] == "explicit"
+            assert capture_metadata["other"] == "value"
+            assert capture_metadata["extra"] == "data"
+            assert capture_metadata["outcome"] == "success"
+
+        asyncio.run(test())
+
+
+class TestCorrelationIdPreferenceAsync:
+    """Async: explicit correlation_id wins over sequence."""
+
+    def test_correlation_id_explicit_wins_over_sequence_async(
+        self, reset_sequence_context
+    ):
+        """Async: explicit correlation_id overrides sequence."""
+
+        async def test():
+            decision = make_allow_decision()
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            with arcjet_sequence(correlation_id="seq-123"):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                    correlation_id="explicit-456",
+                )
+
+            assert client.captures[0]["correlation_id"] == "explicit-456"
+
+        asyncio.run(test())
+
+
+class TestEmptyRulesAsync:
+    """Async: empty rules path is covered."""
+
+    def test_empty_rules_async(self, reset_sequence_context):
+        """Async: empty rules still evaluates policy and succeeds."""
+
+        async def test():
+            decision = make_allow_decision()
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            result = await run_checkpoint(
+                fn,
+                action="thing.done",
+                guard=client,
+                rules=[],
+            )
+
+            assert result == "success"
+            assert len(client.captures) == 1
+            assert len(client.guards) == 1
+            assert client.guards[0]["rules"] == []
+
+        asyncio.run(test())
+
+
+class TestGuardCallArgumentsAsync:
+    """What the async engine sends to guard(), not just what it captures."""
+
+    def test_guard_receives_label_correlation_metadata_and_actor(
+        self, reset_sequence_context
+    ):
+        async def test():
+            client = StubGuardClient(decision=make_allow_decision())
+
+            async def fn():
+                return "value"
+
+            with arcjet_sequence(correlation_id="corr-1"):
+                await run_checkpoint(
+                    fn,
+                    action="checkout.refund",
+                    guard=client,
+                    actor="u_1",
+                    metadata={"tier": "pro"},
+                )
+
+            assert len(client.guards) == 1
+            recorded = client.guards[0]
+            assert recorded["label"] == "checkout.refund"
+            assert recorded["correlation_id"] == "corr-1"
+            assert recorded["metadata"] == {"tier": "pro"}
+            assert recorded["actor"] == "u_1"
+
+        asyncio.run(test())
+
+    def test_prepared_actor_and_inputs_reach_guard(self, reset_sequence_context):
+        """What an awaited prepare() returns is what gets evaluated."""
+
+        async def test():
+            from arcjet.guard import local_input
+
+            client = StubGuardClient(decision=make_allow_decision())
+            inputs = {"message": local_input.string("hello")}
+
+            async def fn():
+                return "value"
+
+            async def prepare():
+                return ResolvedInputs(actor="u_1", inputs=inputs)
+
+            await run_checkpoint(
+                fn,
+                action="thing.done",
+                guard=client,
+                prepare=prepare,
+                actor="ignored",
+                inputs={"ignored": local_input.string("no")},
+            )
+
+            assert len(client.guards) == 1
+            assert client.guards[0]["actor"] == "u_1"
+            assert client.guards[0]["inputs"] is inputs
+
+        asyncio.run(test())
+
+
+class TestPrepareRaisingAsync:
+    """Async: prepare() raising path is covered."""
+
+    def test_prepare_raise_async(self, reset_sequence_context):
+        """Async: prepare() raising becomes unavailable."""
+
+        async def test():
+            client = StubGuardClient(decision=make_allow_decision())
+            call_count = 0
+
+            async def fn():
+                nonlocal call_count
+                call_count += 1
+                return "success"
+
+            async def prepare():
+                raise ValueError("prepare failed")
+
+            with pytest.raises(ArcjetUnavailableError):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                    prepare=prepare,
+                )
+
+            assert call_count == 0
+
+        asyncio.run(test())
+
+
+class TestFailedOpenAsync:
+    """Async: failed-open decision handling."""
+
+    def test_failed_open_deny_default_async(self, reset_sequence_context):
+        """Async: failed-open denies by default."""
+
+        async def test():
+            error_result = RuleResultError(
+                code="ERR_UNKNOWN", message="something broke"
+            )
+            decision = make_allow_decision(results=(error_result,))
+            # Verify the fixture is actually failed open
+            assert decision.has_failed_open() is True
+
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            with pytest.raises(ArcjetUnavailableError):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                )
+
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+        asyncio.run(test())
+
+    def test_failed_open_allow_proceeds_async(self, reset_sequence_context):
+        """Async: failed-open allows with on_guard_error='allow'."""
+
+        async def test():
+            error_result = RuleResultError(
+                code="ERR_UNKNOWN", message="something broke"
+            )
+            decision = make_allow_decision(results=(error_result,))
+            # Verify the fixture is actually failed open
+            assert decision.has_failed_open() is True
+
+            client = StubGuardClient(decision=decision)
+            call_count = 0
+
+            async def fn():
+                nonlocal call_count
+                call_count += 1
+                return "success"
+
+            result = await run_checkpoint(
+                fn,
+                action="thing.done",
+                guard=client,
+                on_guard_error="allow",
+            )
+
+            assert result == "success"
+            assert call_count == 1
+            assert len(client.captures) >= 1
+            assert client.captures[0]["metadata"]["outcome"] == "success"
+
+        asyncio.run(test())
+
+
+class TestDenyCallableErrorAsync:
+    """Async: deny with callable error path covered."""
+
+    def test_deny_when_callable_would_error_async(self, reset_sequence_context):
+        """Async: deny raises even if callable would error."""
+
+        async def test():
+            decision = make_deny_decision()
+            client = StubGuardClient(decision=decision)
+            call_count = 0
+
+            async def fn():
+                nonlocal call_count
+                call_count += 1
+                raise ValueError("error in callable")
+
+            with pytest.raises(ArcjetDeniedError):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                )
+
+            assert call_count == 0
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["outcome"] == "denied"
+
+        asyncio.run(test())
+
+
+class TestSequenceMetadataAsync:
+    """Async: sequence metadata inheritance."""
+
+    def test_sequence_metadata_inherited_async(self, reset_sequence_context):
+        """Async: sequence metadata is inherited."""
+
+        async def test():
+            decision = make_allow_decision()
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            with arcjet_sequence(
+                correlation_id="seq-123",
+                metadata={"user_id": "u_1"},
+            ):
+                await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=client,
+                )
+
+            assert client.captures[0]["metadata"]["user_id"] == "u_1"
+            assert client.captures[0]["metadata"]["outcome"] == "success"
+
+        asyncio.run(test())
+
+
+class TestRegisteredClientAsync:
+    """Async: guard=None resolves to registered client."""
+
+    def test_guard_none_registered_client_async(self, reset_sequence_context):
+        """Async: guard=None uses registered client."""
+
+        async def test():
+            from arcjet.guard import register_arcjet, unregister_arcjet
+
+            decision = make_allow_decision()
+            client = StubGuardClient(decision=decision)
+
+            async def fn():
+                return "success"
+
+            register_arcjet(client)  # type: ignore[arg-type]
+            try:
+                result = await run_checkpoint(
+                    fn,
+                    action="thing.done",
+                    guard=None,
+                )
+            finally:
+                unregister_arcjet()
+
+            # Should have called the registered client
+            assert len(client.guards) == 1
+            assert result == "success"
+
+        asyncio.run(test())
+
+
+class TestGuardRaiseAllowProceedsAsync:
+    """Async: guard raising with on_guard_error='allow' runs callable."""
+
+    def test_guard_raise_allow_proceeds_async(self, reset_sequence_context):
+        """Async: guard raising with on_guard_error='allow' runs callable."""
+
+        async def test():
+            exc = ValueError("network error")
+            client = StubGuardClient(exception=exc)
+            call_count = 0
+
+            async def fn():
+                nonlocal call_count
+                call_count += 1
+                return "success"
+
+            result = await run_checkpoint(
+                fn,
+                action="thing.done",
+                guard=client,
+                on_guard_error="allow",
+            )
+
+            assert call_count == 1
+            assert result == "success"
+            # Should capture success, not unavailable
+            assert len(client.captures) == 1
+            assert client.captures[0]["metadata"]["outcome"] == "success"
+
+        asyncio.run(test())

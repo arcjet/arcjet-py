@@ -201,7 +201,10 @@ class AsyncOnlyStubGuardClient:
 
 
 class SyncOnlyStubGuardClient:
-    """A guard client with only guard_sync (no async guard)."""
+    """A guard client with only a sync guard method (no async guard).
+
+    The guard method is synchronous, matching ArcjetGuardSync.
+    """
 
     def __init__(
         self,
@@ -212,7 +215,7 @@ class SyncOnlyStubGuardClient:
         self.exception = exception
         self.guards: list[dict[str, Any]] = []
 
-    def guard_sync(
+    def guard(
         self,
         rules: Sequence[RuleWithInput] = (),
         *,
@@ -222,6 +225,7 @@ class SyncOnlyStubGuardClient:
         actor: Optional[str] = None,
         inputs: Optional[dict[str, Any]] = None,
     ) -> Decision:
+        """Synchronous guard method, matching ArcjetGuardSync."""
         if self.exception is not None:
             raise self.exception
 
