@@ -3,6 +3,8 @@
 This document provides essential information for coding agents working on the
 arcjet-py repository for the first time.
 
+**Last verified:** 2026-08-13
+
 ## Repository overview
 
 **Project**: Arcjet Python SDK
@@ -57,6 +59,19 @@ This runs both unit tests (in `tests/unit/`) and integration tests (in
 all tests to run together without cross-contamination. See
 `tests/TESTING_PATTERNS.md` for detailed testing conventions.
 
+**Async tests**: There is no async pytest plugin configured — no
+`pytest-asyncio`, and `anyio` is present only as a transitive dependency, not
+enabled as a plugin. An `async def test_*` function therefore **fails** with
+"async def functions are not natively supported". Test async behavior from a
+plain `def test_*` that calls `asyncio.run(...)`. Every test in `tests/` follows
+this; the two `async def test_*` examples in `tests/TESTING_PATTERNS.md` are
+imported boilerplate that does not reflect this repository — do not copy them.
+
+**Guard test doubles**: `tests/guard_doubles.py` holds the shared
+`StubGuardClient`, decision builders, and `reset_sequence_context`. pytest puts
+`tests/` on `sys.path`, so import it flat (`from guard_doubles import ...`).
+Prefer these over hand-rolled stubs.
+
 **Coverage**: Both test suites enforce an 80% minimum coverage threshold
 (`fail_under = 80` in `pyproject.toml`). Generated code (protobuf and witgen
 output) is excluded from coverage via `[tool.coverage.run] omit`.
@@ -73,8 +88,16 @@ uv run ty check                     # ty type checker
 uv run pyright                      # Pyright type checker
 ```
 
-Both type checkers must pass. Some test files are excluded from type checking
-(see `[tool.pyright]` and `[tool.ty.src]` in `pyproject.toml`).
+Pyright is gating: it exits non-zero and fails `make check`.
+
+`ty` is **not** gating — it exits 0 even when it reports diagnostics, so
+`make check` passes regardless and the diagnostic *count* is the only signal.
+The baseline is exactly one pre-existing diagnostic, an
+`unused-type-ignore-comment` at `src/arcjet/_analyze/_imports.py:36`. Compare
+against that number; "Found 1 diagnostic" means you added nothing.
+
+Some test files are excluded from type checking (see `[tool.pyright]` and
+`[tool.ty.src]` in `pyproject.toml`).
 
 Suppression comments:
 - `# type: ignore[error-code]` — Recognized by both pyright and ty.
@@ -102,13 +125,46 @@ keeping the existing API surface intact with internal changes.
 - `src/arcjet/` — Main SDK package. Public API in `__init__.py`, client in
   `_client.py`, rules in `_rules.py`, local WASM evaluation in `_local.py`.
   Protobuf code in `proto/` is **generated — do not edit**.
+- `src/arcjet/guard/` — Arcjet Guard: protection for code paths with no HTTP
+  request (agent tool calls, workers, MCP handlers). Public API in
+  `__init__.py`. Framework-agnostic core; `_checkpoint.py` is the single
+  evaluation engine that every Guard surface delegates to, so behavior changes
+  belong there rather than in a per-framework wrapper.
+- `src/arcjet/guard/langchain/` — Optional LangChain integration, the only part
+  of the tree that imports LangChain. `_tool.py` (`guard_tool`) needs only
+  `langchain-core`; `middleware.py` and `callbacks.py` need the full
+  `langchain` package. See the package docstring for the correlation-ID
+  resolution contract.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
 - `tools/witgen/` — WIT-to-Python code generator (configured by `witgen.toml`).
 - `tests/` — Unit tests (`tests/unit/`), integration tests
-  (`tests/fastapi/`, `tests/flask/`), WASM binding tests (`tests/analyze/`),
-  and benchmarks (`tests/benchmarks/`). See `tests/TESTING_PATTERNS.md`.
+  (`tests/integration/`, `tests/fastapi/`, `tests/flask/`), WASM binding tests
+  (`tests/analyze/`), and benchmarks (`tests/benchmarks/`). See
+  `tests/TESTING_PATTERNS.md`.
+- `examples/` — Standalone runnable examples, each with its own
+  `pyproject.toml` and lockfile. **Excluded from every root gate**: named in
+  `[tool.ruff] exclude` and `[tool.ty.src] exclude`, and outside pyright's
+  `include` and coverage's `--cov` target. `make check` and `make test` prove
+  nothing about `examples/`; run an example's own project to verify it.
+
+### Optional dependency extras
+
+Framework integrations are optional extras in `pyproject.toml`. Two are
+deliberately kept apart and **must not be merged**:
+
+- `langchain` → `langchain-core` only. Enough for `guard_tool`.
+- `langchain-agents` → the full `langchain` package, which hard-depends on
+  LangGraph. Required only for agent middleware.
+
+Folding the second into the first would push LangGraph onto every `guard_tool`
+user. Both are in the `dev` group so tests can exercise either surface, which
+means a test passing locally does not prove the extra it needs is correct —
+check the import against the extra that ships it.
+
+Nothing outside `src/arcjet/guard/langchain/` may import LangChain. Using
+Arcjet Guard must never require LangChain to be installed.
 
 ## Coding conventions
 
@@ -141,9 +197,13 @@ keeping the existing API surface intact with internal changes.
 ### Framework support
 
 The SDK is **framework-agnostic** with explicit support for ASGI (Starlette,
-FastAPI), Flask/Werkzeug, and Django. The `_context.py` module provides
-`coerce_request_context()` to convert framework requests to a common
+FastAPI), Flask/Werkzeug, and Django. The `src/arcjet/_context.py` module
+provides `coerce_request_context()` to convert framework requests to a common
 `RequestContext` type.
+
+Note the name collision: `src/arcjet/guard/_context.py` is unrelated. It holds
+Guard's ambient correlation context (`arcjet_sequence` and the `ContextVar` it
+sets), not request coercion.
 
 ### Environment variables
 
