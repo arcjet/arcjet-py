@@ -131,7 +131,7 @@ def _emit_capture(
             metadata=_merged_metadata(metadata, outcome),
         )
         if client is None:
-            _registry_capture(**payload)  # type: ignore[arg-type]
+            _registry_capture(**payload)
         else:
             client.capture(**payload)
     except Exception:
