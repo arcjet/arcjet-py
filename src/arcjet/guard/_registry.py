@@ -33,6 +33,7 @@ from arcjet._metadata import Metadata
 
 from ._client import ArcjetGuard, ArcjetGuardSync, _GuardClient, _make_error_decision
 from ._diagnostics import CLIENT_ALREADY_REGISTERED, CLIENT_FLAVOR_MISMATCH
+from ._policy_input import PolicyInputMap
 from ._rules import RuleWithInput
 from ._types import Decision
 
@@ -174,11 +175,13 @@ def unregister_arcjet_if(client: AnyArcjetGuard) -> None:
 
 
 async def guard(
-    rules: Sequence[RuleWithInput],
+    rules: Sequence[RuleWithInput] = (),
     *,
     label: str,
     metadata: Optional[Metadata] = None,
     correlation_id: Optional[str] = None,
+    actor: Optional[str] = None,
+    inputs: Optional[PolicyInputMap] = None,
 ) -> Decision:
     """Evaluate guard rules through the registered async client.
 
@@ -191,6 +194,17 @@ async def guard(
     unregistered case: the client that would have carried a logger is the thing
     that is missing, so the only available sink would be an unconfigurable
     warning on a request path.
+
+    Args:
+        rules: Bound rule inputs.  Defaults to none, which is still a real
+            call: the server selects remote policy by ``label``, so a
+            checkpoint that configures no local rules is exactly how a
+            remotely-managed policy is evaluated.
+        label: A short name for the checkpoint.
+        metadata: Application data passed along with the decision.
+        correlation_id: An identifier linking this call to other events.
+        actor: Who is performing the action, forwarded to policy evaluation.
+        inputs: Values offered for remote policy evaluation, keyed by name.
 
     Example:
         ::
@@ -211,6 +225,8 @@ async def guard(
             label=label,
             metadata=metadata,
             correlation_id=correlation_id,
+            actor=actor,
+            inputs=inputs,
         )
 
     _diagnose_flavor_mismatch(client)
@@ -220,17 +236,30 @@ async def guard(
 
 
 def guard_sync(
-    rules: Sequence[RuleWithInput],
+    rules: Sequence[RuleWithInput] = (),
     *,
     label: str,
     metadata: Optional[Metadata] = None,
     correlation_id: Optional[str] = None,
+    actor: Optional[str] = None,
+    inputs: Optional[PolicyInputMap] = None,
 ) -> Decision:
     """Evaluate guard rules through the registered sync client.
 
     The blocking counterpart of :func:`guard`, for Flask, Django and other sync
     frameworks.  Fails open the same way, including when the registered client
     is the async one — which this cannot await.
+
+    Args:
+        rules: Bound rule inputs.  Defaults to none, which is still a real
+            call: the server selects remote policy by ``label``, so a
+            checkpoint that configures no local rules is exactly how a
+            remotely-managed policy is evaluated.
+        label: A short name for the checkpoint.
+        metadata: Application data passed along with the decision.
+        correlation_id: An identifier linking this call to other events.
+        actor: Who is performing the action, forwarded to policy evaluation.
+        inputs: Values offered for remote policy evaluation, keyed by name.
     """
     client = _registered
     method = _blocking(client, "guard_sync", "guard")
@@ -241,6 +270,8 @@ def guard_sync(
             label=label,
             metadata=metadata,
             correlation_id=correlation_id,
+            actor=actor,
+            inputs=inputs,
         )
 
     _diagnose_flavor_mismatch(client)
