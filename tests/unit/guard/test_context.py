@@ -1,7 +1,7 @@
 """Tests for ambient correlation context in arcjet.guard._context.
 
-Verifies langchain-helper.AC3 (correlation ID management) and AC6 (context
-propagation across async boundaries).
+Covers correlation ID management, nesting and validation, and propagation across
+async and thread boundaries.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from arcjet.guard import (
 )
 
 
-class TestAC31ExplicitID:
-    """AC3.1: Inside arcjet_sequence, yielded ID and current_correlation_id() match."""
+class TestExplicitCorrelationID:
+    """Inside arcjet_sequence, yielded ID and current_correlation_id() match."""
 
     def test_yields_and_reads_back_explicit_id(self):
         """Explicit ID is yielded and returned by current_correlation_id()."""
@@ -41,8 +41,8 @@ class TestAC31ExplicitID:
         assert current_correlation_id() is None
 
 
-class TestAC32Nesting:
-    """AC3.2: Nested blocks restore outer ID on exit, including when body raises."""
+class TestNestedSequences:
+    """Nested blocks restore outer ID on exit, including when body raises."""
 
     def test_nested_sequence_restores_outer_id(self):
         """Nested sequence restores outer ID after exiting."""
@@ -66,8 +66,8 @@ class TestAC32Nesting:
         assert current_correlation_id() is None
 
 
-class TestAC33Validation:
-    """AC3.3: Over-length, non-ASCII, and other invalid IDs are rejected."""
+class TestCorrelationIDValidation:
+    """Over-length, non-ASCII, and other invalid IDs are rejected."""
 
     def test_rejects_id_over_256_bytes(self):
         """ID longer than 256 bytes raises ValueError."""
@@ -121,8 +121,8 @@ class TestAC33Validation:
         assert current_correlation_id() is None
 
 
-class TestAC34OutsideSequence:
-    """AC3.4: Outside any sequence, current_correlation_id() and metadata return None."""
+class TestOutsideAnySequence:
+    """Outside any sequence, current_correlation_id() and metadata return None."""
 
     def test_returns_none_outside_sequence(self):
         """Outside any sequence, current_correlation_id() is None."""
@@ -133,8 +133,8 @@ class TestAC34OutsideSequence:
         assert current_sequence_metadata() is None
 
 
-class TestAC61AsyncCreateTask:
-    """AC6.1: Correlation ID is visible inside asyncio.create_task()."""
+class TestAsyncTaskPropagation:
+    """Correlation ID is visible inside asyncio.create_task()."""
 
     def test_correlation_visible_in_created_task(self):
         """Correlation set before create_task() is visible inside the task."""
@@ -150,8 +150,8 @@ class TestAC61AsyncCreateTask:
         asyncio.run(main())
 
 
-class TestAC62AsyncToThread:
-    """AC6.2: Correlation ID is visible inside asyncio.to_thread()."""
+class TestToThreadPropagation:
+    """Correlation ID is visible inside asyncio.to_thread()."""
 
     def test_correlation_visible_in_to_thread(self):
         """Correlation set before to_thread() is visible inside the thread."""
@@ -164,12 +164,13 @@ class TestAC62AsyncToThread:
         asyncio.run(main())
 
 
-class TestAC63ThreadPoolExecutor:
-    """AC6.3: Bare ThreadPoolExecutor.submit() does not inherit; copy_context() does."""
+class TestThreadPoolPropagation:
+    """Bare ThreadPoolExecutor.submit() does not inherit; copy_context() does."""
 
     def test_thread_pool_executor_does_not_propagate(self):
         """ThreadPoolExecutor.submit() does not inherit correlation."""
         with arcjet_sequence(correlation_id="pool-1"):
+            assert current_correlation_id() == "pool-1"  # control: it IS set here
             with ThreadPoolExecutor(max_workers=1) as pool:
                 result = pool.submit(current_correlation_id).result()
                 assert result is None
@@ -187,6 +188,7 @@ class TestAC63ThreadPoolExecutor:
 
         async def main():
             with arcjet_sequence(correlation_id="exec-1"):
+                assert current_correlation_id() == "exec-1"  # control: it IS set here
                 loop = asyncio.get_event_loop()
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     result = await loop.run_in_executor(pool, current_correlation_id)

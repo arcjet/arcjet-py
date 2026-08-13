@@ -6,9 +6,13 @@ produces sortable, unambiguous IDs suitable for correlation tracking.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from unittest.mock import patch
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from arcjet._ids import (
     _CROCKFORD_ALPHABET,
@@ -16,6 +20,14 @@ from arcjet._ids import (
     new_correlation_id,
     uuidv7_bytes,
 )
+
+_CROCKFORD_RE = re.compile(r"^[0-9a-hj-km-np-tv-z]{26}$")
+
+
+def _assert_valid_crockford32(encoded: str) -> None:
+    """Assert ``encoded`` is 26 Crockford base32 chars with no overflow."""
+    assert _CROCKFORD_RE.match(encoded), f"bad chars: {encoded}"
+    assert encoded[0] in "01234567", f"overflow: {encoded[0]!r}"
 
 
 def test_uuidv7_bytes_length():
@@ -41,18 +53,6 @@ def test_crockford32_returns_26_chars():
     assert len(encoded) == 26, f"expected 26 chars, got {len(encoded)}"
 
 
-def test_crockford32_alphabet():
-    """crockford32 output contains only valid Crockford base32 characters."""
-    # Run multiple times to sample different UUIDs
-    for _ in range(10):
-        raw = uuidv7_bytes()
-        encoded = crockford32(raw)
-        for ch in encoded:
-            assert ch in _CROCKFORD_ALPHABET, (
-                f"character '{ch}' not in Crockford alphabet: {_CROCKFORD_ALPHABET}"
-            )
-
-
 def test_crockford_alphabet_excludes_ambiguous():
     """Crockford alphabet excludes ambiguous characters (i, l, o, u)."""
     for ch in "ilou":
@@ -60,16 +60,14 @@ def test_crockford_alphabet_excludes_ambiguous():
     assert len(_CROCKFORD_ALPHABET) == 32
 
 
-def test_crockford32_no_overflow():
-    """First character is 0-7 (128-bit value fits in 130-bit encoding)."""
-    # Repeated tests to catch potential overflow in random cases
-    for _ in range(50):
-        raw = uuidv7_bytes()
-        encoded = crockford32(raw)
-        first_char = encoded[0]
-        assert first_char in "01234567", (
-            f"first char overflow: '{first_char}' (expected 0-7)"
-        )
+def test_crockford32_encodes_domain_extremes():
+    """crockford32 encodes domain boundaries correctly (128-bit fits in 130-bit)."""
+    # All zeros: smallest possible value
+    assert crockford32(b"\x00" * 16) == "0" * 26
+    # All ones: largest possible value (2^128 - 1 >> 125 == 7)
+    encoded = crockford32(b"\xff" * 16)
+    _assert_valid_crockford32(encoded)
+    assert encoded[0] == "7"  # 2**128-1 >> 125
 
 
 def test_new_correlation_id_format():
@@ -100,14 +98,6 @@ def test_new_correlation_id_time_sortable():
     )
 
 
-def test_crockford32_deterministic():
-    """crockford32 is deterministic: same input produces same output."""
-    raw = uuidv7_bytes()
-    encoded1 = crockford32(raw)
-    encoded2 = crockford32(raw)
-    assert encoded1 == encoded2
-
-
 def test_uuidv7_bytes_with_zero_timestamp():
     """uuidv7_bytes handles epoch-zero timestamp gracefully."""
     with patch("arcjet._ids.time.time", return_value=0.0):
@@ -115,6 +105,7 @@ def test_uuidv7_bytes_with_zero_timestamp():
         u = uuid.UUID(bytes=raw)
         assert u.version == 7
         assert u.variant == uuid.RFC_4122
+        _assert_valid_crockford32(crockford32(raw))
 
 
 def test_uuidv7_bytes_with_far_future_timestamp():
@@ -125,6 +116,7 @@ def test_uuidv7_bytes_with_far_future_timestamp():
         u = uuid.UUID(bytes=raw)
         assert u.version == 7
         assert u.variant == uuid.RFC_4122
+        _assert_valid_crockford32(crockford32(raw))
 
 
 def test_uuidv7_bytes_with_zero_random():
@@ -134,6 +126,7 @@ def test_uuidv7_bytes_with_zero_random():
         u = uuid.UUID(bytes=raw)
         assert u.version == 7
         assert u.variant == uuid.RFC_4122
+        _assert_valid_crockford32(crockford32(raw))
 
 
 def test_uuidv7_bytes_with_max_random():
@@ -143,6 +136,7 @@ def test_uuidv7_bytes_with_max_random():
         u = uuid.UUID(bytes=raw)
         assert u.version == 7
         assert u.variant == uuid.RFC_4122
+        _assert_valid_crockford32(crockford32(raw))
 
 
 def test_new_correlation_id_uses_uuidv7():
@@ -159,3 +153,52 @@ def test_new_correlation_id_uses_uuidv7():
     u = uuid.UUID(bytes=raw)
     assert u.version == 7
     assert u.variant == uuid.RFC_4122
+
+
+# ---------------------------------------------------------------------------
+# Fuzz tests (hypothesis)
+# ---------------------------------------------------------------------------
+
+_MAX_TIMESTAMP_MS = 2**48 - 1
+
+_fuzz_timestamp = st.floats(
+    min_value=0, max_value=_MAX_TIMESTAMP_MS / 1000.0, allow_nan=False
+)
+_fuzz_rand = st.binary(min_size=10, max_size=10)
+
+
+def _assert_valid_uuidv7(raw: bytes) -> uuid.UUID:
+    """Assert ``raw`` is valid UUIDv7 bytes and return the UUID."""
+    assert len(raw) == 16
+    u = uuid.UUID(bytes=raw)
+    assert u.version == 7
+    assert u.variant == uuid.RFC_4122
+    return u
+
+
+@given(timestamp=_fuzz_timestamp, rand_bytes=_fuzz_rand)
+@settings(max_examples=500)
+def test_fuzz_uuidv7_invariants(timestamp: float, rand_bytes: bytes):
+    """Any timestamp + random bytes must produce a valid UUIDv7 with valid encoding."""
+    with (
+        patch("arcjet._ids.time.time", return_value=timestamp),
+        patch("arcjet._ids.os.urandom", return_value=rand_bytes),
+    ):
+        raw = uuidv7_bytes()
+        _assert_valid_uuidv7(raw)
+        _assert_valid_crockford32(crockford32(raw))
+
+
+@given(timestamp=_fuzz_timestamp, rand_bytes=_fuzz_rand)
+@settings(max_examples=500)
+def test_fuzz_roundtrip_timestamp(timestamp: float, rand_bytes: bytes):
+    """The embedded timestamp should match the input (truncated to integer ms)."""
+    with (
+        patch("arcjet._ids.time.time", return_value=timestamp),
+        patch("arcjet._ids.os.urandom", return_value=rand_bytes),
+    ):
+        raw = uuidv7_bytes()
+
+    expected_ms = int(timestamp * 1000)
+    actual_ms = int.from_bytes(raw[:6], "big")
+    assert actual_ms == expected_ms, f"timestamp mismatch: {actual_ms} != {expected_ms}"

@@ -34,6 +34,10 @@ Public API
     launch_arcjet, launch_arcjet_sync
     ArcjetGuard, ArcjetGuardSync
 
+**Ambient correlation context** (from ``_context``)::
+
+    arcjet_sequence, current_correlation_id, current_sequence_metadata
+
 **Optional registration** (from ``registry``)::
 
     register_arcjet, unregister_arcjet
