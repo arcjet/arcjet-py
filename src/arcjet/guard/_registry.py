@@ -32,6 +32,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, Union
 from arcjet._metadata import Metadata
 
 from ._client import ArcjetGuard, ArcjetGuardSync, _GuardClient, _make_error_decision
+from ._context import current_correlation_id, current_sequence_metadata
 from ._diagnostics import CLIENT_ALREADY_REGISTERED, CLIENT_FLAVOR_MISMATCH
 from ._policy_input import PolicyInputMap
 from ._rules import RuleWithInput
@@ -301,6 +302,11 @@ def capture(
 
     Never raises.
 
+    The *correlation_id* and *metadata* parameters accept an ambient default
+    from the enclosing :func:`arcjet_sequence`, if one exists. Pass an explicit
+    non-``None`` value to override the ambient value, or ``None`` to inherit it.
+    To record an event with no correlation, emit it outside any sequence.
+
     Example:
         Deep in application code, with nothing passed down::
 
@@ -314,12 +320,20 @@ def capture(
     if client is None:
         return
 
+    # Apply ambient defaults: a non-None argument wins, None means fall back
+    resolved_correlation_id: Optional[str] = (
+        correlation_id if correlation_id is not None else current_correlation_id()
+    )
+    resolved_metadata: Optional[Metadata] = (
+        metadata if metadata is not None else current_sequence_metadata()
+    )
+
     client.capture(
         action=action,
-        correlation_id=correlation_id,
+        correlation_id=resolved_correlation_id,
         decision_id=decision_id,
         occurred_at=occurred_at,
-        metadata=metadata,
+        metadata=resolved_metadata,
     )
 
 
