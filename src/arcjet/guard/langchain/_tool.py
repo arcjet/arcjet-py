@@ -25,7 +25,7 @@ from collections.abc import (
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import Any, cast
 from weakref import WeakKeyDictionary
 
 from langchain_core.callbacks import (
@@ -51,12 +51,12 @@ from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
 from .._client import _GuardClient
+from .._errors import OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable, _blocking, registered_client
 from .._rules import RuleWithInput
 from .._types import Decision
 
-OnGuardError = Literal["allow", "deny"]
 ActorResolver = str | Callable[[RunnableConfig], str]
 InputResolver = (
     PolicyInputMap | Callable[[Mapping[str, Any], RunnableConfig], PolicyInputMap]
