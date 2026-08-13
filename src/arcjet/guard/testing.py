@@ -43,6 +43,7 @@ from arcjet._metadata import Metadata
 
 from ._capture import normalize_capture_event
 from ._client import _make_error_decision
+from ._policy_input import PolicyInputMap
 from ._registry import register_arcjet_for_testing, unregister_arcjet_if
 from ._rules import RuleWithInput
 from ._types import ArcjetWarning, Decision
@@ -91,6 +92,16 @@ class RecordedGuard:
     rules: tuple[RuleWithInput, ...]
     metadata: Optional[Metadata] = None
     correlation_id: Optional[str] = None
+    actor: Optional[str] = None
+    """Who the call said was acting.  Present only when the call supplied one."""
+    inputs: Optional[PolicyInputMap] = None
+    """Inputs offered for remote policy evaluation.
+
+    The caller's own mapping, not a copy — unlike ``rules``, which is
+    snapshotted into a tuple.  Mutating the mapping after the call changes what
+    this record reports.  Held by reference so a caller can assert that a
+    checkpoint passed its inputs through without altering them.
+    """
 
 
 @dataclass(slots=True)
@@ -181,11 +192,13 @@ class ArcjetTestClient:
 
     async def guard(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Optional[Metadata] = None,
         correlation_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        inputs: Optional[PolicyInputMap] = None,
     ) -> Decision:
         """Record the guard call and answer fail-open.
 
@@ -194,18 +207,20 @@ class ArcjetTestClient:
         decision reports an error, so helpers that fail closed on an errored
         decision will deny against this client.
         """
-        return self._record_guard(rules, label, metadata, correlation_id)
+        return self._record_guard(rules, label, metadata, correlation_id, actor, inputs)
 
     def guard_sync(
         self,
-        rules: Sequence[RuleWithInput],
+        rules: Sequence[RuleWithInput] = (),
         *,
         label: str,
         metadata: Optional[Metadata] = None,
         correlation_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        inputs: Optional[PolicyInputMap] = None,
     ) -> Decision:
         """The blocking counterpart of :meth:`guard`."""
-        return self._record_guard(rules, label, metadata, correlation_id)
+        return self._record_guard(rules, label, metadata, correlation_id, actor, inputs)
 
     def _record_guard(
         self,
@@ -213,6 +228,8 @@ class ArcjetTestClient:
         label: str,
         metadata: Optional[Metadata],
         correlation_id: Optional[str],
+        actor: Optional[str],
+        inputs: Optional[PolicyInputMap],
     ) -> Decision:
         self.guards.append(
             RecordedGuard(
@@ -220,6 +237,8 @@ class ArcjetTestClient:
                 rules=tuple(rules),
                 metadata=metadata,
                 correlation_id=correlation_id,
+                actor=actor,
+                inputs=inputs,
             )
         )
         return _make_error_decision(
