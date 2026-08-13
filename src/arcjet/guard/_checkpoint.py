@@ -150,9 +150,8 @@ def _classify_decision(
 ) -> Optional[BaseException]:
     """Return the exception this decision requires, or ``None`` to proceed.
 
-    Deny is checked first and is unconditional: ``on_guard_error`` opts out of
-    failing closed on an *unevaluated* policy, never out of an evaluated
-    denial.
+    A denied decision always raises, regardless of ``on_guard_error``, which
+    only governs unevaluated policy.
     """
     if decision.conclusion == "DENY":
         return denied_error(action, decision)

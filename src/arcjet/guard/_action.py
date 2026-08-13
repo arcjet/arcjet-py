@@ -14,6 +14,7 @@ from ._checkpoint import run_checkpoint, run_checkpoint_sync
 from ._client import ArcjetGuard, ArcjetGuardSync
 from ._errors import OnGuardError
 from ._policy_input import PolicyInputMap
+from ._registry import capture
 from ._rules import RuleWithInput
 
 T = TypeVar("T")
@@ -182,13 +183,18 @@ def capture_action(
 
     The agent-facing spelling of :func:`arcjet.guard.capture`: identical,
     except that an omitted *correlation_id* is taken from the enclosing
-    :func:`arcjet_sequence` and omitted *metadata* inherits the sequence's.
+    :func:`arcjet_sequence`, and *metadata* is merged with the sequence's.
     Never raises.
+
+    The merge is unconditional, matching what a checkpoint emits: the
+    sequence's metadata is applied first, then the call's own, so the
+    caller's key wins on collision. Every event on a Sequence therefore
+    carries the sequence's metadata.
 
     Args:
         action: A short name for what happened.
-        metadata: Application context. Inherited from the enclosing sequence
-            if omitted.
+        metadata: Application context. Merged over the enclosing sequence's
+            metadata, so the call's values win on key collision.
         correlation_id: An identifier linking this event to a Sequence.
             Inherited from the enclosing sequence if omitted.
         decision_id: The guard decision that authorized the action, if any.
@@ -203,8 +209,6 @@ def capture_action(
                 metadata={"item_type": "invoice"},
             )
     """
-    from ._registry import capture
-
     capture(
         action=action,
         correlation_id=correlation_id,

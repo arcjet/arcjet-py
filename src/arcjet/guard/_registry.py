@@ -302,10 +302,15 @@ def capture(
 
     Never raises.
 
-    The *correlation_id* and *metadata* parameters accept an ambient default
-    from the enclosing :func:`arcjet_sequence`, if one exists. Pass an explicit
-    non-``None`` value to override the ambient value, or ``None`` to inherit it.
-    To record an event with no correlation, emit it outside any sequence.
+    The *correlation_id* parameter accepts an ambient default from the enclosing
+    :func:`arcjet_sequence`, if one exists. Pass an explicit non-``None`` value
+    to override the ambient value, or ``None`` to inherit it. To record an event
+    with no correlation, emit it outside any sequence.
+
+    The *metadata* parameter is merged with the ambient metadata from the
+    enclosing sequence, if one exists. When both sequence metadata and an
+    explicit metadata argument are present, sequence metadata is applied first,
+    then the call's own, so the caller's keys win on collision.
 
     Example:
         Deep in application code, with nothing passed down::
@@ -320,13 +325,19 @@ def capture(
     if client is None:
         return
 
-    # Apply ambient defaults: a non-None argument wins, None means fall back
+    # Resolve correlation ID: explicit wins, None means fall back to ambient
     resolved_correlation_id: Optional[str] = (
         correlation_id if correlation_id is not None else current_correlation_id()
     )
-    resolved_metadata: Optional[Metadata] = (
-        metadata if metadata is not None else current_sequence_metadata()
-    )
+
+    # Merge metadata: ambient first, then the call's own
+    merged_metadata: dict[str, Any] = {}
+    ambient = current_sequence_metadata()
+    if ambient:
+        merged_metadata.update(ambient)
+    if metadata:
+        merged_metadata.update(metadata)
+    resolved_metadata: Optional[Metadata] = merged_metadata if merged_metadata else None
 
     client.capture(
         action=action,
