@@ -56,6 +56,18 @@ class ResolvedInputs:
 
     actor: Optional[str] = None
     inputs: Optional[PolicyInputMap] = None
+    degraded: Optional[BaseException] = None
+    """What stopped one of the above being resolved, if anything.
+
+    A surface that can resolve *some* of what a decision is made from reports
+    the failure here instead of raising it. Raising skips the guard call
+    altogether, so under ``on_guard_error="allow"`` the action runs and Guard
+    holds no record that it happened — a rate limit on the label then stops
+    counting exactly the calls whose actor could not be resolved.
+
+    Reporting it keeps the call on the record and leaves ``on_guard_error`` to
+    decide whether an action the policy could not fully judge may proceed.
+    """
 
 
 def _default_denied(action: str, decision: Decision) -> BaseException:
@@ -147,21 +159,40 @@ def _classify_decision(
     on_guard_error: OnGuardError,
     denied_error: DeniedFactory,
     unavailable_error: UnavailableFactory,
+    degraded: Optional[BaseException] = None,
 ) -> Optional[BaseException]:
-    """Return the exception this decision requires, or ``None`` to proceed.
+    """Return the exception this outcome requires, or ``None`` to proceed.
 
     A denied decision always raises, regardless of ``on_guard_error``, which
     only governs unevaluated policy.
+
+    *degraded* is whatever stopped one of the decision's inputs being resolved.
+    Guard saw the call either way, so the decision is on the record; what
+    ``on_guard_error`` governs is whether an action the policy could not fully
+    judge may run. It also travels as the cause of a failed-open refusal, so an
+    operator is told what stopped the read rather than only that policy could
+    not be evaluated — the two co-occur during an outage.
     """
     if decision.conclusion == "DENY":
         return denied_error(action, decision)
     if decision.has_failed_open():
-        if on_guard_error == "deny":
-            return unavailable_error(action, None)
+        if on_guard_error != "allow":
+            return unavailable_error(action, degraded)
         logger.warning(
             "arcjet: policy for action %r could not be evaluated; proceeding "
             "because on_guard_error is 'allow'",
             action,
+        )
+        return None
+    if degraded is not None:
+        if on_guard_error != "allow":
+            return unavailable_error(action, degraded)
+        logger.warning(
+            "arcjet: could not resolve everything policy needed for action %r; "
+            "it was evaluated without that, and the action proceeds because "
+            "on_guard_error is 'allow'",
+            action,
+            exc_info=degraded,
         )
     return None
 
@@ -223,6 +254,9 @@ def run_checkpoint_sync(
     """Evaluate a checkpoint, then run *fn* if policy allows it."""
     resolved_correlation_id = _resolve_correlation_id(correlation_id)
     decision: Optional[Decision] = None
+    # Bound before the attempt, so the classification below reads it whether or
+    # not `prepare` got far enough to return one.
+    prepared = ResolvedInputs()
 
     try:
         prepared = prepare() if prepare is not None else ResolvedInputs(actor, inputs)
@@ -256,13 +290,36 @@ def run_checkpoint_sync(
         )
 
     if decision is not None:
-        failure = _classify_decision(
-            decision,
-            action=action,
-            on_guard_error=on_guard_error,
-            denied_error=denied_error,
-            unavailable_error=unavailable_error,
-        )
+        try:
+            failure = _classify_decision(
+                decision,
+                action=action,
+                on_guard_error=on_guard_error,
+                denied_error=denied_error,
+                unavailable_error=unavailable_error,
+                degraded=prepared.degraded,
+            )
+        except Exception as exc:
+            # A client that answered with something that is not a decision.
+            # Reading it is not the caller's mistake to receive raw: policy was
+            # not evaluated, which is what `on_guard_error` governs.
+            if on_guard_error != "allow":
+                _emit_capture(
+                    client=guard,
+                    action=action,
+                    outcome="unavailable",
+                    correlation_id=resolved_correlation_id,
+                    decision=None,
+                    metadata=metadata,
+                )
+                raise unavailable_error(action, exc) from exc
+            logger.warning(
+                "arcjet: could not read the decision for action %r; proceeding "
+                "because on_guard_error is 'allow'",
+                action,
+                exc_info=exc,
+            )
+            failure = None
         if failure is not None:
             outcome: Outcome = (
                 "denied" if decision.conclusion == "DENY" else "unavailable"
@@ -319,6 +376,9 @@ async def run_checkpoint(
     """Evaluate a checkpoint, then run *fn* if policy allows it."""
     resolved_correlation_id = _resolve_correlation_id(correlation_id)
     decision: Optional[Decision] = None
+    # Bound before the attempt, so the classification below reads it whether or
+    # not `prepare` got far enough to return one.
+    prepared = ResolvedInputs()
 
     try:
         prepared = (
@@ -354,13 +414,36 @@ async def run_checkpoint(
         )
 
     if decision is not None:
-        failure = _classify_decision(
-            decision,
-            action=action,
-            on_guard_error=on_guard_error,
-            denied_error=denied_error,
-            unavailable_error=unavailable_error,
-        )
+        try:
+            failure = _classify_decision(
+                decision,
+                action=action,
+                on_guard_error=on_guard_error,
+                denied_error=denied_error,
+                unavailable_error=unavailable_error,
+                degraded=prepared.degraded,
+            )
+        except Exception as exc:
+            # A client that answered with something that is not a decision.
+            # Reading it is not the caller's mistake to receive raw: policy was
+            # not evaluated, which is what `on_guard_error` governs.
+            if on_guard_error != "allow":
+                _emit_capture(
+                    client=guard,
+                    action=action,
+                    outcome="unavailable",
+                    correlation_id=resolved_correlation_id,
+                    decision=None,
+                    metadata=metadata,
+                )
+                raise unavailable_error(action, exc) from exc
+            logger.warning(
+                "arcjet: could not read the decision for action %r; proceeding "
+                "because on_guard_error is 'allow'",
+                action,
+                exc_info=exc,
+            )
+            failure = None
         if failure is not None:
             outcome: Outcome = (
                 "denied" if decision.conclusion == "DENY" else "unavailable"

@@ -50,12 +50,13 @@ from pydantic.v1 import ValidationError as ValidationErrorV1
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
+from .._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
 from .._client import _GuardClient
-from .._errors import OnGuardError
+from .._context import _validated
+from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable, _blocking, registered_client
 from .._rules import RuleWithInput
-from .._types import Decision
 
 ActorResolver = str | Callable[[RunnableConfig], str]
 InputResolver = (
@@ -78,26 +79,22 @@ _InputsFn = Callable[
 ]
 
 
-class ArcjetToolDeniedError(ToolException):
-    """Raised when Arcjet policy denies a LangChain tool call."""
+class ArcjetToolDeniedError(ArcjetDeniedError, ToolException):
+    """Raised when Arcjet policy denies a LangChain tool call.
 
-    def __init__(self, action: str, decision: Decision) -> None:
-        super().__init__(f'Arcjet denied action "{action}" ({decision.reason})')
-        self.action = action
-        self.decision = decision
+    A ``ToolException`` so the wrapped tool's ``handle_tool_error`` may convert
+    it, and an :class:`~arcjet.guard.ArcjetDeniedError` so code that guards
+    more than LangChain catches one type across every surface.
+    """
 
 
-class ArcjetToolUnavailableError(ToolException):
-    """Raised when a required Arcjet policy cannot be evaluated."""
+class ArcjetToolUnavailableError(ArcjetUnavailableError, ToolException):
+    """Raised when a required Arcjet policy cannot be evaluated.
 
-    def __init__(self, action: str, *, cause: BaseException | None = None) -> None:
-        super().__init__(f'Arcjet policy for "{action}" could not be evaluated')
-        self.action = action
-        # Only when there is one. Assigning `None` sets `__suppress_context__`,
-        # which hides the context Python would otherwise have chained on and
-        # leaves the traceback saying nothing about why evaluation failed.
-        if cause is not None:
-            self.__cause__ = cause
+    A ``ToolException`` and an
+    :class:`~arcjet.guard.ArcjetUnavailableError`, for the same reason as
+    :class:`ArcjetToolDeniedError`.
+    """
 
 
 # What the checkpoint raises to stop a call, as one except clause.
@@ -117,6 +114,50 @@ _DERIVED_FIELDS = frozenset({"func", "coroutine"})
 # `BaseTool.run` catches both before running `handle_validation_error`; seeing
 # only one of them turns a routine, model-recoverable mistake into an outage.
 _SCHEMA_REJECTED = (ValidationError, ValidationErrorV1)
+
+
+_CORRELATION_KEY = "arcjet_correlation_id"
+
+
+def _correlation_from_config(config: RunnableConfig) -> str | None:
+    """Read a correlation ID out of a RunnableConfig, or return ``None``.
+
+    Checks ``configurable`` before ``metadata``: both propagate to child
+    runnables, and applications legitimately use either.
+
+    A malformed value is dropped with a log line rather than raised. An
+    explicit argument is the programmer's own, and should fail loudly; a
+    config value may have arrived from several layers away, and failing a tool
+    call over a bad trace id trades a lost join for an outage.
+    """
+    if not isinstance(config, dict):
+        return None
+
+    for section_name in ("configurable", "metadata"):
+        section = config.get(section_name)
+        if not section or _CORRELATION_KEY not in section:
+            continue
+
+        value = section[_CORRELATION_KEY]
+        if not isinstance(value, str):
+            logger.warning(
+                "arcjet: %s in RunnableConfig %s is %s, not a string; ignoring it",
+                _CORRELATION_KEY,
+                section_name,
+                type(value).__name__,
+            )
+            continue
+
+        try:
+            return _validated(value)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "arcjet: %s in RunnableConfig %s is not usable (%s); ignoring it",
+                _CORRELATION_KEY,
+                section_name,
+                exc,
+            )
+    return None
 
 
 @contextmanager
@@ -461,6 +502,10 @@ class _Guarded:
     # asking it on every call is introspection with one possible answer.
     blocking: Callable[..., Any] | None
     awaitable: Callable[..., Awaitable[Any]] | None
+    #: The client itself, which the engine needs to emit capture events. Held
+    #: beside the two resolved methods rather than instead of them: those decide
+    #: which flavour a call may take, and that is asked per call.
+    client: _GuardClient
     # The delegate's own `_run`/`_arun` signatures, for the same reason: they
     # cannot change for the life of a guarded tool, and taking a signature is
     # the most expensive thing on that path by some way.
@@ -478,67 +523,78 @@ class _Guarded:
     # reference counting. Closing over this state leaves no cycle, and a
     # callable detached from its handle still evaluates.
 
-    def evaluate(self, call: _Call) -> None:
-        guard = self.blocking
-        if guard is None:
+    def prepared(self, call: _Call) -> ResolvedInputs:
+        """What the checkpoint evaluates this call from.
+
+        A resolver that fails is reported as ``degraded`` rather than raised.
+        Raising would skip the guard call, so under ``on_guard_error="allow"``
+        the tool would run with Guard holding no record that the call happened,
+        and a rate limit on the label would stop counting exactly the calls
+        whose actor could not be resolved.
+
+        The first failure is the one reported; a later one is usually the same
+        wiring mistake seen twice.
+        """
+        actor, degraded = _resolved(self._actor, call.config)
+        inputs, degraded = _resolved(self._inputs, call, so_far=degraded)
+        return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+
+    async def prepared_async(self, call: _Call) -> ResolvedInputs:
+        """The awaitable counterpart of :meth:`prepared`."""
+        actor, degraded = await _resolved_async(self._actor_async, call.config)
+        inputs, degraded = await _resolved_async(
+            self._inputs_async, call, so_far=degraded
+        )
+        return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+
+    def checkpoint(self, call: _Call, run: Callable[[], Any]) -> Any:
+        """Evaluate this call through the shared engine, then *run* it.
+
+        The engine owns the fail-closed rules, the capture events and the
+        Sequence join, so every guarding surface reports an outcome the same
+        way. What is specific to a tool — how its arguments are read, and which
+        exception types a caller catches — stays here.
+        """
+        if self.blocking is None:
+            # Raised before the engine, not inside `prepare`: a client of the
+            # wrong flavour is a wiring mistake in the application rather than a
+            # degraded evaluation, so `on_guard_error` must not govern it and
+            # the engine must not convert it into an unavailability.
             raise TypeError(
                 "A synchronous LangChain invocation requires a guard client with a "
                 "blocking guard(), such as ArcjetGuardSync"
             )
-        with _fail_closed(self.action, self.on_guard_error):
-            actor, degraded = _resolved(self._actor, call.config)
-            inputs, degraded = _resolved(self._inputs, call, so_far=degraded)
-            decision = guard(self.rules, label=self.action, actor=actor, inputs=inputs)
-            self._after_decision(decision, degraded)
+        return run_checkpoint_sync(
+            run,
+            action=self.action,
+            guard=self.client,
+            prepare=lambda: self.prepared(call),
+            rules=self.rules,
+            correlation_id=_correlation_from_config(call.config),
+            on_guard_error=self.on_guard_error,
+            denied_error=ArcjetToolDeniedError,
+            unavailable_error=_unavailable,
+        )
 
-    async def evaluate_async(self, call: _Call) -> None:
-        guard = self.awaitable
-        if guard is None:
+    async def checkpoint_async(
+        self, call: _Call, run: Callable[[], Awaitable[Any]]
+    ) -> Any:
+        """The awaitable counterpart of :meth:`checkpoint`."""
+        if self.awaitable is None:
             raise TypeError(
                 "An asynchronous LangChain invocation requires a guard client with an "
                 "awaitable guard(), such as ArcjetGuard"
             )
-        with _fail_closed(self.action, self.on_guard_error):
-            actor, degraded = await _resolved_async(self._actor_async, call.config)
-            inputs, degraded = await _resolved_async(
-                self._inputs_async, call, so_far=degraded
-            )
-            decision = await guard(
-                self.rules, label=self.action, actor=actor, inputs=inputs
-            )
-            self._after_decision(decision, degraded)
-
-    def _after_decision(
-        self, decision: Decision, degraded: BaseException | None
-    ) -> None:
-        """The fail-closed rules, applied once for both flavours.
-
-        *degraded* is whatever stopped one of the decision's inputs being
-        resolved, or ``None``. Guard has seen the call either way, so the
-        decision is on the record; what ``on_guard_error`` governs is whether a
-        call the policy could not fully judge is allowed to run.
-
-        Pure sync code: it raises or returns, so the async evaluator calls it
-        without crossing the boundary.
-        """
-        if decision.conclusion == "DENY":
-            raise ArcjetToolDeniedError(self.action, decision)
-        # The cause travels with either refusal: without it the operator is
-        # told only that policy could not be evaluated, not what stopped it.
-        # The two conditions co-occur during a transport outage, which is when
-        # a resolver failure is most likely a symptom of the same fault.
-        if decision.has_failed_open() and self.on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(self.action, cause=degraded)
-        if degraded is None:
-            return
-        if self.on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(self.action, cause=degraded)
-        logger.warning(
-            "arcjet: could not resolve everything policy needed for a call to %r; "
-            "it was evaluated without that, and the call proceeds because "
-            "on_guard_error is 'allow'",
-            self.action,
-            exc_info=degraded,
+        return await run_checkpoint(
+            run,
+            action=self.action,
+            guard=self.client,
+            prepare=lambda: self.prepared_async(call),
+            rules=self.rules,
+            correlation_id=_correlation_from_config(call.config),
+            on_guard_error=self.on_guard_error,
+            denied_error=ArcjetToolDeniedError,
+            unavailable_error=_unavailable,
         )
 
     def _resolve_actor(
@@ -591,6 +647,11 @@ class _Guarded:
 
     async def _inputs_async(self, call: _Call) -> PolicyInputMap | None:
         return await _awaited(self._resolve_inputs(call))
+
+
+def _unavailable(action: str, cause: BaseException | None) -> BaseException:
+    """The tool-shaped unavailability error, for the engine's factory."""
+    return ArcjetToolUnavailableError(action, cause=cause)
 
 
 def _state_of(handle: Any) -> "_Guarded":
@@ -709,11 +770,14 @@ class _GuardMixin:
         """
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
+        state = _state_of(self)
         try:
-            self._arcjet_evaluate(_Call(raw, tool_call_id, _checkpoint_config(config)))
+            return state.checkpoint(
+                _Call(raw, tool_call_id, _checkpoint_config(config)),
+                lambda: state.delegate.invoke(input, resolved, **kwargs),
+            )
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, raw, _Report.of(resolved, tool_call_id))
-        return self._arcjet_state.delegate.invoke(input, resolved, **kwargs)
 
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
@@ -721,15 +785,16 @@ class _GuardMixin:
         """The awaitable counterpart of :meth:`invoke`."""
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
+        state = _state_of(self)
         try:
-            await self._arcjet_evaluate_async(
-                _Call(raw, tool_call_id, _checkpoint_config(config))
+            return await state.checkpoint_async(
+                _Call(raw, tool_call_id, _checkpoint_config(config)),
+                lambda: state.delegate.ainvoke(input, resolved, **kwargs),
             )
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(
                 exc, raw, _Report.of(resolved, tool_call_id)
             )
-        return await self._arcjet_state.delegate.ainvoke(input, resolved, **kwargs)
 
     def run(
         self,
@@ -758,9 +823,24 @@ class _GuardMixin:
         the same reason it is in :meth:`invoke`. What the delegate runs with is
         the caller's own config, forwarded untouched.
         """
+        state = _state_of(self)
         try:
-            self._arcjet_evaluate(
-                _Call(tool_input, tool_call_id, _checkpoint_config(config))
+            return state.checkpoint(
+                _Call(tool_input, tool_call_id, _checkpoint_config(config)),
+                lambda: state.delegate.run(
+                    tool_input,
+                    verbose,
+                    start_color,
+                    color,
+                    callbacks,
+                    tags=tags,
+                    metadata=metadata,
+                    run_name=run_name,
+                    run_id=run_id,
+                    config=config,
+                    tool_call_id=tool_call_id,
+                    **kwargs,
+                ),
             )
         except _BLOCKED as exc:
             return self._arcjet_blocked(
@@ -779,20 +859,6 @@ class _GuardMixin:
                     kwargs,
                 ),
             )
-        return self._arcjet_state.delegate.run(
-            tool_input,
-            verbose,
-            start_color,
-            color,
-            callbacks,
-            tags=tags,
-            metadata=metadata,
-            run_name=run_name,
-            run_id=run_id,
-            config=config,
-            tool_call_id=tool_call_id,
-            **kwargs,
-        )
 
     async def arun(
         self,
@@ -811,9 +877,24 @@ class _GuardMixin:
         **kwargs: Any,
     ) -> Any:
         """The awaitable counterpart of :meth:`run`."""
+        state = _state_of(self)
         try:
-            await self._arcjet_evaluate_async(
-                _Call(tool_input, tool_call_id, _checkpoint_config(config))
+            return await state.checkpoint_async(
+                _Call(tool_input, tool_call_id, _checkpoint_config(config)),
+                lambda: state.delegate.arun(
+                    tool_input,
+                    verbose,
+                    start_color,
+                    color,
+                    callbacks,
+                    tags=tags,
+                    metadata=metadata,
+                    run_name=run_name,
+                    run_id=run_id,
+                    config=config,
+                    tool_call_id=tool_call_id,
+                    **kwargs,
+                ),
             )
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(
@@ -832,20 +913,6 @@ class _GuardMixin:
                     kwargs,
                 ),
             )
-        return await self._arcjet_state.delegate.arun(
-            tool_input,
-            verbose,
-            start_color,
-            color,
-            callbacks,
-            tags=tags,
-            metadata=metadata,
-            run_name=run_name,
-            run_id=run_id,
-            config=config,
-            tool_call_id=tool_call_id,
-            **kwargs,
-        )
 
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         """Evaluate, then hand the body to the tool that owns it.
@@ -861,37 +928,25 @@ class _GuardMixin:
         tool, so it does not reach the call. That is the same rule as a
         reassigned field — configure the tool before guarding it.
         """
-        delegate = self._arcjet_state.delegate
+        state = _state_of(self)
         raw, config, rejected = _call_arguments(
-            self._arcjet_state.run_signature,
-            args,
-            kwargs,
-            self._arcjet_state.run_config_param,
+            state.run_signature, args, kwargs, state.run_config_param
         )
-        self._arcjet_evaluate(
-            _Call(raw, None, _checkpoint_config(config), validated=rejected)
+        return state.checkpoint(
+            _Call(raw, None, _checkpoint_config(config), validated=rejected),
+            lambda: state.delegate._run(*args, **kwargs),
         )
-        return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
-        delegate = self._arcjet_state.delegate
+        state = _state_of(self)
         raw, config, rejected = _call_arguments(
-            self._arcjet_state.arun_signature,
-            args,
-            kwargs,
-            self._arcjet_state.arun_config_param,
+            state.arun_signature, args, kwargs, state.arun_config_param
         )
-        await self._arcjet_evaluate_async(
-            _Call(raw, None, _checkpoint_config(config), validated=rejected)
+        return await state.checkpoint_async(
+            _Call(raw, None, _checkpoint_config(config), validated=rejected),
+            lambda: state.delegate._arun(*args, **kwargs),
         )
-        return await delegate._arun(*args, **kwargs)
-
-    def _arcjet_evaluate(self, call: _Call) -> None:
-        _state_of(self).evaluate(call)
-
-    async def _arcjet_evaluate_async(self, call: _Call) -> None:
-        await _state_of(self).evaluate_async(call)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Any:
         """Copy the handle, sharing the client and rebinding the callables.
@@ -905,17 +960,17 @@ class _GuardMixin:
         copy of a function is that same function, so without rebinding them the
         copy would evaluate the original's policy and call the original's tool.
 
-        The client is pinned through the two bound methods that hold it, rather
-        than by pinning the whole policy. Pinning the policy shared the wrapped
+        The client is pinned directly, and through the two bound methods that
+        hold it, rather than by pinning the whole policy. Pinning the policy shared the wrapped
         tool as well, so a copy delegated to the very object the caller deep
         copied it to stop sharing — and a tool that caches, or holds a
         per-request handle, then crossed between them.
         """
         memo = {} if memo is None else memo
         policy = self._arcjet_state
-        for bound in (policy.blocking, policy.awaitable):
-            if bound is not None:
-                memo[id(bound)] = bound
+        for shared in (policy.client, policy.blocking, policy.awaitable):
+            if shared is not None:
+                memo[id(shared)] = shared
         copied = BaseModel.__deepcopy__(cast(BaseModel, self), memo)
         _guarded_callables(cast(BaseTool, copied))
         return copied
@@ -1358,10 +1413,10 @@ def _guarded_callables(guarded: BaseTool) -> None:
             raw, config, rejected = _call_arguments(
                 func_signature, args, kwargs, func_config_param
             )
-            state.evaluate(
-                _Call(raw, None, _checkpoint_config(config), validated=rejected)
+            return state.checkpoint(
+                _Call(raw, None, _checkpoint_config(config), validated=rejected),
+                lambda: inner_func(*args, **kwargs),
             )
-            return inner_func(*args, **kwargs)
 
         object.__setattr__(guarded, "func", guarded_func)
 
@@ -1376,10 +1431,10 @@ def _guarded_callables(guarded: BaseTool) -> None:
             raw, config, rejected = _call_arguments(
                 coroutine_signature, args, kwargs, coroutine_config_param
             )
-            await state.evaluate_async(
-                _Call(raw, None, _checkpoint_config(config), validated=rejected)
+            return await state.checkpoint_async(
+                _Call(raw, None, _checkpoint_config(config), validated=rejected),
+                lambda: inner_coroutine(*args, **kwargs),
             )
-            return await inner_coroutine(*args, **kwargs)
 
         object.__setattr__(guarded, "coroutine", guarded_coroutine)
 
@@ -1632,6 +1687,7 @@ def guard_tool(
         inputs=inputs,
         rules=tuple(rules),
         on_guard_error=on_guard_error,
+        client=guard,
         blocking=_blocking(guard, "guard_sync", "guard"),
         awaitable=_awaitable(guard, "guard"),
         run_signature=_signature_of(tool._run),
