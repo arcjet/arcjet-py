@@ -7,10 +7,12 @@ a fixture wrapping one.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 
 import pytest
 
+from arcjet.guard import local_input
 from arcjet.guard._registry import (
     capture,
     flush,
@@ -21,7 +23,7 @@ from arcjet.guard._registry import (
     registered_client,
     unregister_arcjet,
 )
-from arcjet.guard.testing import ArcjetTestClient, register_test_client
+from arcjet.guard.testing import ArcjetTestClient, RecordedGuard, register_test_client
 
 
 @pytest.fixture(autouse=True)
@@ -175,6 +177,65 @@ class TestRecordingGuards:
         with register_test_client():
             asyncio.run(flush())
             flush_sync()
+
+    def test_records_actor_and_inputs_with_guard_sync(self) -> None:
+        arcjet = ArcjetTestClient()
+        inputs = {"prompt": local_input.string("hi")}
+        arcjet.guard_sync(label="t", actor="u1", inputs=inputs)
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor == "u1"
+        assert recorded.inputs is inputs
+        assert recorded.rules == ()
+
+    def test_records_actor_and_inputs_with_async_guard(self) -> None:
+        arcjet = ArcjetTestClient()
+        inputs = {"prompt": local_input.string("hi")}
+        asyncio.run(arcjet.guard(label="t", actor="u1", inputs=inputs))
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor == "u1"
+        assert recorded.inputs is inputs
+        assert recorded.rules == ()
+
+    def test_recorded_guard_is_frozen(self) -> None:
+        arcjet = ArcjetTestClient()
+        arcjet.guard_sync(label="x", actor="u1")
+        recorded = arcjet.guards[0]
+
+        with pytest.raises(FrozenInstanceError):
+            recorded.actor = "u2"  # type: ignore[misc]
+
+    def test_actor_and_inputs_default_to_none(self) -> None:
+        arcjet = ArcjetTestClient()
+        arcjet.guard_sync(label="x")
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor is None
+        assert recorded.inputs is None
+
+    def test_actor_and_inputs_default_to_none_on_the_async_guard(self) -> None:
+        arcjet = ArcjetTestClient()
+        asyncio.run(arcjet.guard(label="x"))
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor is None
+        assert recorded.inputs is None
+
+    def test_recorded_guard_defaults_actor_and_inputs_to_none(self) -> None:
+        """The public record's own defaults, for callers who construct one."""
+        recorded = RecordedGuard(label="x", rules=())
+
+        assert recorded.actor is None
+        assert recorded.inputs is None
+
+    def test_inputs_is_recorded_by_identity(self) -> None:
+        arcjet = ArcjetTestClient()
+        inputs = {"prompt": local_input.string("hi")}
+        arcjet.guard_sync(label="x", inputs=inputs)
+
+        recorded = arcjet.guards[0]
+        assert recorded.inputs is inputs
 
 
 class TestFixturePattern:
