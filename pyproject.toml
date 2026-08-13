@@ -52,6 +52,10 @@ keywords = [
 # together every release.
 sensitive-info-rampart = ["arcjet-sensitive-info-rampart==0.10.0b1"]
 langchain = ["langchain-core>=1.2.5,<2"]
+# Agent middleware only. Separate from `langchain` because the full
+# `langchain` package hard-depends on LangGraph, and folding it into the
+# extra above would push LangGraph onto every `guard_tool` user.
+langchain-agents = ["langchain>=1,<2"]
 
 [project.urls]
 "homepage" = "https://arcjet.com"
@@ -78,6 +82,7 @@ dev = [
   "flask==3.1.3",                          # For testing integration with Flask
   "griffe==2.1.0",
   "httpx==0.28.1",                         # Used by FastAPI tests
+  "langchain>=1,<2",                       # For testing agent middleware
   "langchain-core>=1.2.5,<2",              # For testing integration with LangChain
   "pyright==1.1.411",
   "hypothesis>=6.100.0",
