@@ -62,6 +62,11 @@ from ._client import (
     launch_arcjet,
     launch_arcjet_sync,
 )
+from ._context import (
+    arcjet_sequence,
+    current_correlation_id,
+    current_sequence_metadata,
+)
 from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._registry import (
     capture,
@@ -176,6 +181,10 @@ __all__ = [
     "launch_arcjet_sync",
     "local_input",
     "server_input",
+    # Ambient correlation context
+    "arcjet_sequence",
+    "current_correlation_id",
+    "current_sequence_metadata",
     # Optional registration, and the free calls it enables. Nothing here takes
     # effect until an application calls register_arcjet(); launch_arcjet()
     # touches no global state.
