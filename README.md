@@ -189,6 +189,7 @@ async def chat(request: Request, body: ChatRequest):
 | --- | :---: | :---: |
 | Rate Limiting | ✅ | ✅ |
 | Prompt Injection Detection | ✅ | ✅ |
+| Content Moderation | — | ✅ |
 | Sensitive Information Detection | ✅ | ✅ |
 | Bot Protection | ✅ | — |
 | Shield WAF | ✅ | — |
@@ -200,6 +201,8 @@ async def chat(request: Request, body: ChatRequest):
 
 - 🔒 [Prompt Injection Detection](#prompt-injection-detection) — detect and block
   prompt injection attacks before they reach your LLM.
+- 🚫 [Content Moderation](#content-moderation) — detect harmful content in Guard
+  tool-call and job inputs.
 - 🤖 [Bot Protection](#bot-protection) — stop scrapers, credential stuffers, and
   AI crawlers from abusing your endpoints.
 - 🛑 [Rate Limiting](#rate-limiting) — token bucket, fixed window, and sliding
@@ -225,7 +228,7 @@ async def chat(request: Request, body: ChatRequest):
 | If your app has...            | Recommended features                                                          |
 | ----------------------------- | ----------------------------------------------------------------------------- |
 | LLM / AI chat endpoints       | Prompt injection + sensitive info + token bucket rate limit + bot protection + shield |
-| AI agent tool calls           | [Arcjet Guard](#arcjet-guard) — rate limiting + prompt injection + sensitive info + custom rules |
+| AI agent tool calls           | [Arcjet Guard](#arcjet-guard) — rate limiting + prompt injection + content moderation + sensitive info + custom rules |
 | Public API                    | Rate limiting + bot protection + shield                                       |
 | Signup / login forms          | Email validation + bot protection + rate limiting (or [signup protection](https://docs.arcjet.com/signup-protection)) |
 | Internal / admin routes       | Shield + request filters (country, VPN/proxy blocking)                        |
@@ -862,7 +865,7 @@ def chat():
 `arcjet.guard` is a lower-level API designed for AI agent tool calls and
 background tasks where there is no HTTP request object. It gives you
 fine-grained, per-call control over rate limiting, prompt injection detection,
-sensitive information detection, and custom rules.
+content moderation, sensitive information detection, and custom rules.
 
 ### How it differs from `arcjet` / `arcjet_sync`
 
@@ -886,6 +889,7 @@ from arcjet.guard import (
     launch_arcjet,       # async — use launch_arcjet_sync for sync frameworks
     TokenBucket,
     DetectPromptInjection,
+    ModerateContent,
     LocalDetectSensitiveInfo,
 )
 
@@ -903,6 +907,7 @@ user_limit = TokenBucket(
     max_tokens=1000,
 )
 prompt_scan = DetectPromptInjection()
+moderate = ModerateContent()
 sensitive = LocalDetectSensitiveInfo(deny=["EMAIL", "CREDIT_CARD_NUMBER"])
 
 # At call time, bind input and guard
@@ -912,6 +917,7 @@ async def handle_tool_call(user_id: str, message: str):
         rules=[
             user_limit(key=user_id, requested=5),
             prompt_scan(message),
+            moderate(message),
             sensitive(message),
         ],
     )
@@ -1106,6 +1112,34 @@ Guard billing is optional. Prompt injection usage is reported in `tokens`,
 while content moderation usage is reported in `text_units` (text chunks), so
 always inspect `billing.unit` rather than assuming the unit.
 
+### Content moderation
+
+```py
+from arcjet.guard import ModerateContent
+
+moderate = ModerateContent()
+
+decision = await aj.guard(
+    label="tools.chat",
+    rules=[moderate(user_message)],
+)
+
+if decision.conclusion == "DENY":
+    print("Harmful content detected")
+
+result = moderate.result(decision)
+if result:
+    print(result.detected)
+    if result.billing:
+        print(result.billing.unit, result.billing.count)
+```
+
+`experimental_ModerateContent` remains as a deprecated alias for
+`ModerateContent`.
+
+The result reports `detected` and optional `billing` only — not per-category
+scores.
+
 ### Sensitive information detection
 
 Detects PII locally — the raw text never leaves the SDK. The default backend
@@ -1208,7 +1242,7 @@ decision = await aj.guard(label="tools.weather", rules=[...])
 
 # Layer 1: conclusion and reason
 decision.conclusion   # "ALLOW" or "DENY"
-decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
+decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "MODERATE_CONTENT", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
 
 # Layer 2: error/warning detection
 decision.has_failed_open()  # True if ALLOW only because a rule/decision could not be processed (fail-closed gate)

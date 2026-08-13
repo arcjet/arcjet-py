@@ -10,6 +10,7 @@ from arcjet.guard import (
     FixedWindow,
     FixedWindowWithInput,
     LocalDetectSensitiveInfo,
+    ModerateContent,
     ModerateContentWithInput,
     PromptInjectionWithInput,
     SensitiveInfoWithInput,
@@ -17,7 +18,7 @@ from arcjet.guard import (
     SlidingWindowWithInput,
     TokenBucket,
     TokenBucketWithInput,
-    experimental_ModerateContent,
+    experimental_ModerateContent,  # ty: ignore[deprecated]
 )
 from arcjet.guard._convert import decision_from_proto
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -53,10 +54,17 @@ class TestRuleFactories:
         assert inp._config_id
         assert isinstance(inp, PromptInjectionWithInput)
 
-    def test_experimental_moderate_content_returns_rule_with_input(self) -> None:
-        rule = experimental_ModerateContent()
+    def test_moderate_content_returns_rule_with_input(self) -> None:
+        rule = ModerateContent()
         inp = rule("some text")
         assert inp._config_id
+        assert isinstance(inp, ModerateContentWithInput)
+
+    def test_experimental_moderate_content_is_deprecated_alias(self) -> None:
+        with pytest.warns(DeprecationWarning, match="experimental_ModerateContent"):
+            rule = experimental_ModerateContent()  # ty: ignore[deprecated]
+        assert isinstance(rule, ModerateContent)
+        inp = rule("some text")
         assert isinstance(inp, ModerateContentWithInput)
 
     def test_detect_sensitive_info_returns_rule_with_input(self) -> None:
@@ -745,7 +753,7 @@ class TestPromptInjectionLayer3:
 
 class TestModerateContentLayer3:
     def test_input_result_returns_typed(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         inp = rule("some harmful content")
 
         response = make_response(
@@ -772,7 +780,7 @@ class TestModerateContentLayer3:
         assert r.detected is True
 
     def test_input_denied_result_none_for_allow(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         inp = rule("safe text")
 
         response = make_response(
@@ -797,7 +805,7 @@ class TestModerateContentLayer3:
         assert inp.denied_result(decision) is None
 
     def test_config_results_and_denied(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         i1 = rule("safe text")
         i2 = rule("bad text")
 
@@ -1684,7 +1692,7 @@ class TestErrorResultAccessor:
             FixedWindow(max_requests=100, window_seconds=3600)(key="u"),
             SlidingWindow(max_requests=100, interval_seconds=60)(key="u"),
             DetectPromptInjection()("text"),
-            experimental_ModerateContent()("text"),
+            ModerateContent()("text"),
             LocalDetectSensitiveInfo()("text"),
         ]
         for inp in rules:

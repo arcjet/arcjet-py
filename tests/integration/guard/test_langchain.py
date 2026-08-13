@@ -6,8 +6,12 @@ from typing import Any, cast
 import pytest
 from langchain_core.tools import StructuredTool
 
-from arcjet.guard import ArcjetGuard, ArcjetGuardSync, server_input
-from arcjet.guard.langchain import ArcjetToolDeniedError, guard_tool
+from arcjet.guard import ArcjetGuard, ArcjetGuardSync, ModerateContent, server_input
+from arcjet.guard.langchain import (
+    ArcjetToolDeniedError,
+    ArcjetToolUnavailableError,
+    guard_tool,
+)
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 
@@ -118,6 +122,51 @@ def test_guard_tool_does_not_invoke_wrapped_tool_after_denial() -> None:
     )
 
     with pytest.raises(ArcjetToolDeniedError):
+        wrapped.invoke(cast(Any, {"value": "no"}))
+    assert calls == 0
+
+
+class _ModerationErrorTransport(_Transport):
+    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        sub = request.rule_submissions[0]
+        return pb.GuardResponse(
+            decision=pb.GuardDecision(
+                id="gdec_moderation_error",
+                conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                rule_results=[
+                    pb.GuardRuleResult(
+                        result_id="gres_err",
+                        config_id=sub.config_id,
+                        input_id=sub.input_id,
+                        type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                        error=pb.ResultError(
+                            message="moderation model failed",
+                            code="MODEL_ERROR",
+                        ),
+                    )
+                ],
+            )
+        )
+
+
+def test_guard_tool_fails_closed_when_moderation_rule_errors() -> None:
+    calls = 0
+
+    def dangerous(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    wrapped = guard_tool(
+        guard=_guard(_ModerationErrorTransport()),
+        tool=StructuredTool.from_function(
+            dangerous, name="dangerous", description="Dangerous action"
+        ),
+        action="chat.moderated",
+        rules=[ModerateContent()("user text")],
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError):
         wrapped.invoke(cast(Any, {"value": "no"}))
     assert calls == 0
 

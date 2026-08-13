@@ -271,7 +271,11 @@ class RuleResultPromptInjection:
 
 @dataclass(frozen=True, slots=True)
 class RuleResultModerateContent:
-    """Result from a content moderation evaluation (experimental)."""
+    """Result from a content moderation evaluation.
+
+    Frozen analog of the JS result: ``detected`` plus optional ``billing``.
+    Per-category scores are not part of this shape.
+    """
 
     conclusion: Conclusion
     """Whether the request was allowed or denied by this rule."""

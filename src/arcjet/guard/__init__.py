@@ -1,5 +1,5 @@
 """Arcjet Guard SDK — AI guardrails for rate limiting, prompt injection
-detection, and sensitive info detection.
+detection, content moderation, and sensitive info detection.
 
 Public API
 ----------
@@ -9,18 +9,19 @@ Public API
     Conclusion, Reason, Mode, Decision,
     RuleResult, RuleResultTokenBucket, RuleResultFixedWindow,
     RuleResultSlidingWindow, RuleResultPromptInjection,
-    RuleResultSensitiveInfo, RuleResultNotRun,
+    RuleResultModerateContent, RuleResultSensitiveInfo, RuleResultNotRun,
     RuleResultError, RuleResultUnknown
 
 **Rule classes** (from ``rules``)::
 
     TokenBucket, FixedWindow, SlidingWindow,
-    DetectPromptInjection, LocalDetectSensitiveInfo, LocalCustomRule
+    DetectPromptInjection, ModerateContent, LocalDetectSensitiveInfo,
+    LocalCustomRule
 
 **Concrete rule input types** (from ``rules``)::
 
     TokenBucketWithInput, FixedWindowWithInput, SlidingWindowWithInput,
-    PromptInjectionWithInput, SensitiveInfoWithInput,
+    PromptInjectionWithInput, ModerateContentWithInput, SensitiveInfoWithInput,
     LocalCustomWithInput,
     RuleWithInput (union of all)
 
@@ -89,13 +90,8 @@ from ._rules import (
     TokenBucket,
     TokenBucketWithInput,
     TypedCustomResult,
+    experimental_ModerateContent,  # ty: ignore[deprecated]
 )
-
-# Experimental: content moderation. Exposed under an ``experimental_`` prefix on
-# the PascalCase rule name (matching the other rule classes) to signal that the
-# rule and its result shape may change. No moderation model is wired up
-# server-side yet, so it currently returns an error result (fail open).
-experimental_ModerateContent = ModerateContent
 from ._types import (
     SENSITIVE_INFO_ENTITY_TYPES,
     ArcjetWarning,
@@ -156,9 +152,10 @@ __all__ = [
     "FixedWindow",
     "LocalCustomRule",
     "LocalDetectSensitiveInfo",
+    "ModerateContent",
     "SlidingWindow",
     "TokenBucket",
-    # Experimental rule factories
+    # Deprecated alias for ModerateContent
     "experimental_ModerateContent",
     # Concrete input types
     "FixedWindowWithInput",
