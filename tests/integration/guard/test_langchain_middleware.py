@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import subprocess
 import sys
-from typing import cast
+import warnings
+from collections.abc import Mapping
+from typing import Any, cast
 
 import pytest
 from guard_doubles import (
@@ -52,11 +55,7 @@ class _SyncGuardStub(ArcjetGuardSync):
         self._timeout_ms = 0
         self._user_agent = "test"
 
-    def guard_sync(self, **kwargs):
-        return self._stub.guard_sync(**kwargs)
-
     def guard(self, **kwargs):  # type: ignore[override]
-        # For compatibility with the flexible _blocking() method
         return self._stub.guard_sync(**kwargs)
 
     def capture(self, **kwargs):
@@ -190,7 +189,8 @@ print("ok")
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert result.stdout.strip() == "ok"
-        assert result.stderr == ""
+        # Stderr may contain warnings but should not have a traceback
+        assert "Traceback" not in result.stderr
 
     def test_middleware_import_blocked_without_langgraph(self) -> None:
         """Middleware import must fail when langgraph is unimportable.
@@ -212,7 +212,9 @@ try:
     import arcjet.guard.langchain.middleware
     print("ERROR: middleware should not import")
     sys.exit(1)
-except ImportError:
+except ImportError as e:
+    # Assert the error names the blocked module, not some unrelated failure
+    assert any(m in str(e) for m in ("langchain.agents", "langgraph")), str(e)
     print("ok")
 """
         result = subprocess.run(
@@ -222,7 +224,8 @@ except ImportError:
         )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert result.stdout.strip() == "ok"
-        assert result.stderr == ""
+        # Stderr may contain warnings but should not have a traceback
+        assert "Traceback" not in result.stderr
 
 
 class TestDenialShortCircuit:
@@ -310,12 +313,13 @@ class TestAllowedPassthrough:
             state={},
             runtime=_runtime(),
         )
+        before = copy.deepcopy(request.tool_call)
 
         result = middleware.wrap_tool_call(request, handler)
 
         assert handler_calls == 1
         assert received_request is request
-        assert request.tool_call["args"] == original_args
+        assert request.tool_call == before
         assert cast(ToolMessage, result).content == "result"
 
     def test_awrap_tool_call_handler_called_once_request_unchanged(self) -> None:
@@ -342,12 +346,13 @@ class TestAllowedPassthrough:
             state={},
             runtime=_runtime(),
         )
+        before = copy.deepcopy(request.tool_call)
 
         result = asyncio.run(middleware.awrap_tool_call(request, handler))
 
         assert handler_calls == 1
         assert received_request is request
-        assert request.tool_call["args"] == original_args
+        assert request.tool_call == before
         assert cast(ToolMessage, result).content == "result"
 
 
@@ -472,6 +477,34 @@ class TestOnGuardError:
 
         assert handler_calls == 1
         assert cast(ToolMessage, result).content == "result"
+
+    def test_on_guard_error_deny_default_denies_handler_async(self) -> None:
+        """Default on_guard_error='deny' denies and skips handler (async)."""
+        handler_calls = 0
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            nonlocal handler_calls
+            handler_calls += 1
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        guard_error = RuntimeError("guard failed")
+        client = _AsyncGuardStub(exception=guard_error)
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="test.action")},
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+
+        with pytest.raises(ArcjetUnavailableError):
+            asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert handler_calls == 0
 
     def test_on_guard_error_allow_passes_through_async(self) -> None:
         """on_guard_error='allow' passes through when guard raises (async)."""
@@ -617,6 +650,129 @@ class TestCapture:
         assert capture["metadata"]["outcome"] == "denied"
 
 
+class TestAsyncResolverRejection:
+    """Sync hook rejects async resolvers."""
+
+    def test_sync_wrap_rejects_async_actor_resolver(self) -> None:
+        """Sync hook denies if actor resolver returns awaitable."""
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        async def async_actor(args: Mapping[str, Any]) -> str | None:
+            await asyncio.sleep(0)
+            return "async-user"
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a",
+                    actor=async_actor,
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+
+        # Suppress the RuntimeWarning about unawaited coroutines, which is expected
+        # because we're intentionally testing that async resolvers are rejected in sync.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            with pytest.raises(ArcjetUnavailableError):
+                middleware.wrap_tool_call(request, handler)
+
+    def test_sync_wrap_rejects_async_inputs_resolver(
+        self,
+    ) -> None:
+        """Sync hook denies if inputs resolver returns awaitable."""
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        async def async_inputs(args: Mapping[str, Any]) -> dict[str, Any]:
+            await asyncio.sleep(0)
+            return {}
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a",
+                    inputs=async_inputs,
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+
+        # Suppress the RuntimeWarning about unawaited coroutines, which is expected
+        # because we're intentionally testing that async resolvers are rejected in sync.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            with pytest.raises(ArcjetUnavailableError):
+                middleware.wrap_tool_call(request, handler)
+
+
+class TestPoliciesMutable:
+    """Policies are copied at construction and changes after don't affect the middleware."""
+
+    def test_policies_mapping_copied_at_construction(self) -> None:
+        """Changes to policies after construction don't affect middleware."""
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        policies = {"test_tool": ToolPolicy(action="original.action")}
+        middleware = ArcjetMiddleware(guard=client, policies=policies)
+
+        # Mutate the caller's mapping
+        policies["test_tool"] = ToolPolicy(action="swapped.action")
+        policies["late_tool"] = ToolPolicy(action="late.action")
+
+        # Original tool still uses the snapshot from construction
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request, handler)
+        assert client.guards[0]["label"] == "original.action"
+
+        # Tool added after construction is not guarded
+        calls: list[ToolCallRequest] = []
+
+        def handler2(request: ToolCallRequest) -> ToolMessage:
+            calls.append(request)
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        request2 = ToolCallRequest(
+            tool_call={"name": "late_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request2, handler2)
+        assert len(calls) == 1
+        assert (
+            len(client.guards) == 1
+        )  # Still just one guard call from the first request
+
+
 class TestSyncGuardTypeChecking:
     """Sync/async guard type checking is enforced."""
 
@@ -664,3 +820,318 @@ class TestSyncGuardTypeChecking:
 
         with pytest.raises(TypeError, match="asynchronous"):
             asyncio.run(middleware.awrap_tool_call(request, handler))
+
+
+class TestPolicyFieldForwarding:
+    """Policy action, rules, metadata reach the guard call."""
+
+    def test_sync_forwards_action_rules_and_metadata(self) -> None:
+        """Sync hook forwards action, rules, and metadata to guard."""
+        from arcjet.guard import DetectPromptInjection
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        rule = DetectPromptInjection()("test message")
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="email.sent", rules=[rule], metadata={"tier": "pro"}
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request, handler)
+
+        assert len(client.guards) == 1
+        call = client.guards[0]
+        assert call["label"] == "email.sent"
+        assert list(call["rules"]) == [rule]
+        assert call["metadata"] == {"tier": "pro"}
+        assert client.captures[0]["action"] == "email.sent"
+
+    def test_async_forwards_action_rules_and_metadata(self) -> None:
+        """Async hook forwards action, rules, and metadata to guard."""
+        from arcjet.guard import DetectPromptInjection
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        rule = DetectPromptInjection()("test message")
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="email.sent", rules=[rule], metadata={"tier": "pro"}
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert len(client.guards) == 1
+        call = client.guards[0]
+        assert call["label"] == "email.sent"
+        assert list(call["rules"]) == [rule]
+        assert call["metadata"] == {"tier": "pro"}
+        assert client.captures[0]["action"] == "email.sent"
+
+
+class TestActorAndInputsResolution:
+    """Policy actor and inputs resolvers are invoked with parsed args."""
+
+    def test_sync_resolves_literal_actor(self) -> None:
+        """Sync hook resolves a literal actor string."""
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", actor="user-7")},
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request, handler)
+
+        assert client.guards[0]["actor"] == "user-7"
+
+    def test_sync_resolves_actor_and_inputs_from_args(self) -> None:
+        """Sync hook resolves actor and inputs from parsed arguments."""
+        from arcjet.guard import server_input
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        seen: list[Any] = []
+
+        def actor_resolver(args):
+            seen.append(args)
+            return str(args["user"])
+
+        def inputs_resolver(args):
+            return {"recipient": server_input.string(str(args["to"]))}
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a", actor=actor_resolver, inputs=inputs_resolver
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={
+                "name": "test_tool",
+                "args": {"user": "user-7", "to": "person@example.com"},
+                "id": "call_1",
+            },
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request, handler)
+
+        # Resolver sees the real parsed arguments
+        assert seen == [{"user": "user-7", "to": "person@example.com"}]
+        assert seen[0] is request.tool_call["args"]
+        assert client.guards[0]["actor"] == "user-7"
+        assert "recipient" in client.guards[0]["inputs"]
+
+    def test_sync_resolves_static_inputs_mapping(self) -> None:
+        """Sync hook uses static inputs mapping."""
+        from arcjet.guard import server_input
+
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a", inputs={"recipient": server_input.string("fixed")}
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        middleware.wrap_tool_call(request, handler)
+
+        assert "recipient" in client.guards[0]["inputs"]
+
+    def test_async_resolves_actor_and_inputs_from_args(self) -> None:
+        """Async hook resolves actor and inputs from parsed arguments."""
+        from arcjet.guard import server_input
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        seen: list[Any] = []
+
+        def actor_resolver(args):
+            seen.append(args)
+            return str(args["user"])
+
+        def inputs_resolver(args):
+            return {"recipient": server_input.string(str(args["to"]))}
+
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a", actor=actor_resolver, inputs=inputs_resolver
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={
+                "name": "test_tool",
+                "args": {"user": "user-7", "to": "person@example.com"},
+                "id": "call_1",
+            },
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert seen == [{"user": "user-7", "to": "person@example.com"}]
+        assert seen[0] is request.tool_call["args"]
+        assert client.guards[0]["actor"] == "user-7"
+        assert "recipient" in client.guards[0]["inputs"]
+
+    def test_async_resolves_literal_actor_and_static_inputs(self) -> None:
+        """Async hook resolves literal actor and static inputs mapping."""
+        from arcjet.guard import server_input
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a",
+                    actor="user-7",
+                    inputs={"recipient": server_input.string("fixed")},
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={"name": "test_tool", "args": {}, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert client.guards[0]["actor"] == "user-7"
+        assert "recipient" in client.guards[0]["inputs"]
+
+    def test_async_resolves_async_actor_resolver(self) -> None:
+        """Async hook resolves an async actor resolver function."""
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        async def async_actor_resolver(args: Mapping[str, Any]) -> str | None:
+            # Simulate async work
+            await asyncio.sleep(0)
+            return str(args["user"])
+
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a",
+                    actor=async_actor_resolver,
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={
+                "name": "test_tool",
+                "args": {"user": "async-user-9"},
+                "id": "call_1",
+            },
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert client.guards[0]["actor"] == "async-user-9"
+
+    def test_async_resolves_async_inputs_resolver(self) -> None:
+        """Async hook resolves an async inputs resolver function."""
+        from arcjet.guard import server_input
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        async def async_inputs_resolver(
+            args: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            # Simulate async work
+            await asyncio.sleep(0)
+            return {"recipient": server_input.string(str(args["to"]))}
+
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={
+                "test_tool": ToolPolicy(
+                    action="a",
+                    inputs=async_inputs_resolver,
+                )
+            },
+        )
+
+        request = ToolCallRequest(
+            tool_call={
+                "name": "test_tool",
+                "args": {"to": "async@example.com"},
+                "id": "call_1",
+            },
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+        asyncio.run(middleware.awrap_tool_call(request, handler))
+
+        assert "recipient" in client.guards[0]["inputs"]
