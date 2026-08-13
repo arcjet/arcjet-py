@@ -13,6 +13,7 @@ unused, per the no-mutation rule in the checkpoint ADR.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast
@@ -28,6 +29,18 @@ from arcjet.guard._client import ArcjetGuard, ArcjetGuardSync
 from arcjet.guard._errors import OnGuardError
 from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._rules import RuleWithInput
+
+# Type aliases for policy resolvers. Middleware resolvers take parsed arguments,
+# unlike _tool.py resolvers which take RunnableConfig.
+ActorResolver = str | Callable[[Mapping[str, Any]], str | None]
+InputResolver = PolicyInputMap | Callable[[Mapping[str, Any]], PolicyInputMap]
+AsyncActorResolver = (
+    str | Callable[[Mapping[str, Any]], str | None | Awaitable[str | None]]
+)
+AsyncInputResolver = (
+    PolicyInputMap
+    | Callable[[Mapping[str, Any]], PolicyInputMap | Awaitable[PolicyInputMap]]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +61,8 @@ class ToolPolicy:
 
     action: str
     rules: Sequence[RuleWithInput] = ()
-    actor: Optional[Union[str, Callable[[Mapping[str, Any]], Optional[str]]]] = None
-    inputs: Optional[
-        Union[PolicyInputMap, Callable[[Mapping[str, Any]], PolicyInputMap]]
-    ] = None
+    actor: Optional[ActorResolver | AsyncActorResolver] = None
+    inputs: Optional[InputResolver | AsyncInputResolver] = None
     metadata: Optional[Metadata] = None
 
 
@@ -120,18 +131,30 @@ class ArcjetMiddleware(AgentMiddleware):
                 if isinstance(policy.actor, str):
                     actor = policy.actor
                 else:
-                    resolved_actor = cast(
-                        Callable[[Mapping[str, Any]], Optional[str]], policy.actor
-                    )
-                    actor = resolved_actor(args)
+                    resolved_actor = policy.actor
+                    actor_value = resolved_actor(args)
+                    if inspect.isawaitable(actor_value):
+                        raise TypeError(
+                            "A synchronous actor resolver must not return an awaitable"
+                        )
+                    actor = actor_value
 
             inputs: Optional[PolicyInputMap] = None
             if policy.inputs is not None:
                 if callable(policy.inputs):
                     resolved_inputs = cast(
-                        Callable[[Mapping[str, Any]], PolicyInputMap], policy.inputs
+                        Callable[
+                            [Mapping[str, Any]],
+                            PolicyInputMap | Awaitable[PolicyInputMap],
+                        ],
+                        policy.inputs,
                     )
-                    inputs = resolved_inputs(args)
+                    inputs_value = resolved_inputs(args)
+                    if inspect.isawaitable(inputs_value):
+                        raise TypeError(
+                            "A synchronous input resolver must not return an awaitable"
+                        )
+                    inputs = inputs_value
                 else:
                     inputs = cast(PolicyInputMap, policy.inputs)
 
