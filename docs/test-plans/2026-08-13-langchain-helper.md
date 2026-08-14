@@ -13,8 +13,10 @@ join. Do not mark it verified from CI.
 ## Prerequisites
 
 - Branch `rei/feat/langchain-helpers`, clean tree.
-- `./.venv/bin/python -m pytest` exits 0. Note: piping pytest to `tail` on this
-  mount drops the trailing summary line — trust the exit code or `--junit-xml`.
+- `./.venv/bin/python -m pytest` exits 0. Run it exactly like that: `addopts`
+  already carries `-q`, so adding another suppresses the summary line, and
+  `fail_under = 80` is measured against whatever ran, so a subset exits 1 on
+  coverage even when all of its tests pass.
 - A live Arcjet account and a real site key (`arcjet sites get-key`, or
   https://app.arcjet.com).
 - A real OpenAI API key. The example pins `gpt-4o-mini`, so a key with no credit
