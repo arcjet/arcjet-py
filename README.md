@@ -977,8 +977,14 @@ guarded_send_email = guard_tool(
 )
 ```
 
-The wrapper preserves the tool schema and delegates through `invoke()` or
-`ainvoke()`.
+The guarded tool advertises the same schema as the tool it wraps and delegates
+to it, so the model is told what it would have been told without the guard.
+`invoke()`, `ainvoke()`, `run()` and `arun()` are all checkpoints.
+
+The guarded tool is a wrapper, not an instance of the wrapped tool's class, so
+application code that branches on a tool's concrete type sees the wrapper. The
+one exception is a `Tool` built from a bare function, which is wrapped by a
+`Tool` subclass because LangChain advertises that shape by concrete class.
 
 The core `guard()` API and the LangChain helper have intentionally different
 defaults when evaluation is unavailable:
@@ -989,8 +995,8 @@ defaults when evaluation is unavailable:
 | `guard_tool()` | Block (fail closed) | Set `on_guard_error="allow"` |
 
 For `guard_tool()`, unavailable means either that the pre-execution checkpoint
-raised while normalizing arguments, resolving the actor or policy inputs, or
-calling Guard, or that Guard returned an `ALLOW` decision whose
+raised while resolving the actor or policy inputs, or calling Guard, or that
+Guard returned an `ALLOW` decision whose
 `has_failed_open()` is `True`. The latter can result from a deadline, response
 parse failure, local rule failure, missing decision, or server-returned rule
 error—not only an Arcjet Cloud outage.

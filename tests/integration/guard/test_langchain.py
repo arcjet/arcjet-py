@@ -16,7 +16,11 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, Field, PrivateAttr
 
 from arcjet.guard import ArcjetGuard, ArcjetGuardSync, server_input
-from arcjet.guard.langchain import ArcjetToolDeniedError, guard_tool
+from arcjet.guard.langchain import (
+    ArcjetToolDeniedError,
+    ArcjetToolUnavailableError,
+    guard_tool,
+)
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 
 
@@ -158,14 +162,25 @@ def test_guard_tool_uses_wrapped_tool_error_handler_after_denial() -> None:
 
 
 class _AsyncTransport:
-    def __init__(self) -> None:
+    def __init__(
+        self, conclusion: pb.GuardConclusion = pb.GUARD_CONCLUSION_ALLOW
+    ) -> None:
+        self.conclusion = conclusion
         self.request: pb.GuardRequest | None = None
+        self.calls = 0
 
     async def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
         self.request = request
+        self.calls += 1
         return pb.GuardResponse(
             decision=pb.GuardDecision(
-                id="gdec_async", conclusion=pb.GUARD_CONCLUSION_ALLOW
+                id="gdec_async",
+                conclusion=self.conclusion,
+                reason=(
+                    pb.GUARD_REASON_INPUT_CONSTRAINT
+                    if self.conclusion == pb.GUARD_CONCLUSION_DENY
+                    else pb.GUARD_REASON_UNSPECIFIED
+                ),
             )
         )
 
@@ -343,16 +358,23 @@ def test_bad_model_arguments_reach_the_tools_own_validation_handler(
     )
 
 
-def test_a_guarded_tool_can_be_deepcopied() -> None:
-    """LangGraph and several tracing paths deepcopy the objects they hold.
+def test_a_guarded_tool_can_be_copied() -> None:
+    """LangGraph and several tracing paths clone the objects they hold.
 
-    The Arcjet client cannot be copied — it owns a lock — so it is shared.
+    The Arcjet client cannot be copied — it owns a lock — so it is shared with
+    the copy. That only holds while the copy reaches the guarded tool before it
+    reaches the client by some other edge, which a caller cannot control; an
+    application holding its client alongside its tools can still fail, and
+    fixing that needs the client itself to be copy-aware.
     """
     wrapped = guard_tool(
         guard=_guard(_Transport()), tool=_SubclassTool(), action="search.called"
     )
 
     assert copy.deepcopy(wrapped).invoke(cast(Any, {"query": "q"})) == "search(q,5)"
+    assert wrapped.model_copy(deep=True).invoke(cast(Any, {"query": "q"})) == (
+        "search(q,5)"
+    )
 
 
 def test_every_execution_is_guarded_including_a_tools_own_recursion() -> None:
@@ -396,7 +418,7 @@ def test_guarding_an_already_guarded_tool_evaluates_both_policies() -> None:
     assert (inner_transport.calls, outer_transport.calls) == (1, 1)
 
 
-def test_run_and_arun_are_guarded_entrypoints() -> None:
+def test_run_is_a_guarded_entrypoint() -> None:
     transport = _Transport(pb.GUARD_CONCLUSION_DENY)
     calls = 0
 
@@ -413,6 +435,28 @@ def test_run_and_arun_are_guarded_entrypoints() -> None:
 
     with pytest.raises(ArcjetToolDeniedError):
         wrapped.run({"value": "no"})
+    assert calls == 0
+
+
+def test_arun_is_a_guarded_entrypoint() -> None:
+    transport = _AsyncTransport(pb.GUARD_CONCLUSION_DENY)
+    calls = 0
+
+    async def dangerous(value: str) -> str:
+        nonlocal calls
+        calls += 1
+        return value
+
+    wrapped = guard_tool(
+        guard=ArcjetGuard("key", transport, 1000, "test-agent"),  # type: ignore[arg-type]
+        tool=StructuredTool.from_function(
+            coroutine=dangerous, name="dangerous", description="d"
+        ),
+        action="dangerous.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        asyncio.run(wrapped.arun({"value": "no"}))
     assert calls == 0
 
 
@@ -533,3 +577,195 @@ def test_guarding_preserves_an_artifact_result() -> None:
         == original.invoke(cast(Any, call)).artifact
     )
     assert wrapped.return_direct == original.return_direct
+
+
+# --- The checkpoint must run, whatever the arguments look like ---------------
+
+
+def test_a_zero_argument_tool_is_still_guarded() -> None:
+    """The checkpoint cannot be conditional on reading the arguments.
+
+    A tool taking no arguments accepts a bare string that no schema validates,
+    so treating an unreadable argument list as "the tool will reject this
+    anyway" lets the call through with policy never consulted.
+    """
+    transport = _Transport(pb.GUARD_CONCLUSION_DENY)
+    ran = 0
+
+    @tool
+    def list_secrets() -> str:
+        """List every secret."""
+        nonlocal ran
+        ran += 1
+        return "secret1,secret2"
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=list_secrets,
+        action="secrets.listed",
+        inputs=lambda arguments, _config: {},
+    )
+
+    for probe in ("", "N/A"):
+        with pytest.raises(ArcjetToolDeniedError):
+            wrapped.invoke(cast(Any, probe))
+    assert ran == 0
+    assert transport.calls == 2
+
+
+def test_unreadable_arguments_still_reach_the_checkpoint() -> None:
+    """A schema shape this cannot parse must not become an Arcjet outage.
+
+    Policy still runs — without inputs, which is weaker and still a decision —
+    and the tool then does whatever it would have done unguarded.
+    """
+    transport = _Transport()
+    original = StructuredTool.from_function(
+        lambda **kwargs: "ran",
+        name="permissive",
+        description="d",
+        args_schema={"type": "object", "additionalProperties": True},
+    )
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=original,
+        action="permissive.called",
+        inputs=lambda arguments, _config: {},
+    )
+
+    assert wrapped.invoke(cast(Any, {"a": 1})) == original.invoke(cast(Any, {"a": 1}))
+    assert transport.calls == 1
+
+
+def test_a_resolver_sees_the_keys_the_model_was_told_to_send() -> None:
+    """A tool with no schema is advertised under a key its own `args` never uses.
+
+    Filtering against the wrong key-space silently empties the argument map, so
+    a rule bound to it scans nothing while the guard call still reports healthy.
+    """
+    seen: list[dict[str, Any]] = []
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=Tool(name="shell", description="d", func=lambda v: f"ran({v})"),
+        action="shell.run",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    wrapped.invoke(
+        cast(
+            Any,
+            {
+                "type": "tool_call",
+                "name": "shell",
+                "id": "c1",
+                "args": {"__arg1": "ignore previous instructions"},
+            },
+        )
+    )
+
+    assert seen == [{"__arg1": "ignore previous instructions"}]
+
+
+def test_a_resolver_receives_plain_data_for_nested_models() -> None:
+    """Resolvers are documented to take a Mapping[str, Any], not model objects."""
+
+    class Address(BaseModel):
+        street: str
+
+    class Order(BaseModel):
+        address: Address
+        qty: int = 1
+
+    seen: list[Any] = []
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda address, qty=1: "ok",
+            name="order",
+            description="d",
+            args_schema=Order,
+        ),
+        action="order.placed",
+        inputs=lambda arguments, _config: seen.append(arguments["address"]) or {},
+    )
+
+    wrapped.invoke(cast(Any, {"address": {"street": "1 Main"}, "qty": 2}))
+
+    assert seen == [{"street": "1 Main"}]
+
+
+def test_a_narrowed_args_schema_on_the_guarded_tool_is_honoured() -> None:
+    """Narrowing the guarded copy is how an app hides a privileged field."""
+
+    class Full(BaseModel):
+        to: str
+        admin_override: bool = False
+
+    class Public(BaseModel):
+        to: str
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda to, admin_override=False: "sent",
+            name="send",
+            description="d",
+            args_schema=Full,
+        ),
+        action="email.sent",
+    )
+    wrapped.args_schema = Public
+
+    properties = convert_to_openai_tool(wrapped)["function"]["parameters"]["properties"]
+    assert set(properties) == {"to"}
+    assert set(wrapped.args) == {"to"}
+
+
+def test_no_wrapper_exposes_an_unguarded_execution_path() -> None:
+    """`_run`/`_arun` are private but public enough to be reached."""
+    for original in (
+        _SubclassTool(),
+        Tool(name="legacy", description="d", func=lambda v: f"EXECUTED:{v}"),
+    ):
+        wrapped = guard_tool(
+            guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+            tool=original,
+            action="a",
+        )
+        with pytest.raises(RuntimeError):
+            cast(Any, wrapped)._run("secret", config={})
+
+
+@pytest.mark.parametrize("on_guard_error", ["deny", "allow"])
+def test_an_unevaluated_policy_is_governed_by_on_guard_error(
+    on_guard_error: str,
+) -> None:
+    """The fail-closed default is the property this helper exists for."""
+    ran = 0
+
+    def effect(value: str) -> str:
+        nonlocal ran
+        ran += 1
+        return "done"
+
+    class _Failing:
+        def guard(self, _request: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("transport down")
+
+        def capture(self, _request: Any, **_kwargs: Any) -> pb.CaptureResponse:
+            return pb.CaptureResponse()
+
+    wrapped = guard_tool(
+        guard=ArcjetGuardSync("key", _Failing(), 1000, "test-agent"),  # type: ignore[arg-type]
+        tool=StructuredTool.from_function(effect, name="effect", description="d"),
+        action="effect.done",
+        on_guard_error=cast(Any, on_guard_error),
+    )
+
+    if on_guard_error == "deny":
+        with pytest.raises(ArcjetToolUnavailableError):
+            wrapped.invoke(cast(Any, {"value": "x"}))
+        assert ran == 0
+    else:
+        assert wrapped.invoke(cast(Any, {"value": "x"})) == "done"
+        assert ran == 1

@@ -23,6 +23,8 @@ from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr
 
+from arcjet._logging import logger
+
 from ._client import ArcjetGuard, ArcjetGuardSync
 from ._policy_input import PolicyInputMap
 from ._rules import RuleWithInput
@@ -68,21 +70,22 @@ class ArcjetToolUnavailableError(ToolException):
         self.__cause__ = cause
 
 
-class _InvalidArguments(Exception):
-    """The wrapped tool's own validation rejected this call's arguments.
-
-    Not an Arcjet failure, and never surfaced to the caller: the tool is handed
-    the call so it raises, or applies ``handle_validation_error``, exactly as
-    it would have without a checkpoint in front of it.  No effect can run
-    either way, because the tool rejects the call before reaching its body.
-    """
-
-
 def _unwrap_tool_call(value: Any) -> tuple[Any, str | None]:
     """A ToolCall-shaped input split into its arguments and its id."""
     if isinstance(value, dict) and value.get("type") == "tool_call":
         return value.get("args", {}), value.get("id")
     return value, None
+
+
+def _has_derivable_schema(tool: BaseTool) -> bool:
+    """Whether ``tool_call_schema`` describes this tool's actual arguments.
+
+    A ``Tool`` built from a bare function declares no schema, so the property
+    falls back to introspecting ``Tool._run(*args, config, **kwargs)`` and
+    reports that signature instead. LangChain works around this with the same
+    concrete-class check when it advertises such a tool.
+    """
+    return not (isinstance(tool, SimpleTool) and not tool.args_schema)
 
 
 def _arguments(tool: BaseTool, raw: Any, tool_call_id: str | None) -> Mapping[str, Any]:
@@ -93,31 +96,46 @@ def _arguments(tool: BaseTool, raw: Any, tool_call_id: str | None) -> Mapping[st
     every tool, and regenerating it drops the author's field validators, which
     would show a resolver a different value than the tool runs with.
 
-    Two things are then corrected.  The input is copied first, because
-    ``_parse_input`` writes into the mapping it is given and that mapping is
-    usually the ``args`` of a ``ToolCall`` living in message history.  And the
-    result is narrowed to what the model can actually supply: ``_parse_input``
-    re-adds arguments the framework injects — credentials, graph state, the
-    tool call id — that ``tool_call_schema`` deliberately hides, and a policy
-    resolver must not be handed those.
+    The input is copied first, because ``_parse_input`` writes into the mapping
+    it is given and that mapping is usually the ``args`` of a ``ToolCall``
+    living in message history.
+
+    Raises whatever the tool's own validation raises. Callers treat resolving
+    arguments as best-effort and evaluate policy regardless — a call whose
+    arguments cannot be read is still a call.
     """
     if isinstance(raw, Mapping):
         raw = dict(raw)
 
-    try:
-        parsed = tool._parse_input(raw, tool_call_id)
-    except Exception as exc:
-        raise _InvalidArguments from exc
+    parsed = tool._parse_input(raw, tool_call_id)
+    if not isinstance(parsed, dict):
+        # A bare string comes back unchanged. LangChain binds it to the
+        # schema's first field whatever the field count, so key it the same way
+        # rather than inventing a name the tool will never use.
+        names = list(tool.args)
+        return {names[0]: parsed} if names else {"input": parsed}
 
-    visible = tool.args
-    if isinstance(parsed, dict):
-        return {key: value for key, value in parsed.items() if key in visible}
+    # `_parse_input` re-adds arguments the framework injects — credentials,
+    # graph state, the tool call id — that `tool_call_schema` hides from the
+    # model. A policy resolver must not be handed those. Only that schema
+    # identifies them, so filtering happens only when it can say so; the
+    # alternative, `tool.args`, names a different key-space for a tool whose
+    # arguments the model supplies positionally.
+    schema = tool.tool_call_schema
+    if (
+        _has_derivable_schema(tool)
+        and isinstance(schema, type)
+        and issubclass(schema, BaseModel)
+    ):
+        visible = set(schema.model_fields)
+        parsed = {key: value for key, value in parsed.items() if key in visible}
 
-    # A bare string comes back out of _parse_input unchanged. LangChain binds
-    # it to the schema's first field whatever the field count, so key it the
-    # same way rather than inventing a name the tool will never use.
-    names = list(visible)
-    return {names[0]: parsed} if names else {"input": parsed}
+    # Nested models come back as instances. Resolvers are documented to take a
+    # `Mapping[str, Any]`, so hand them data rather than model objects.
+    return {
+        key: value.model_dump() if isinstance(value, BaseModel) else value
+        for key, value in parsed.items()
+    }
 
 
 def _check_decision(
@@ -177,14 +195,35 @@ class _GuardMixin:
     _arcjet: _Policy
     _arcjet_tool: BaseTool
 
+    def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
+        if self._arcjet_owns_schema():
+            return cast(BaseTool, super()).get_input_schema(config)
+        return self._arcjet_tool.get_input_schema(config)
+
+    @property
+    def tool_call_schema(self) -> Any:
+        if self._arcjet_owns_schema():
+            return cast(Any, BaseTool.tool_call_schema).fget(self)
+        return self._arcjet_tool.tool_call_schema
+
+    def _arcjet_owns_schema(self) -> bool:
+        """Whether this wrapper's own ``args_schema`` should be believed.
+
+        The wrapper is handed a copy of the wrapped tool's ``args_schema`` and
+        normally has nothing to add, so the derivation is forwarded to the tool
+        that owns it — which is the only way a tool declaring no schema gets
+        one, since it is derived from a ``_run`` this wrapper does not have.
+        Reassigning it is how an application narrows what a model may send, so
+        a schema that is no longer the wrapped tool's wins instead.
+        """
+        return cast(BaseTool, self).args_schema is not self._arcjet_tool.args_schema
+
     def invoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
     ) -> Any:
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
             self._arcjet_evaluate(raw, tool_call_id, config)
-        except _InvalidArguments:
-            pass
         except ArcjetToolDeniedError as exc:
             return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
         return self._arcjet_tool.invoke(input, config, **kwargs)
@@ -195,8 +234,6 @@ class _GuardMixin:
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
             await self._arcjet_evaluate_async(raw, tool_call_id, config)
-        except _InvalidArguments:
-            pass
         except ArcjetToolDeniedError as exc:
             return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
         return await self._arcjet_tool.ainvoke(input, config, **kwargs)
@@ -205,8 +242,6 @@ class _GuardMixin:
         tool_call_id = kwargs.get("tool_call_id")
         try:
             self._arcjet_evaluate(tool_input, tool_call_id, kwargs.get("config"))
-        except _InvalidArguments:
-            pass
         except ArcjetToolDeniedError as exc:
             return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
         return self._arcjet_tool.run(tool_input, *args, **kwargs)
@@ -217,8 +252,6 @@ class _GuardMixin:
             await self._arcjet_evaluate_async(
                 tool_input, tool_call_id, kwargs.get("config")
             )
-        except _InvalidArguments:
-            pass
         except ArcjetToolDeniedError as exc:
             return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
         return await self._arcjet_tool.arun(tool_input, *args, **kwargs)
@@ -239,7 +272,7 @@ class _GuardMixin:
                 inputs=self._arcjet_inputs(raw, tool_call_id, resolved),
             )
             _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError, _InvalidArguments):
+        except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
@@ -261,7 +294,7 @@ class _GuardMixin:
                 inputs=await self._arcjet_inputs_async(raw, tool_call_id, resolved),
             )
             _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError, _InvalidArguments):
+        except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
@@ -285,7 +318,20 @@ class _GuardMixin:
             return resolver
         # Parsed only here, because a resolver is the only thing that reads the
         # arguments: a tool with no resolver configured is never parsed at all.
-        arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
+        try:
+            arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
+        except Exception:
+            # The tool will reject these arguments itself, or accept them in a
+            # shape this could not read. Either way the checkpoint still has to
+            # run: skipping it would let a call the tool does accept through
+            # unevaluated. Policy sees no inputs, which is weaker than usual
+            # and still a decision.
+            logger.warning(
+                "arcjet: could not read the arguments of a call to %r; "
+                "evaluating policy without them",
+                self._arcjet.action,
+            )
+            return None
         return cast(_InputsFn, resolver)(arguments, config)
 
     def _arcjet_actor(self, config: RunnableConfig) -> str | None:
@@ -318,10 +364,11 @@ class _GuardMixin:
             return cast("PolicyInputMap | None", await value)
         return cast("PolicyInputMap | None", value)
 
-    def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Any:
         # The Arcjet client owns a connection pool and a lock, so it is shared
         # with the copy rather than duplicated: copying a client is not
         # meaningful, and `copy.deepcopy` cannot do it at all.
+        memo = {} if memo is None else memo
         guard = self._arcjet.guard
         memo[id(guard)] = guard
         return BaseModel.__deepcopy__(cast(BaseModel, self), memo)
@@ -350,17 +397,6 @@ class _GuardedTool(_GuardMixin, BaseTool):
     _arcjet: _Policy = PrivateAttr()
     _arcjet_tool: BaseTool = PrivateAttr()
 
-    def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
-        return self._arcjet_tool.get_input_schema(config)
-
-    @property
-    def tool_call_schema(self) -> Any:
-        return self._arcjet_tool.tool_call_schema
-
-    @property
-    def args(self) -> dict[str, Any]:
-        return self._arcjet_tool.args
-
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("Guarded tools delegate to the tool they wrap")
 
@@ -377,9 +413,11 @@ class _GuardedSimpleTool(_GuardMixin, SimpleTool):
     _arcjet: _Policy = PrivateAttr()
     _arcjet_tool: BaseTool = PrivateAttr()
 
-    @property
-    def args(self) -> dict[str, Any]:
-        return self._arcjet_tool.args
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Guarded tools delegate to the tool they wrap")
+
+    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Guarded tools delegate to the tool they wrap")
 
 
 def guard_tool(
@@ -396,8 +434,13 @@ def guard_tool(
 
     The guarded tool evaluates policy and then hands the call to *tool*, which
     is left untouched and keeps running its own code — so anything the tool's
-    class overrides still applies, and the model is told exactly what the
-    unguarded tool advertised.
+    class overrides still applies, and the model is told what the unguarded
+    tool advertised.
+
+    The result is a wrapper, not an instance of *tool*'s class, so application
+    code that branches on a tool's concrete type sees the wrapper.  A ``Tool``
+    built from a bare function is the exception: LangChain advertises that
+    shape by concrete class, so the wrapper is a ``Tool`` too.
 
     Unlike the core Guard client, which returns a fail-open ``ALLOW`` decision
     when evaluation is degraded, this helper fails closed by default. With
