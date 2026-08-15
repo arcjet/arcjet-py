@@ -20,10 +20,10 @@ Repo convention is a `fix(guard):` commit followed by a `test(guard):` commit.
 
 Mark each `[ ]` → `[x]` as it lands. This is the recovery point after a context clear.
 
-- [ ] P1.1 `_run`/`_arun` argument binding (F1)
-- [ ] P1.2 Schema-rejected arguments on direct surfaces (F2)
-- [ ] P2.1 Normalize entrypoints via `BaseTool.invoke` (F3, F4, F5, F8, F9)
-- [ ] P2.2 Uniform field sourcing; withdraw config forwarding (F6, F7, F13)
+- [x] P1.1 `_run`/`_arun` argument binding (F1)
+- [x] P1.2 Schema-rejected arguments on direct surfaces (F2)
+- [x] P2.2 Uniform field sourcing; withdraw config forwarding (F6, F7, F8, F13) — done first
+- [x] P2.1 Normalize entrypoints via `BaseTool.invoke` (F3, F4, F5, F9)
 - [ ] P3.1 Faithful wrapper construction (F10)
 - [ ] P4.1 `ArcjetTestClient` deepcopy sharing (F11)
 - [ ] P5.0 Re-evaluate remaining findings against the new code
@@ -261,11 +261,24 @@ original client recorded the call.
 
 ## Path 5 — Remaining findings
 
-### P5.0 — Re-evaluate first
+### P5.0 — Re-evaluated 2026-08-15, after Paths 1–4
 
-Before fixing, re-check each against the post-Path-1..4 code; some are expected to be
-already closed (F13 by P2.2; part of F21 by P2.2 deleting the per-call merges). Record
-the verdict for each in this file before acting.
+Verdicts, each from a probe against the current code:
+
+| # | Verdict | Note |
+|---|---|---|
+| F12 handler-raised ToolException | **applies** | still returns `ArcjetToolDeniedError` |
+| F14 pydantic v1 schema | **applies** | unguarded returns handled message, guarded raises |
+| F15 signature-less callable | **applies** | `Tool(func=time.time)` still `ValueError` |
+| F16 lambda resolvers unpicklable | **applies** | doc fix only; cannot be fixed generally |
+| F17 `langchain-core` floor | **applies** | I confirmed by downloading wheels: `_filter_injected_args` ABSENT in 1.0.0 and 1.0.1, present from 1.0.2 |
+| F18 `allow` swallows silently | **applies** | resolver `KeyError` produced no log line |
+| F19 unreadable-args cause | **applies** | `__cause__` None, `__suppress_context__` True |
+| F20 vacuous unreadable test | **applies** | dict-schema `_parse_input` returns `{'a': 1}` — readable |
+| F21 per-call introspection | **partly closed** | the per-call config merges went with P2.2; `_blocking`/`_awaitable` still resolve per call |
+| F22 duplication | **partly closed** | report-swallow collapsed to one copy in P2.1; the fail-closed chain is still duplicated |
+| F23 nominal guard union | **applies** | signature still `ArcjetGuard \| ArcjetGuardSync` |
+| F13 handler source | **closed by P2.2** | delegate governs both paths |
 
 ### P5.1 — Handler-raised ToolException swallowed (F12)
 `_arcjet_blocked`'s `except ToolException: pass` cannot tell the no-handler re-raise from
