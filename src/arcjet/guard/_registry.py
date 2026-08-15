@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, Union
 
 from arcjet._metadata import Metadata
 
-from ._client import ArcjetGuard, ArcjetGuardSync, _make_error_decision
+from ._client import ArcjetGuard, ArcjetGuardSync, GuardClient, _make_error_decision
 from ._diagnostics import CLIENT_ALREADY_REGISTERED, CLIENT_FLAVOR_MISMATCH
 from ._rules import RuleWithInput
 from ._types import Decision
@@ -324,7 +324,7 @@ def flush_sync(timeout_ms: Optional[int] = None) -> None:
 
 
 def _awaitable(
-    client: Optional[AnyArcjetGuard], name: str
+    client: Optional[GuardClient], name: str
 ) -> Optional[Callable[..., Awaitable[Any]]]:
     """The awaitable *name* on *client*, or ``None``.
 
@@ -339,7 +339,7 @@ def _awaitable(
 
 
 def _blocking(
-    client: Optional[AnyArcjetGuard], preferred: str, fallback: str
+    client: Optional[GuardClient], preferred: str, fallback: str
 ) -> Optional[Callable[..., Any]]:
     """The blocking method on *client*, or ``None``.
 

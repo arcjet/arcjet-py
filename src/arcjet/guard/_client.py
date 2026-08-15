@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Any, Protocol, Sequence, Union
+from typing import Any, Protocol, Sequence, Union, runtime_checkable
 
 import pyqwest
 
@@ -319,6 +319,32 @@ def _prepare_guard(
         correlation_id=correlation_id,
         local_warnings=rule_warnings,
     )
+
+
+@runtime_checkable
+class GuardClient(Protocol):
+    """What a checkpoint needs of a client, by shape rather than by class.
+
+    The clients are dispatched on structurally — whether ``guard`` is a
+    coroutine function decides the flavour, and a double offering both spells
+    the blocking one ``guard_sync`` — so the type that describes them has to be
+    structural too. Naming the two concrete classes instead would make the
+    in-memory recorder, and any hand-rolled double, a type error at every
+    wiring site the documentation recommends.
+
+    Describes the call a checkpoint makes, not the flavour it is made in:
+    ``guard`` returns a decision or something awaitable that produces one, and
+    which is which is decided per call site, because the recorder answers both.
+    """
+
+    def guard(
+        self,
+        rules: Sequence[RuleWithInput] = ...,
+        *,
+        label: str,
+        actor: str | None = ...,
+        inputs: PolicyInputMap | None = ...,
+    ) -> Any: ...
 
 
 def _shared_with_copies(self: Any, memo: dict[int, Any]) -> Any:

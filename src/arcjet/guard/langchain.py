@@ -42,7 +42,7 @@ from pydantic import BaseModel, PrivateAttr, ValidationError
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
-from ._client import ArcjetGuard, ArcjetGuardSync
+from ._client import GuardClient
 from ._policy_input import PolicyInputMap
 from ._registry import _awaitable, _blocking, registered_client
 from ._rules import RuleWithInput
@@ -277,7 +277,7 @@ def _handle_tool_exception(
 class _Policy:
     """What guarding one tool needs, held apart from the tool's own fields."""
 
-    guard: ArcjetGuard | ArcjetGuardSync
+    guard: GuardClient
     action: str
     actor: ActorResolver | AsyncActorResolver | None
     inputs: InputResolver | AsyncInputResolver | None
@@ -1058,7 +1058,7 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
 
 def guard_tool(
     *,
-    guard: ArcjetGuard | ArcjetGuardSync,
+    guard: GuardClient,
     tool: BaseTool,
     action: str,
     actor: ActorResolver | AsyncActorResolver | None = None,
