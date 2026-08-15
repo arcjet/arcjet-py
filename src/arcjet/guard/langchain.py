@@ -119,6 +119,27 @@ def _reporting(action: str) -> Iterator[None]:
         )
 
 
+@contextmanager
+def _fail_closed(action: str, on_guard_error: OnGuardError) -> Iterator[None]:
+    """Turn a failure to evaluate policy into the outcome ``on_guard_error`` asks for.
+
+    Anything the checkpoint raises to stop a call passes through: it is the
+    evaluation's result, not a failure to reach one. Anything else means policy
+    was not evaluated, which is what ``on_guard_error`` governs.
+
+    Shared by both evaluators because the rule is the same for each, and one
+    that drifted would have the two flavours raise differently-shaped errors
+    for the same failure.
+    """
+    try:
+        yield
+    except _BLOCKED:
+        raise
+    except Exception as exc:
+        if on_guard_error == "deny":
+            raise ArcjetToolUnavailableError(action, cause=exc) from exc
+
+
 @dataclass(frozen=True, slots=True)
 class _Report:
     """What the caller told ``run`` about the run it expected to open.
@@ -424,7 +445,7 @@ class _GuardMixin:
                 "blocking guard(), such as ArcjetGuardSync"
             )
         resolved = config if config is not None else cast(RunnableConfig, {})
-        try:
+        with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
             actor = self._arcjet_actor(resolved)
             readable = True
             unreadable_cause: BaseException | None = None
@@ -442,13 +463,6 @@ class _GuardMixin:
                 inputs=inputs,
             )
             self._arcjet_after_decision(decision, readable, unreadable_cause)
-        except _BLOCKED:
-            raise
-        except Exception as exc:
-            if self._arcjet.on_guard_error == "deny":
-                raise ArcjetToolUnavailableError(
-                    self._arcjet.action, cause=exc
-                ) from exc
 
     async def _arcjet_evaluate_async(
         self,
@@ -465,7 +479,7 @@ class _GuardMixin:
                 "awaitable guard(), such as ArcjetGuard"
             )
         resolved = config if config is not None else cast(RunnableConfig, {})
-        try:
+        with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
             actor = await self._arcjet_actor_async(resolved)
             readable = True
             unreadable_cause: BaseException | None = None
@@ -483,13 +497,6 @@ class _GuardMixin:
                 inputs=inputs,
             )
             self._arcjet_after_decision(decision, readable, unreadable_cause)
-        except _BLOCKED:
-            raise
-        except Exception as exc:
-            if self._arcjet.on_guard_error == "deny":
-                raise ArcjetToolUnavailableError(
-                    self._arcjet.action, cause=exc
-                ) from exc
 
     def _arcjet_after_decision(
         self,
