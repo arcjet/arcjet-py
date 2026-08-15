@@ -1304,6 +1304,36 @@ def test_a_tools_own_handler_does_not_follow_its_body_into_child_runs() -> None:
     assert recorder.events == unguarded
 
 
+def test_a_v1_schemas_rejection_reaches_the_tools_own_handler() -> None:
+    """langchain-core accepts a pydantic v1 args_schema, and `run` catches both.
+
+    Seeing only the v2 flavour turns a routine, model-recoverable mistake into
+    an Arcjet outage that kills the retry loop.
+    """
+    from pydantic.v1 import BaseModel as V1BaseModel
+
+    class QueryV1(V1BaseModel):
+        q: str
+
+    original = StructuredTool.from_function(
+        lambda **kwargs: "ok",
+        name="v1",
+        description="d",
+        args_schema=cast(Any, QueryV1),
+    )
+    original.handle_validation_error = "the model sent bad arguments"
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=original,
+        action="v1.called",
+        inputs=lambda arguments, _config: {},
+    )
+
+    assert wrapped.invoke(cast(Any, {"wrong": "x"})) == original.invoke(
+        cast(Any, {"wrong": "x"})
+    )
+
+
 def test_an_error_handler_that_raises_reaches_the_caller() -> None:
     """A handler's own exception is the tool author's, and it belongs to the caller.
 
