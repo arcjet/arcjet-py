@@ -1052,6 +1052,29 @@ def test_a_guarded_tool_pickles_and_still_guards() -> None:
         restored.invoke(cast(Any, {"query": "q"}))
 
 
+def test_a_guarded_tool_never_renders_the_site_key() -> None:
+    """A client reaches everything that renders objects on a failing call.
+
+    A traceback captured with frame locals — `pytest --showlocals`, an error
+    reporter, a debugger — renders whatever the frame held, including a bound
+    method, whose repr renders the client it is bound to.
+    """
+    secret = "ajkey_live_NOTAREALKEY"
+    guard = ArcjetGuardSync(secret, cast(Any, _Transport()), 1000, "ua")
+    wrapped = guard_tool(
+        guard=guard,
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    policy = cast(Any, wrapped)._arcjet_policy
+    assert secret not in repr(guard)
+    assert secret not in repr(policy)
+    assert secret not in repr(policy.blocking)
+
+
 def test_pickling_a_guarded_tool_does_not_serialize_the_site_key() -> None:
     """A pickle is written somewhere — a broker, a checkpoint, a disk.
 
