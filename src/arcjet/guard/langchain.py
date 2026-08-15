@@ -30,12 +30,10 @@ from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from langchain_core.callbacks import (
     AsyncCallbackManager,
-    BaseCallbackHandler,
     CallbackManager,
 )
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.runnables.config import merge_configs
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import FILTERED_ARGS
 from langchain_core.tools.simple import Tool as SimpleTool
@@ -282,9 +280,7 @@ class _GuardMixin:
             self._arcjet_evaluate(raw, tool_call_id, config)
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, raw, tool_call_id, config)
-        return self._arcjet_tool.invoke(
-            input, self._arcjet_child_config(config), **kwargs
-        )
+        return self._arcjet_tool.invoke(input, config, **kwargs)
 
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
@@ -294,9 +290,7 @@ class _GuardMixin:
             await self._arcjet_evaluate_async(raw, tool_call_id, config)
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(exc, raw, tool_call_id, config)
-        return await self._arcjet_tool.ainvoke(
-            input, self._arcjet_child_config(config), **kwargs
-        )
+        return await self._arcjet_tool.ainvoke(input, config, **kwargs)
 
     def run(self, tool_input: Any, *args: Any, **kwargs: Any) -> Any:
         tool_call_id = kwargs.get("tool_call_id")
@@ -305,9 +299,7 @@ class _GuardMixin:
             self._arcjet_evaluate(tool_input, tool_call_id, config)
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, tool_input, tool_call_id, config)
-        return self._arcjet_tool.run(
-            tool_input, *args, **self._arcjet_run_kwargs(kwargs)
-        )
+        return self._arcjet_tool.run(tool_input, *args, **kwargs)
 
     async def arun(self, tool_input: Any, *args: Any, **kwargs: Any) -> Any:
         tool_call_id = kwargs.get("tool_call_id")
@@ -318,9 +310,7 @@ class _GuardMixin:
             return await self._arcjet_blocked_async(
                 exc, tool_input, tool_call_id, config
             )
-        return await self._arcjet_tool.arun(
-            tool_input, *args, **self._arcjet_run_kwargs(kwargs)
-        )
+        return await self._arcjet_tool.arun(tool_input, *args, **kwargs)
 
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         """Evaluate, then hand the body to the tool that owns it.
@@ -342,71 +332,6 @@ class _GuardMixin:
         raw = _call_arguments(inspect.signature(delegate._arun), args, kwargs)
         await self._arcjet_evaluate_async(raw, None, None, validated=False)
         return await delegate._arun(*args, **kwargs)
-
-    def _arcjet_child_config(self, config: RunnableConfig | None) -> RunnableConfig:
-        """The delegated call's config, carrying this handle's own fields.
-
-        The delegate executes with the copies of ``callbacks``, ``tags`` and
-        ``metadata`` it had when ``guard_tool`` ran, so anything attached to
-        the guarded handle afterwards would never fire on an allowed call —
-        while a blocked call, which this handle reports, would show it. That
-        asymmetry reads as a tool that only ever denies. Folding the handle's
-        fields into the config is the one channel the delegate accepts them
-        on; a handler the delegate already has is not doubled, because the
-        callback manager refuses a handler it already holds.
-        """
-        tool = cast(BaseTool, self)
-        own: RunnableConfig = {}
-        own_callbacks = tool.callbacks
-        if own_callbacks is not None:
-            supplied = (config or {}).get("callbacks")
-            if isinstance(own_callbacks, list) and isinstance(supplied, list):
-                # merge_configs concatenates two lists blindly, and configure
-                # does not deduplicate within one, so a handler the call
-                # already carries is dropped here rather than fired twice. A
-                # manager on either side deduplicates itself via add_handler.
-                handlers = cast("list[BaseCallbackHandler]", own_callbacks)
-                fresh = [handler for handler in handlers if handler not in supplied]
-                if fresh:
-                    own["callbacks"] = fresh
-            else:
-                own["callbacks"] = own_callbacks
-        if tool.tags:
-            own["tags"] = list(tool.tags)
-        if tool.metadata:
-            own["metadata"] = dict(tool.metadata)
-        if not own:
-            return config if config is not None else cast(RunnableConfig, {})
-        return merge_configs(config, own)
-
-    def _arcjet_run_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """``run``/``arun``'s keyword view of :meth:`_arcjet_child_config`.
-
-        Those entrypoints take ``callbacks``, ``tags`` and ``metadata`` as
-        keywords rather than in a config, so the handle's fields fold into the
-        keywords. The handle's metadata wins a key both supply, matching how
-        the callback manager applies a tool's own metadata after the call's.
-        A callback manager instance in the keywords is passed through: merging
-        into a caller's manager would mutate it.
-        """
-        tool = cast(BaseTool, self)
-        merged = dict(kwargs)
-        callbacks = merged.get("callbacks")
-        if isinstance(tool.callbacks, list) and tool.callbacks:
-            if callbacks is None:
-                merged["callbacks"] = list(tool.callbacks)
-            elif isinstance(callbacks, list):
-                merged["callbacks"] = callbacks + [
-                    handler for handler in tool.callbacks if handler not in callbacks
-                ]
-        if tool.tags:
-            tags = merged.get("tags")
-            merged["tags"] = (tags or []) + [
-                tag for tag in tool.tags if tag not in (tags or [])
-            ]
-        if tool.metadata:
-            merged["metadata"] = {**(merged.get("metadata") or {}), **tool.metadata}
-        return merged
 
     def _arcjet_evaluate(
         self,
@@ -563,19 +488,16 @@ class _GuardMixin:
 
         Only the blocked path reports. An allowed call is delegated to the
         tool, which opens its own run, and reporting here as well would double
-        every span. The report reads the same sources an allowed call's run
-        would — this handle's fields folded into the config, the delegate's
-        fields as the tool's own — so blocked and allowed calls land on the
-        same handlers with the same labels.
+        every span. The report reads exactly what an allowed call's own run
+        reads — the caller's config, and the delegate's fields as the tool's
+        own — so the two paths land on the same handlers with the same labels
+        and the same error handling.
         """
-        run_manager = self._arcjet_open_run(
-            raw, tool_call_id, self._arcjet_child_config(config)
-        )
+        resolved = config if config is not None else cast(RunnableConfig, {})
+        run_manager = self._arcjet_open_run(raw, tool_call_id, resolved)
         if isinstance(error, ArcjetToolDeniedError):
             try:
-                content = _handle_tool_exception(
-                    cast(BaseTool, self), error, tool_call_id
-                )
+                content = _handle_tool_exception(self._arcjet_tool, error, tool_call_id)
             except ToolException:
                 pass  # No handler took it; report the error below and re-raise.
             else:
@@ -596,14 +518,11 @@ class _GuardMixin:
         config: RunnableConfig | None,
     ) -> Any:
         """The awaitable counterpart of :meth:`_arcjet_blocked`."""
-        run_manager = await self._arcjet_open_run_async(
-            raw, tool_call_id, self._arcjet_child_config(config)
-        )
+        resolved = config if config is not None else cast(RunnableConfig, {})
+        run_manager = await self._arcjet_open_run_async(raw, tool_call_id, resolved)
         if isinstance(error, ArcjetToolDeniedError):
             try:
-                content = _handle_tool_exception(
-                    cast(BaseTool, self), error, tool_call_id
-                )
+                content = _handle_tool_exception(self._arcjet_tool, error, tool_call_id)
             except ToolException:
                 pass  # No handler took it; report the error below and re-raise.
             else:
