@@ -22,6 +22,7 @@ from arcjet.guard.langchain import (
     guard_tool,
 )
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
+from arcjet.guard.testing import ArcjetTestClient
 
 
 class _Transport:
@@ -875,3 +876,89 @@ def test_arguments_the_tool_itself_rejects_are_not_an_arcjet_failure() -> None:
 
     assert wrapped.invoke(cast(Any, {"amount": -5})) == "the model sent bad arguments"
     assert transport.calls == 1
+
+
+# --- The guard client is identified by shape, not by class -------------------
+
+
+def test_the_in_memory_test_client_can_drive_a_guarded_tool() -> None:
+    """A double is dispatched on structurally, as the free guard calls are.
+
+    ``on_guard_error="allow"`` because the recorder answers a fail-open
+    decision, which a checkpoint left on its fail-closed default would deny —
+    the client records calls, it does not decide them.
+    """
+    client = ArcjetTestClient()
+    original = StructuredTool.from_function(
+        lambda value: f"found:{value}", name="lookup", description="d"
+    )
+    wrapped = guard_tool(
+        guard=cast(Any, client),
+        tool=original,
+        action="lookup.called",
+        actor="user-1",
+        inputs=lambda arguments, _config: {
+            "query": server_input.string(str(arguments["value"]))
+        },
+        on_guard_error="allow",
+    )
+
+    assert wrapped.invoke(cast(Any, {"value": "one"})) == "found:one"
+    assert len(client.guards) == 1
+    assert client.guards[0].label == "lookup.called"
+    assert client.guards[0].actor == "user-1"
+    assert client.guards[0].inputs is not None
+
+
+def test_the_in_memory_test_client_drives_the_async_path_too() -> None:
+    """The recorder offers both flavours, so either entrypoint reaches it."""
+    client = ArcjetTestClient()
+
+    async def lookup(value: str) -> str:
+        return f"found:{value}"
+
+    original = StructuredTool.from_function(
+        coroutine=lookup, name="lookup", description="d"
+    )
+    wrapped = guard_tool(
+        guard=cast(Any, client),
+        tool=original,
+        action="lookup.called",
+        actor="user-2",
+        on_guard_error="allow",
+    )
+
+    assert asyncio.run(wrapped.ainvoke(cast(Any, {"value": "one"}))) == "found:one"
+    assert len(client.guards) == 1
+    assert client.guards[0].actor == "user-2"
+
+
+def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
+    """Structural dispatch widens what is accepted; it does not stop checking.
+
+    The mismatch raises rather than being converted into an unavailable
+    policy: it is a wiring mistake in the application, not a degraded
+    evaluation, so ``on_guard_error`` deliberately does not govern it.
+    """
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="lookup", description="d"
+    )
+    async_only = guard_tool(
+        guard=ArcjetGuard("key", cast(Any, _AsyncTransport()), 1000, "test-agent"),
+        tool=original,
+        action="lookup.called",
+        on_guard_error="allow",
+    )
+
+    with pytest.raises(TypeError, match="blocking guard"):
+        async_only.invoke(cast(Any, {"value": "one"}))
+
+    sync_only = guard_tool(
+        guard=_guard(_Transport()),
+        tool=original,
+        action="lookup.called",
+        on_guard_error="allow",
+    )
+
+    with pytest.raises(TypeError, match="awaitable guard"):
+        asyncio.run(sync_only.ainvoke(cast(Any, {"value": "one"})))
