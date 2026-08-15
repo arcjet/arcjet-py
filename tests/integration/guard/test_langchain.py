@@ -1800,6 +1800,28 @@ def test_the_in_memory_test_client_drives_the_async_path_too() -> None:
     assert client.guards[0].actor == "user-2"
 
 
+def test_the_test_client_records_calls_made_through_a_copy() -> None:
+    """A graph that clones its tools must not fork the recorder with them.
+
+    The test asserts against the client it created, so a copy that records
+    somewhere else makes the assertion silently pass against an empty list.
+    """
+    client = ArcjetTestClient()
+    wrapped = guard_tool(
+        guard=cast(Any, client),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        on_guard_error="allow",
+    )
+
+    clone = copy.deepcopy(wrapped)
+    clone.invoke(cast(Any, {"value": "x"}))
+
+    assert len(client.guards) == 1
+
+
 def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
     """Structural dispatch widens what is accepted; it does not stop checking.
 
