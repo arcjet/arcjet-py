@@ -1376,8 +1376,63 @@ def test_allowing_a_failed_evaluation_still_reports_it(
         assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
 
     assert any(
-        "could not evaluate policy" in record.message for record in caplog.records
+        "could not resolve everything policy needed" in record.message
+        for record in caplog.records
     )
+
+
+def test_a_failed_resolver_still_puts_the_call_on_the_record() -> None:
+    """A resolver failing degrades the decision's inputs, not the decision.
+
+    Letting it stop the Guard call meant that under `allow` the tool ran and
+    Guard held no record the call happened — so a rate limit or a remote policy
+    on the label silently stopped counting exactly the calls whose actor could
+    not be resolved, with nothing but a log line to say so.
+    """
+
+    def broken_actor(config: Any) -> str:
+        raise KeyError("user_id")
+
+    def broken_inputs(arguments: Any, config: Any) -> Any:
+        raise KeyError("boom")
+
+    for policy in ({"actor": broken_actor}, {"inputs": broken_inputs}):
+        transport = _Transport()
+        wrapped = guard_tool(
+            guard=_guard(transport),
+            tool=StructuredTool.from_function(
+                lambda value: "ok", name="t", description="d"
+            ),
+            action="t.called",
+            on_guard_error="allow",
+            **cast(Any, policy),
+        )
+
+        assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
+        assert transport.calls == 1
+
+
+def test_a_failed_resolver_denies_but_still_records_under_deny() -> None:
+    """Failing closed stops the call; it does not stop the decision."""
+    transport = _Transport()
+
+    def broken_actor(config: Any) -> str:
+        raise KeyError("user_id")
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        actor=broken_actor,
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError) as raised:
+        wrapped.invoke(cast(Any, {"value": "x"}))
+
+    assert transport.calls == 1
+    assert isinstance(raised.value.__cause__, KeyError)
 
 
 def test_an_unreadable_arguments_failure_carries_its_cause() -> None:
