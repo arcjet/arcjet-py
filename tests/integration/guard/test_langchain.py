@@ -1316,6 +1316,48 @@ def test_a_tool_class_helper_built_on_run_still_works() -> None:
         cast(Any, denied).preview()
 
 
+def test_a_direct_run_call_shows_a_resolver_the_real_arguments() -> None:
+    """`_run` collects the caller's arguments behind the framework's own.
+
+    A tool's `_run` is `(*args, config, run_manager, **kwargs)`, so binding the
+    call yields the real arguments nested under `kwargs` next to `config` and
+    `run_manager`. A resolver handed that shape sees scaffolding instead of the
+    call, and an input rule protects nothing.
+    """
+    seen: list[dict[str, Any]] = []
+    original = StructuredTool.from_function(
+        lambda x: f"ran:{x}", name="s", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=original,
+        action="s.called",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    assert cast(Any, wrapped)._run(x="secret", config={}) == "ran:secret"
+    assert seen == [{"x": "secret"}]
+
+
+def test_a_single_input_tools_direct_run_keeps_its_shape() -> None:
+    """A tool taking its input positionally has nothing left after flattening.
+
+    The single value is handed on as the tool's own `_parse_input` reads it,
+    rather than as an empty mapping.
+    """
+    seen: list[dict[str, Any]] = []
+    original = Tool(name="t", description="d", func=lambda v: f"ran:{v}")
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=original,
+        action="t.called",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    assert cast(Any, wrapped)._run("hello", config={}) == "ran:hello"
+    assert seen == [{"tool_input": "hello"}]
+
+
 def test_a_direct_arun_call_is_still_guarded() -> None:
     async def lookup(value: str) -> str:
         return f"found:{value}"
