@@ -121,6 +121,47 @@ def _reporting(action: str) -> Iterator[None]:
         )
 
 
+def _resolved(
+    resolve: Callable[..., Any],
+    *args: Any,
+    so_far: BaseException | None = None,
+    **kwargs: Any,
+) -> tuple[Any, BaseException | None]:
+    """Run one resolver, reporting a failure rather than raising it.
+
+    A resolver that fails degrades what the decision is made *from*; it is not
+    a failure to reach a decision. Letting it propagate skipped the Guard call
+    altogether, so under ``on_guard_error="allow"`` the tool ran and Guard held
+    no record that the call had happened — a rate limit on the label quietly
+    stopped counting exactly the calls whose actor could not be resolved.
+
+    The first failure is the one reported, because it is the one that has a
+    cause worth showing; a later one is usually the same wiring mistake seen
+    twice.
+    """
+    try:
+        return resolve(*args, **kwargs), so_far
+    except _UnreadableArguments as unreadable:
+        return None, so_far or unreadable.__cause__ or unreadable
+    except Exception as exc:
+        return None, so_far or exc
+
+
+async def _resolved_async(
+    resolve: Callable[..., Awaitable[Any]],
+    *args: Any,
+    so_far: BaseException | None = None,
+    **kwargs: Any,
+) -> tuple[Any, BaseException | None]:
+    """The awaitable counterpart of :func:`_resolved`."""
+    try:
+        return await resolve(*args, **kwargs), so_far
+    except _UnreadableArguments as unreadable:
+        return None, so_far or unreadable.__cause__ or unreadable
+    except Exception as exc:
+        return None, so_far or exc
+
+
 @contextmanager
 def _fail_closed(action: str, on_guard_error: OnGuardError) -> Iterator[None]:
     """Turn a failure to evaluate policy into the outcome ``on_guard_error`` asks for.
@@ -524,25 +565,24 @@ class _GuardMixin:
                 "A synchronous LangChain invocation requires a guard client with a "
                 "blocking guard(), such as ArcjetGuardSync"
             )
-        resolved = config if config is not None else cast(RunnableConfig, {})
+        resolved = ensure_config(config)
         with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
-            actor = self._arcjet_actor(resolved)
-            readable = True
-            unreadable_cause: BaseException | None = None
-            try:
-                inputs = self._arcjet_inputs(
-                    raw, tool_call_id, resolved, validated=validated
-                )
-            except _UnreadableArguments as unreadable:
-                inputs, readable = None, False
-                unreadable_cause = unreadable.__cause__
+            actor, degraded = _resolved(self._arcjet_actor, resolved)
+            inputs, degraded = _resolved(
+                self._arcjet_inputs,
+                raw,
+                tool_call_id,
+                resolved,
+                validated=validated,
+                so_far=degraded,
+            )
             decision = guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
                 inputs=inputs,
             )
-            self._arcjet_after_decision(decision, readable, unreadable_cause)
+            self._arcjet_after_decision(decision, degraded)
 
     async def _arcjet_evaluate_async(
         self,
@@ -558,53 +598,51 @@ class _GuardMixin:
                 "An asynchronous LangChain invocation requires a guard client with an "
                 "awaitable guard(), such as ArcjetGuard"
             )
-        resolved = config if config is not None else cast(RunnableConfig, {})
+        resolved = ensure_config(config)
         with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
-            actor = await self._arcjet_actor_async(resolved)
-            readable = True
-            unreadable_cause: BaseException | None = None
-            try:
-                inputs = await self._arcjet_inputs_async(
-                    raw, tool_call_id, resolved, validated=validated
-                )
-            except _UnreadableArguments as unreadable:
-                inputs, readable = None, False
-                unreadable_cause = unreadable.__cause__
+            actor, degraded = await _resolved_async(self._arcjet_actor_async, resolved)
+            inputs, degraded = await _resolved_async(
+                self._arcjet_inputs_async,
+                raw,
+                tool_call_id,
+                resolved,
+                validated=validated,
+                so_far=degraded,
+            )
             decision = await guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
                 inputs=inputs,
             )
-            self._arcjet_after_decision(decision, readable, unreadable_cause)
+            self._arcjet_after_decision(decision, degraded)
 
     def _arcjet_after_decision(
-        self,
-        decision: Decision,
-        readable: bool,
-        unreadable_cause: BaseException | None = None,
+        self, decision: Decision, degraded: BaseException | None
     ) -> None:
         """The fail-closed rules, applied once for both flavours.
+
+        *degraded* is whatever stopped one of the decision's inputs being
+        resolved, or ``None``. Guard has seen the call either way, so the
+        decision is on the record; what ``on_guard_error`` governs is whether a
+        call the policy could not fully judge is allowed to run.
 
         Pure sync code: it raises or returns, so the async evaluator calls it
         without crossing the boundary.
         """
         _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-        if readable:
+        if degraded is None:
             return
         if self._arcjet.on_guard_error == "deny":
-            # Guard still saw the call, so the decision is on the record.
-            # The input rule was not evaluated, so the call does not run. The
-            # cause travels with it: without it the operator is told only that
-            # policy could not be evaluated, not what stopped it being read.
-            raise ArcjetToolUnavailableError(
-                self._arcjet.action, cause=unreadable_cause
-            )
+            # The cause travels with it: without it the operator is told only
+            # that policy could not be evaluated, not what stopped it.
+            raise ArcjetToolUnavailableError(self._arcjet.action, cause=degraded)
         logger.warning(
-            "arcjet: could not read the arguments of a call to %r; "
-            "policy ran without them because on_guard_error is 'allow'",
+            "arcjet: could not resolve everything policy needed for a call to %r; "
+            "it was evaluated without that, and the call proceeds because "
+            "on_guard_error is 'allow'",
             self._arcjet.action,
-            exc_info=unreadable_cause,
+            exc_info=degraded,
         )
 
     def __reduce__(self) -> tuple[Any, ...]:
