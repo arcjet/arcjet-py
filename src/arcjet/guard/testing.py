@@ -42,7 +42,7 @@ from typing import Any, Mapping, Optional, Sequence
 from arcjet._metadata import Metadata
 
 from ._capture import normalize_capture_event
-from ._client import _make_error_decision
+from ._client import _make_error_decision, _shared_with_copies
 from ._policy_input import PolicyInputMap
 from ._registry import register_arcjet_for_testing, unregister_arcjet_if
 from ._rules import RuleWithInput
@@ -124,6 +124,13 @@ class ArcjetTestClient:
     # Named to match the real clients, so `_registry._diagnose` finds it and
     # stays quiet rather than falling back to a logger.
     _diagnose: Any = field(default=_ignore, repr=False)
+
+    # Shared with a copy for the same reason a real client is, though not the
+    # same cause: a recorder has nothing uncopyable in it, so a deep copy would
+    # succeed and quietly fork the recording — the calls would land on the copy
+    # while the test asserts against this one. Whatever holds a client, holding
+    # a copy of it has to mean holding the client.
+    __deepcopy__ = _shared_with_copies
 
     def unregister(self) -> None:
         """Unregister this client.
