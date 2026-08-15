@@ -2532,6 +2532,58 @@ def test_the_in_memory_test_client_drives_the_async_path_too() -> None:
     assert client.guards[0].actor == "user-2"
 
 
+def test_a_copy_shares_a_hand_rolled_client() -> None:
+    """The three Arcjet clients answer a copy with themselves; a double does not.
+
+    So a copy of a guarded tool built on one gets a client of its own, and the
+    calls it makes land somewhere the code that made it cannot see.
+    """
+
+    class Recorder:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def guard(self, rules: Any = (), **kwargs: Any) -> Any:
+            self.calls += 1
+            return _Transport().guard(pb.GuardRequest())
+
+        def capture(self, *args: Any, **kwargs: Any) -> Any:
+            return pb.CaptureResponse()
+
+        def get_guard_policy(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    client = Recorder()
+    wrapped = guard_tool(
+        guard=cast(Any, client),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        on_guard_error="allow",
+    )
+
+    copy.deepcopy(wrapped).invoke(cast(Any, {"value": "x"}))
+
+    assert client.calls == 1
+
+
+def test_a_copys_own_function_is_bound_to_the_copy() -> None:
+    """A copy of a function is that same function.
+
+    So without rebinding, the copy's `func` evaluates the original's policy and
+    calls the original's tool — the copy is a copy in name only.
+    """
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    assert cast(Any, copy.deepcopy(wrapped)).func is not cast(Any, wrapped).func
+
+
 def test_the_test_client_records_calls_made_through_a_copy() -> None:
     """A graph that clones its tools must not fork the recorder with them.
 
