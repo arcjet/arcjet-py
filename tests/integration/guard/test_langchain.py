@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import pickle
 from typing import Annotated, Any, cast
 
 import pytest
@@ -17,7 +18,15 @@ from langchain_core.tools.render import render_text_description
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, Field, PrivateAttr
 
-from arcjet.guard import ArcjetGuard, ArcjetGuardSync, ModerateContent, server_input
+from arcjet._errors import ArcjetMisconfiguration
+from arcjet.guard import (
+    ArcjetGuard,
+    ArcjetGuardSync,
+    ModerateContent,
+    register_arcjet,
+    server_input,
+    unregister_arcjet,
+)
 from arcjet.guard.langchain import (
     ArcjetToolDeniedError,
     ArcjetToolUnavailableError,
@@ -719,6 +728,56 @@ def test_guarding_preserves_a_rendered_tool_signature() -> None:
             guard=_guard(_Transport()), tool=original, action="a.called"
         )
         assert render_text_description([wrapped]) == render_text_description([original])
+
+
+# --- Crossing a process boundary ---------------------------------------------
+
+
+def test_a_guarded_tool_pickles_and_still_guards() -> None:
+    """Sending tools to a worker process pickles them, tools included.
+
+    The generated class cannot be looked up by name, so the tool is rebuilt by
+    guarding the wrapped tool again with the client the receiving process
+    registered.
+    """
+    guard = _guard(_Transport(pb.GUARD_CONCLUSION_DENY))
+    wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
+
+    blob = pickle.dumps(wrapped)
+    register_arcjet(guard)
+    try:
+        restored = pickle.loads(blob)
+    finally:
+        unregister_arcjet()
+
+    assert isinstance(restored, _SubclassTool)
+    with pytest.raises(ArcjetToolDeniedError):
+        restored.invoke(cast(Any, {"query": "q"}))
+
+
+def test_pickling_a_guarded_tool_does_not_serialize_the_site_key() -> None:
+    """A pickle is written somewhere — a broker, a checkpoint, a disk.
+
+    The client is left out of it entirely, so nothing that stores or forwards
+    a pickled tool ends up holding the key that authenticates as this site.
+    """
+    guard = ArcjetGuardSync("ajkey_notasecret", cast(Any, _Transport()), 1000, "ua")
+    wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
+
+    assert b"ajkey_notasecret" not in pickle.dumps(wrapped)
+
+
+def test_unpickling_without_a_registered_client_says_so() -> None:
+    """The failure names what is missing, rather than surfacing as an attribute
+    error deep in a worker."""
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=_SubclassTool(), action="search.called"
+    )
+    blob = pickle.dumps(wrapped)
+
+    unregister_arcjet()
+    with pytest.raises(ArcjetMisconfiguration, match="register_arcjet"):
+        pickle.loads(blob)
 
 
 # --- A blocked call is still a call, and belongs on the trace ----------------
