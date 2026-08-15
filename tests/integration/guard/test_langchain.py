@@ -1358,6 +1358,43 @@ def test_a_single_input_tools_direct_run_keeps_its_shape() -> None:
     assert seen == [{"tool_input": "hello"}]
 
 
+def test_arguments_a_direct_call_will_not_have_validated_are_unevaluated() -> None:
+    """Only a call the tool parses has its bad arguments stopped by the tool.
+
+    `invoke` hands schema-rejected arguments to the tool's own validation
+    handler, so an input rule has no effect left to protect. A direct call runs
+    the body with whatever it was given, so the same rejection means the rule
+    could not see what it protects — an unevaluated policy, which
+    `on_guard_error` governs.
+    """
+    executed: list[int] = []
+
+    class Amount(BaseModel):
+        amount: int = Field(ge=0)
+
+    def charge(amount: int) -> str:
+        executed.append(amount)
+        return "charged"
+
+    def build(on_guard_error: str) -> Any:
+        return guard_tool(
+            guard=_guard(_Transport()),
+            tool=StructuredTool.from_function(
+                charge, name="charge", description="d", args_schema=Amount
+            ),
+            action="charge.made",
+            inputs=lambda arguments, _config: {},
+            on_guard_error=cast(Any, on_guard_error),
+        )
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        cast(Any, build("deny")).func(amount=-5)
+    assert executed == []
+
+    assert cast(Any, build("allow")).func(amount=-5) == "charged"
+    assert executed == [-5]
+
+
 def test_a_direct_arun_call_is_still_guarded() -> None:
     async def lookup(value: str) -> str:
         return f"found:{value}"
