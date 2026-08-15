@@ -317,6 +317,27 @@ class _GuardMixin:
             tool_input, *args, **self._arcjet_run_kwargs(kwargs)
         )
 
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        """Evaluate, then hand the body to the tool that owns it.
+
+        The four entrypoints above delegate before this depth, so this is
+        reached only by a direct call or by a tool-class helper built on
+        ``self._run`` — a preview or dry-run method, say. Those keep working
+        on the guarded handle, and the checkpoint still runs first, so there
+        is no unguarded path through here.
+        """
+        delegate = self._arcjet_tool
+        raw = _call_arguments(inspect.signature(delegate._run), args, kwargs)
+        self._arcjet_evaluate(raw, None, None)
+        return delegate._run(*args, **kwargs)
+
+    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+        """The awaitable counterpart of :meth:`_run`."""
+        delegate = self._arcjet_tool
+        raw = _call_arguments(inspect.signature(delegate._arun), args, kwargs)
+        await self._arcjet_evaluate_async(raw, None, None)
+        return await delegate._arun(*args, **kwargs)
+
     def _arcjet_child_config(self, config: RunnableConfig | None) -> RunnableConfig:
         """The delegated call's config, carrying this handle's own fields.
 
@@ -815,14 +836,6 @@ def _guarded_callables(guarded: BaseTool) -> None:
         cast(Any, guarded).coroutine = guarded_coroutine
 
 
-def _refuse_direct_run(self: Any, *args: Any, **kwargs: Any) -> Any:
-    raise RuntimeError("Guarded tools delegate to the tool they wrap")
-
-
-async def _refuse_direct_arun(self: Any, *args: Any, **kwargs: Any) -> Any:
-    raise RuntimeError("Guarded tools delegate to the tool they wrap")
-
-
 # Copied wholesale into each generated namespace. `__dict__` and `__weakref__`
 # are descriptors bound to _GuardMixin and break the copy's instances if they
 # come along; `__doc__` describes the mixin, not the generated class; and
@@ -869,11 +882,6 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
         namespace.update(
             _arcjet=PrivateAttr(),
             _arcjet_tool=PrivateAttr(),
-            # The tool's own body is never reached through the wrapper — every
-            # entrypoint delegates to the inner tool — so these refuse rather
-            # than offer a way past the checkpoint.
-            _run=_refuse_direct_run,
-            _arun=_refuse_direct_arun,
             # Named for this module rather than for the caller's, so a repr or
             # a traceback points at the code that made the class.
             __module__=__name__,
