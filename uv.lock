@@ -90,7 +90,7 @@ dev = [
 requires-dist = [
     { name = "arcjet-sensitive-info-rampart", marker = "extra == 'sensitive-info-rampart'", editable = "sensitive-info-rampart" },
     { name = "connect-python", specifier = ">=0.8.1" },
-    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1,<2" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1.0.2,<2" },
     { name = "pyqwest", specifier = ">=0.8.0,<0.9.0" },
     { name = "wasmtime", specifier = ">=47.0.1,<47.1.0" },
 ]
@@ -104,7 +104,7 @@ dev = [
     { name = "griffe", specifier = "==2.1.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "hypothesis", specifier = ">=6.100.0" },
-    { name = "langchain-core", specifier = ">=1,<2" },
+    { name = "langchain-core", specifier = ">=1.0.2,<2" },
     { name = "pyright", specifier = "==1.1.411" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
