@@ -674,6 +674,77 @@ def test_guarding_registers_one_subclass_per_tool_class() -> None:
     assert type(first) is type(second)
 
 
+def test_guarding_keeps_a_field_the_tool_declares_an_alias_for() -> None:
+    """Replaying the tool through its own constructor validates by alias.
+
+    A field the tool declares an alias for is then silently reset to its
+    default, because the class ignores the field-name keyword — so the handle
+    reports a value the tool never had.
+    """
+
+    class Aliased(BaseTool):
+        name: str = "aliased"
+        description: str = "d"
+        max_hits: int = Field(default=3, alias="maxHits")
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    original = cast(Any, Aliased)(maxHits=5)
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="aliased.called"
+    )
+
+    assert cast(Any, wrapped).max_hits == 5
+
+
+def test_guarding_keeps_what_an_extra_allowing_tool_holds() -> None:
+    """A tool that accepts extras carries state outside its declared fields."""
+
+    class Extras(BaseTool):
+        model_config = {"extra": "allow"}
+        name: str = "extras"
+        description: str = "d"
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    original = cast(Any, Extras)(api_base="https://example.test")
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="extras.called"
+    )
+
+    assert cast(Any, wrapped).api_base == "https://example.test"
+
+
+def test_a_tool_whose_constructor_takes_more_than_fields_can_be_guarded() -> None:
+    """A tool class may take a collaborator its fields do not describe.
+
+    Rebuilding through such a constructor cannot work — the argument is not a
+    field to copy — so the tool's state is copied rather than replayed.
+    """
+
+    class WithClient(BaseTool):
+        name: str = "withclient"
+        description: str = "d"
+
+        def __init__(self, client: Any, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._client = client
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    client = object()
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=WithClient(client=client),
+        action="withclient.called",
+    )
+
+    assert wrapped.name == "withclient"
+
+
 def test_a_guarded_tool_is_an_instance_of_the_tool_it_wraps() -> None:
     """Application code and LangChain both branch on a tool's concrete class.
 
