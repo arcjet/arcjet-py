@@ -2004,15 +2004,44 @@ def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
         asyncio.run(sync_only.ainvoke(cast(Any, {"value": "one"})))
 
 
-def test_a_sync_only_tool_awaited_is_guarded_on_the_path_it_takes() -> None:
-    """`ainvoke` on a tool with no coroutine runs the sync body in an executor.
+def test_the_decorated_tool_shape_the_examples_use_is_guarded_when_awaited() -> None:
+    """The exact wiring in examples/fastapi-guard-policy: async client, sync
+    `@tool`, awaited through an agent.
 
-    LangChain routes it there itself, so the sync client is the right flavour
-    and the call is guarded rather than refused for the flavour it never used.
+    Reducing every call to `run` would send this to the blocking checkpoint,
+    where the async client the application correctly supplied is refused.
     """
-    transport = _Transport()
+    transport = _AsyncTransport()
+
+    @tool
+    def send_email(recipient: str) -> str:
+        """Send an email."""
+        return f"sent:{recipient}"
+
     wrapped = guard_tool(
-        guard=_guard(transport),
+        guard=ArcjetGuard("key", cast(Any, transport), 1000, "test-agent"),
+        tool=send_email,
+        action="email.sent",
+    )
+
+    assert (
+        asyncio.run(wrapped.ainvoke(cast(Any, {"recipient": "a@b.c"}))) == "sent:a@b.c"
+    )
+    assert transport.calls == 1
+
+
+def test_an_async_client_guards_a_tool_with_no_async_body() -> None:
+    """The commonest wiring there is: an async app holding sync tools.
+
+    An async application supplies the async client and writes ordinary sync
+    tools; LangChain runs their bodies in an executor. The checkpoint follows
+    the entrypoint, so an awaited call is evaluated by the async client the
+    application correctly supplied — being refused one here would make the
+    guard unusable in exactly the shape the examples use.
+    """
+    transport = _AsyncTransport()
+    wrapped = guard_tool(
+        guard=ArcjetGuard("key", cast(Any, transport), 1000, "test-agent"),
         tool=StructuredTool.from_function(
             lambda value: "ok", name="lookup", description="d"
         ),
