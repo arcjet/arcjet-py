@@ -1897,6 +1897,29 @@ def test_a_direct_run_call_shows_a_resolver_the_real_arguments() -> None:
     assert seen == [{"x": "secret"}]
 
 
+def test_a_resolver_reads_the_config_a_direct_call_was_given() -> None:
+    """A direct call carries its own config, and the tool runs with it.
+
+    Dropping it with the rest of what the framework supplies left a resolver
+    reading nothing on exactly the surfaces this branch added — where the
+    README's own actor pattern would raise.
+    """
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        actor=lambda config: str((config.get("configurable") or {})["user_id"]),
+    )
+
+    cast(Any, wrapped)._run(value="x", config={"configurable": {"user_id": "u-1"}})
+
+    assert transport.request is not None
+    assert transport.request.actor == "u-1"
+
+
 def test_a_single_input_tools_direct_run_keeps_its_shape() -> None:
     """A tool taking its input positionally has nothing left after flattening.
 
