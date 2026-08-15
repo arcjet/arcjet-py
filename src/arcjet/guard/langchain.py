@@ -37,6 +37,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langchain_core.tools import BaseTool, ToolException
+from langchain_core.tools.base import FILTERED_ARGS
 from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr, ValidationError
 
@@ -800,11 +801,21 @@ def _rebuild_guarded_tool(
 def _call_arguments(
     signature: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Any:
-    """A direct call's arguments, keyed the way the tool's own schema keys them.
+    """A direct call's arguments, shaped the way the tool reads its input.
 
     Binding to the signature is what turns a positional call into the mapping a
     policy resolver is documented to receive, so a resolver sees the same thing
     whether the model called the tool or the application called its function.
+
+    The bound mapping is flattened before it is handed on, because a tool's
+    ``_run`` collects the real arguments in ``**kwargs`` behind the framework's
+    own ``config`` and ``run_manager`` parameters: binding
+    ``_run(x="secret", config={})`` yields ``{"args": (), "config": {},
+    "run_manager": None, "kwargs": {"x": "secret"}}``, and it is ``x`` the
+    policy is meant to see.  A tool taking its input positionally has nothing
+    left after the flattening, so the single value is handed on as the tool's
+    own ``_parse_input`` expects it.
+
     An unbindable call is handed on untouched: the tool is about to raise over
     it anyway, and the checkpoint should not be the thing that reports it.
     """
@@ -813,7 +824,26 @@ def _call_arguments(
     except TypeError:
         return kwargs or (args[0] if len(args) == 1 else {})
     bound.apply_defaults()
-    return dict(bound.arguments)
+
+    positional: tuple[Any, ...] = ()
+    flattened: dict[str, Any] = {}
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind is inspect.Parameter.VAR_KEYWORD:
+            flattened.update(value)
+        elif kind is inspect.Parameter.VAR_POSITIONAL:
+            positional = value
+        else:
+            flattened[name] = value
+
+    # What the framework supplies rather than the caller. `tool_call_schema`
+    # hides these from the model, so a resolver must not be handed them either.
+    for name in (*FILTERED_ARGS, "config"):
+        flattened.pop(name, None)
+
+    if not flattened and len(positional) == 1:
+        return positional[0]
+    return flattened
 
 
 def _guarded_callables(guarded: BaseTool) -> None:
