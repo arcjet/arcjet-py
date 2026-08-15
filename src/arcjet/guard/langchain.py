@@ -85,7 +85,11 @@ class ArcjetToolUnavailableError(ToolException):
     def __init__(self, action: str, *, cause: BaseException | None = None) -> None:
         super().__init__(f'Arcjet policy for "{action}" could not be evaluated')
         self.action = action
-        self.__cause__ = cause
+        # Only when there is one. Assigning `None` sets `__suppress_context__`,
+        # which hides the context Python would otherwise have chained on and
+        # leaves the traceback saying nothing about why evaluation failed.
+        if cause is not None:
+            self.__cause__ = cause
 
 
 # What the checkpoint raises to stop a call, as one except clause.
@@ -423,19 +427,21 @@ class _GuardMixin:
         try:
             actor = self._arcjet_actor(resolved)
             readable = True
+            unreadable_cause: BaseException | None = None
             try:
                 inputs = self._arcjet_inputs(
                     raw, tool_call_id, resolved, validated=validated
                 )
-            except _UnreadableArguments:
+            except _UnreadableArguments as unreadable:
                 inputs, readable = None, False
+                unreadable_cause = unreadable.__cause__
             decision = guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
                 inputs=inputs,
             )
-            self._arcjet_after_decision(decision, readable)
+            self._arcjet_after_decision(decision, readable, unreadable_cause)
         except _BLOCKED:
             raise
         except Exception as exc:
@@ -462,19 +468,21 @@ class _GuardMixin:
         try:
             actor = await self._arcjet_actor_async(resolved)
             readable = True
+            unreadable_cause: BaseException | None = None
             try:
                 inputs = await self._arcjet_inputs_async(
                     raw, tool_call_id, resolved, validated=validated
                 )
-            except _UnreadableArguments:
+            except _UnreadableArguments as unreadable:
                 inputs, readable = None, False
+                unreadable_cause = unreadable.__cause__
             decision = await guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
                 inputs=inputs,
             )
-            self._arcjet_after_decision(decision, readable)
+            self._arcjet_after_decision(decision, readable, unreadable_cause)
         except _BLOCKED:
             raise
         except Exception as exc:
@@ -483,23 +491,34 @@ class _GuardMixin:
                     self._arcjet.action, cause=exc
                 ) from exc
 
-    def _arcjet_after_decision(self, decision: Decision, readable: bool) -> None:
+    def _arcjet_after_decision(
+        self,
+        decision: Decision,
+        readable: bool,
+        unreadable_cause: BaseException | None = None,
+    ) -> None:
         """The fail-closed rules, applied once for both flavours.
 
         Pure sync code: it raises or returns, so the async evaluator calls it
         without crossing the boundary.
         """
         _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-        if not readable and self._arcjet.on_guard_error == "deny":
+        if readable:
+            return
+        if self._arcjet.on_guard_error == "deny":
             # Guard still saw the call, so the decision is on the record.
-            # The input rule was not evaluated, so the call does not run.
-            raise ArcjetToolUnavailableError(self._arcjet.action)
-        if not readable:
-            logger.warning(
-                "arcjet: could not read the arguments of a call to %r; "
-                "policy ran without them because on_guard_error is 'allow'",
-                self._arcjet.action,
+            # The input rule was not evaluated, so the call does not run. The
+            # cause travels with it: without it the operator is told only that
+            # policy could not be evaluated, not what stopped it being read.
+            raise ArcjetToolUnavailableError(
+                self._arcjet.action, cause=unreadable_cause
             )
+        logger.warning(
+            "arcjet: could not read the arguments of a call to %r; "
+            "policy ran without them because on_guard_error is 'allow'",
+            self._arcjet.action,
+            exc_info=unreadable_cause,
+        )
 
     def __reduce__(self) -> tuple[Any, ...]:
         """Pickle as the tool plus its policy, and never as the client.
