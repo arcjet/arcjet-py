@@ -3,10 +3,10 @@
 Install ``arcjet[langchain]`` to use this module. Core Guard clients do not
 import LangChain.
 
-A guarded tool is a thin wrapper that evaluates policy and then hands the call
-to the tool it wraps.  It deliberately does **not** try to *be* the wrapped
-tool: everything the framework derives from a tool — its schema, its arguments
-— is asked of the wrapped tool rather than recomputed here, so a guarded tool
+A guarded tool is an instance of the wrapped tool's own class — a generated
+subclass — that evaluates policy and then hands the call to the tool it wraps.
+Everything the framework derives from a tool — its schema, its arguments — is
+asked of the wrapped tool rather than recomputed here, so a guarded tool
 advertises and executes exactly what the unguarded one did.
 """
 
@@ -28,7 +28,11 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
-from langchain_core.callbacks import AsyncCallbackManager, CallbackManager
+from langchain_core.callbacks import (
+    AsyncCallbackManager,
+    BaseCallbackHandler,
+    CallbackManager,
+)
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
@@ -352,20 +356,20 @@ class _GuardMixin:
         """
         tool = cast(BaseTool, self)
         own: RunnableConfig = {}
-        if tool.callbacks is not None:
+        own_callbacks = tool.callbacks
+        if own_callbacks is not None:
             supplied = (config or {}).get("callbacks")
-            if isinstance(tool.callbacks, list) and isinstance(supplied, list):
+            if isinstance(own_callbacks, list) and isinstance(supplied, list):
                 # merge_configs concatenates two lists blindly, and configure
                 # does not deduplicate within one, so a handler the call
                 # already carries is dropped here rather than fired twice. A
                 # manager on either side deduplicates itself via add_handler.
-                fresh = [
-                    handler for handler in tool.callbacks if handler not in supplied
-                ]
+                handlers = cast("list[BaseCallbackHandler]", own_callbacks)
+                fresh = [handler for handler in handlers if handler not in supplied]
                 if fresh:
                     own["callbacks"] = fresh
             else:
-                own["callbacks"] = tool.callbacks
+                own["callbacks"] = own_callbacks
         if tool.tags:
             own["tags"] = list(tool.tags)
         if tool.metadata:
@@ -816,10 +820,12 @@ def _guarded_callables(guarded: BaseTool) -> None:
     """Put the checkpoint in front of the tool's own callables.
 
     ``func`` and ``coroutine`` are ordinary fields, so they are copied from the
-    wrapped tool with everything else — and they are public. LangChain reads
-    ``func`` to render a tool's signature, and application code calls it
-    directly. Copied verbatim they would run the tool's body with no
-    checkpoint, which is a way past a ``DENY`` on the guarded tool itself.
+    wrapped tool with everything else — and they are the two callables
+    LangChain itself reads off a tool. Copied verbatim they would run the
+    tool's body with no checkpoint, so the guarded handle would offer an
+    unguarded call through its own advertised surface. This is fidelity of
+    the handle, not a security boundary: a caller that still holds the
+    unguarded tool can always call it directly.
 
     The replacements keep the wrapped function's signature, because that is
     what ``render_text_description`` reports and what makes a guarded tool
