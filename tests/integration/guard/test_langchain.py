@@ -1009,6 +1009,75 @@ def test_a_blocked_calls_report_hides_injected_arguments() -> None:
     assert inputs == {"query": "q"}
 
 
+def test_a_handler_attached_after_guarding_sees_every_call() -> None:
+    """A late-attached handler must not see only the denials.
+
+    The delegate executes with the copies it got when guard_tool ran, so a
+    handler attached to the guarded handle afterwards fires on the blocked
+    path (reported by the handle) but never on the allowed path (run by the
+    delegate) unless the handle folds its own fields into the delegated call.
+    A handler that records only denials reads as a tool denying everything.
+    """
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="tool", description="d"
+    )
+    allowed = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="tool.called"
+    )
+    allowed.callbacks = [recorder]
+
+    assert allowed.invoke(cast(Any, {"value": "yes"})) == "ok"
+    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+
+    recorder.events.clear()
+    denied = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="tool.called",
+    )
+    denied.callbacks = [recorder]
+
+    with pytest.raises(ArcjetToolDeniedError):
+        denied.invoke(cast(Any, {"value": "no"}))
+    assert [kind for kind, _ in recorder.events] == ["start", "error"]
+
+
+def test_a_handler_attached_after_guarding_is_not_doubled() -> None:
+    """One handler on both the handle and the call fires once per event."""
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="tool", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="tool.called"
+    )
+    wrapped.callbacks = [recorder]
+
+    result = wrapped.invoke(
+        cast(Any, {"value": "yes"}), config={"callbacks": [recorder]}
+    )
+
+    assert result == "ok"
+    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+
+
+def test_late_attached_fields_reach_the_run_entrypoint_too() -> None:
+    """run() takes callbacks as a keyword, not in a config, so it folds there."""
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="tool", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="tool.called"
+    )
+    wrapped.callbacks = [recorder]
+    wrapped.tags = ["late-tag"]
+
+    assert wrapped.run({"value": "yes"}) == "ok"
+    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+
+
 def test_guarding_preserves_an_artifact_result() -> None:
     original = StructuredTool.from_function(
         lambda value: ("content", {"rows": 2}),
