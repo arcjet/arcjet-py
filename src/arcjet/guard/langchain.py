@@ -347,6 +347,11 @@ class _Policy:
     # asking it on every call is introspection with one possible answer.
     blocking: Callable[..., Any] | None
     awaitable: Callable[..., Awaitable[Any]] | None
+    # The delegate's own `_run`/`_arun` signatures, for the same reason: they
+    # cannot change for the life of a guarded tool, and taking a signature is
+    # the most expensive thing on that path by some way.
+    run_signature: inspect.Signature | None
+    arun_signature: inspect.Signature | None
 
 
 class _UnreadableArguments(Exception):
@@ -558,14 +563,14 @@ class _GuardMixin:
         is no unguarded path through here.
         """
         delegate = self._arcjet_delegate
-        raw, config = _call_arguments(_signature_of(delegate._run), args, kwargs)
+        raw, config = _call_arguments(self._arcjet_policy.run_signature, args, kwargs)
         self._arcjet_evaluate(raw, None, config, validated=False)
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_delegate
-        raw, config = _call_arguments(_signature_of(delegate._arun), args, kwargs)
+        raw, config = _call_arguments(self._arcjet_policy.arun_signature, args, kwargs)
         await self._arcjet_evaluate_async(raw, None, config, validated=False)
         return await delegate._arun(*args, **kwargs)
 
@@ -668,6 +673,25 @@ class _GuardMixin:
             self._arcjet_policy.action,
             exc_info=degraded,
         )
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Any:
+        """Copy the handle, sharing the client and rebinding the callables.
+
+        The three Arcjet clients answer a copy with themselves, so a copy of a
+        handle holding one keeps it. A hand-rolled double does not, and a copy
+        of a recorder records where the test that made it cannot see — so the
+        policy is shared here, whatever kind of client it holds.
+
+        The guarded callables close over the handle they were made for, and a
+        copy of a function is that same function, so without rebinding them the
+        copy would evaluate the original's policy and call the original's tool.
+        """
+        memo = {} if memo is None else memo
+        policy = self._arcjet_policy
+        memo[id(policy)] = policy
+        copied = BaseModel.__deepcopy__(cast(BaseModel, self), memo)
+        _guarded_callables(cast(BaseTool, copied))
+        return copied
 
     def __reduce__(self) -> tuple[Any, ...]:
         """Pickle as the tool plus its policy, and never as the client.
@@ -1103,8 +1127,13 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
     Written past validation, as the rest of the handle's state is: a tool class
     may be frozen, and guarding one must not be the thing that fails.
+
+    Sourced from the wrapped tool rather than from the handle, so running this
+    again on a copy derives a fresh pair from the same original instead of
+    wrapping the wrapper.
     """
-    func = getattr(guarded, "func", None)
+    delegate = cast(Any, guarded)._arcjet_delegate
+    func = getattr(delegate, "func", None)
     if callable(func):
         inner_func = cast(Callable[..., Any], func)
         func_signature = _signature_of(inner_func)
@@ -1118,7 +1147,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
         object.__setattr__(guarded, "func", guarded_func)
 
-    coroutine = getattr(guarded, "coroutine", None)
+    coroutine = getattr(delegate, "coroutine", None)
     if callable(coroutine):
         inner_coroutine = cast(Callable[..., Awaitable[Any]], coroutine)
         coroutine_signature = _signature_of(inner_coroutine)
@@ -1368,6 +1397,8 @@ def guard_tool(
         on_guard_error=on_guard_error,
         blocking=_blocking(guard, "guard_sync", "guard"),
         awaitable=_awaitable(guard, "guard"),
+        run_signature=_signature_of(tool._run),
+        arun_signature=_signature_of(tool._arun),
     )
     _guarded_callables(guarded)
     return guarded

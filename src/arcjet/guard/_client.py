@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Any, Protocol, Sequence, Union, runtime_checkable
+from typing import Any, Protocol, Sequence, Union
 
 import pyqwest
 
@@ -321,7 +321,6 @@ def _prepare_guard(
     )
 
 
-@runtime_checkable
 class GuardClient(Protocol):
     """What a checkpoint needs of a client, by shape rather than by class.
 
