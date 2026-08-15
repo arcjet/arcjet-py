@@ -138,6 +138,16 @@ def _fail_closed(action: str, on_guard_error: OnGuardError) -> Iterator[None]:
     except Exception as exc:
         if on_guard_error == "deny":
             raise ArcjetToolUnavailableError(action, cause=exc) from exc
+        # Allowing the call is not the same as there being nothing to report.
+        # A resolver that raises on every call leaves policy permanently
+        # unevaluated, and without this the tool looks guarded while no
+        # decision is being made — the one failure mode with no other symptom.
+        logger.warning(
+            "arcjet: could not evaluate policy for a call to %r; "
+            "the call proceeds because on_guard_error is 'allow'",
+            action,
+            exc_info=exc,
+        )
 
 
 @dataclass(frozen=True, slots=True)
