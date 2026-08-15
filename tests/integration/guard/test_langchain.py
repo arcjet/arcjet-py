@@ -12,6 +12,7 @@ from langchain_core.tools import (
     Tool,
     tool,
 )
+from langchain_core.tools.render import render_text_description
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -626,7 +627,14 @@ def test_guarding_preserves_a_tools_own_private_state() -> None:
     )
 
 
-def test_guarding_fires_no_subclass_registration_hook() -> None:
+def test_guarding_registers_one_subclass_per_tool_class() -> None:
+    """Being the tool's own class means being a subclass of it, which registers.
+
+    A tool class that hooks its own subclassing therefore sees the guard's
+    subclass. It sees it once, however many tools of that class are guarded,
+    because the class is generated once and reused — so the cost is a fixed
+    entry per tool class rather than one per guarded tool.
+    """
     registered: list[str] = []
 
     class Registering(BaseTool):
@@ -640,9 +648,76 @@ def test_guarding_fires_no_subclass_registration_hook() -> None:
         def _run(self, query: str) -> str:
             return "r"
 
-    guard_tool(guard=_guard(_Transport()), tool=Registering(), action="reg.called")
+    guard = _guard(_Transport())
+    first = guard_tool(guard=guard, tool=Registering(), action="reg.called")
+    second = guard_tool(guard=guard, tool=Registering(), action="reg.called")
 
-    assert registered == []
+    assert registered == ["ArcjetGuardedRegistering"]
+    assert type(first) is type(second)
+
+
+def test_a_guarded_tool_is_an_instance_of_the_tool_it_wraps() -> None:
+    """Application code and LangChain both branch on a tool's concrete class.
+
+    A wrapper of some other class does not fail loudly there; it silently
+    takes the other branch.
+    """
+    for original in (
+        _SubclassTool(),
+        StructuredTool.from_function(lambda q: "ok", name="st", description="d"),
+        Tool(name="legacy", description="d", func=lambda v: "ok"),
+    ):
+        wrapped = guard_tool(
+            guard=_guard(_Transport()), tool=original, action="a.called"
+        )
+        assert isinstance(wrapped, type(original))
+
+
+def test_a_guarded_tools_own_function_runs_the_checkpoint() -> None:
+    """`func` is public, and a copied one would run the body with no checkpoint.
+
+    LangChain reads it to render a signature and applications call it, so it
+    stays callable — but it is the guarded tool's function, not a way round the
+    guarded tool.
+    """
+    executed: list[str] = []
+
+    def dangerous(value: str) -> str:
+        executed.append(value)
+        return "EXECUTED"
+
+    for original in (
+        Tool(name="legacy", description="d", func=dangerous),
+        StructuredTool.from_function(dangerous, name="st", description="d"),
+    ):
+        wrapped = guard_tool(
+            guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+            tool=original,
+            action="a.called",
+        )
+
+        with pytest.raises(ArcjetToolDeniedError):
+            cast(Any, wrapped).func("secret")
+        assert executed == []
+
+
+def test_guarding_preserves_a_rendered_tool_signature() -> None:
+    """`render_text_description` reads `func` and reports its signature.
+
+    A guarded tool that carries no `func`, or one whose `func` does not keep
+    the wrapped signature, renders less than the unguarded tool did and the
+    model is told less about it.
+    """
+    for original in (
+        StructuredTool.from_function(
+            lambda q: "ok", name="st", description="Structured"
+        ),
+        Tool(name="legacy", description="Legacy", func=lambda v: "ok"),
+    ):
+        wrapped = guard_tool(
+            guard=_guard(_Transport()), tool=original, action="a.called"
+        )
+        assert render_text_description([wrapped]) == render_text_description([original])
 
 
 def test_guarding_preserves_an_artifact_result() -> None:
