@@ -767,6 +767,29 @@ def test_pickling_a_guarded_tool_does_not_serialize_the_site_key() -> None:
     assert b"ajkey_notasecret" not in pickle.dumps(wrapped)
 
 
+def test_pickling_preserves_fields_set_on_the_guarded_handle() -> None:
+    """A denial handled in the parent process must not raise in the worker.
+
+    The handle's own field values ride along and are reapplied, so control
+    flow is the same on both sides of the boundary.
+    """
+    guard = _guard(_Transport(pb.GUARD_CONCLUSION_DENY))
+    wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
+    wrapped.handle_tool_error = "policy said no"
+    wrapped.tags = ["team-a"]
+
+    blob = pickle.dumps(wrapped)
+    register_arcjet(guard)
+    try:
+        restored = pickle.loads(blob)
+    finally:
+        unregister_arcjet()
+
+    assert restored.handle_tool_error == "policy said no"
+    assert restored.tags == ["team-a"]
+    assert restored.invoke(cast(Any, {"query": "q"})) == "policy said no"
+
+
 def test_unpickling_without_a_registered_client_says_so() -> None:
     """The failure names what is missing, rather than surfacing as an attribute
     error deep in a worker."""
