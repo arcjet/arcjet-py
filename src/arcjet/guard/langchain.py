@@ -536,15 +536,15 @@ class _GuardMixin:
         is no unguarded path through here.
         """
         delegate = self._arcjet_delegate
-        raw = _call_arguments(_signature_of(delegate._run), args, kwargs)
-        self._arcjet_evaluate(raw, None, None, validated=False)
+        raw, config = _call_arguments(_signature_of(delegate._run), args, kwargs)
+        self._arcjet_evaluate(raw, None, config, validated=False)
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_delegate
-        raw = _call_arguments(_signature_of(delegate._arun), args, kwargs)
-        await self._arcjet_evaluate_async(raw, None, None, validated=False)
+        raw, config = _call_arguments(_signature_of(delegate._arun), args, kwargs)
+        await self._arcjet_evaluate_async(raw, None, config, validated=False)
         return await delegate._arun(*args, **kwargs)
 
     def _arcjet_evaluate(
@@ -965,7 +965,7 @@ def _call_arguments(
     signature: inspect.Signature | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-) -> Any:
+) -> tuple[Any, RunnableConfig | None]:
     """A direct call's arguments, shaped the way the tool reads its input.
 
     Binding to the signature is what turns a positional call into the mapping a
@@ -981,15 +981,19 @@ def _call_arguments(
     left after the flattening, so the single value is handed on as the tool's
     own ``_parse_input`` expects it.
 
+    The call's own ``config`` comes back alongside, rather than being dropped
+    with the rest of what the framework supplies: it is the config the tool is
+    about to run with, so it is the one a resolver should read.
+
     An unbindable call is handed on untouched: the tool is about to raise over
     it anyway, and the checkpoint should not be the thing that reports it.
     """
     if signature is None:
-        return kwargs or (args[0] if len(args) == 1 else {})
+        return (kwargs or (args[0] if len(args) == 1 else {})), kwargs.get("config")
     try:
         bound = signature.bind(*args, **kwargs)
     except TypeError:
-        return kwargs or (args[0] if len(args) == 1 else {})
+        return (kwargs or (args[0] if len(args) == 1 else {})), kwargs.get("config")
     bound.apply_defaults()
 
     positional: list[Any] = []
@@ -1005,12 +1009,13 @@ def _call_arguments(
 
     # What the framework supplies rather than the caller. `tool_call_schema`
     # hides these from the model, so a resolver must not be handed them either.
-    for name in (*FILTERED_ARGS, "config"):
+    config = flattened.pop("config", None)
+    for name in FILTERED_ARGS:
         flattened.pop(name, None)
 
     if not flattened and len(positional) == 1:
-        return positional[0]
-    return flattened
+        return positional[0], config
+    return flattened, config
 
 
 def _guarded_callables(guarded: BaseTool) -> None:
@@ -1037,12 +1042,8 @@ def _guarded_callables(guarded: BaseTool) -> None:
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
-            evaluate(
-                _call_arguments(func_signature, args, kwargs),
-                None,
-                None,
-                validated=False,
-            )
+            raw, config = _call_arguments(func_signature, args, kwargs)
+            evaluate(raw, None, config, validated=False)
             return inner_func(*args, **kwargs)
 
         cast(Any, guarded).func = guarded_func
@@ -1055,12 +1056,8 @@ def _guarded_callables(guarded: BaseTool) -> None:
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
-            await evaluate(
-                _call_arguments(coroutine_signature, args, kwargs),
-                None,
-                None,
-                validated=False,
-            )
+            raw, config = _call_arguments(coroutine_signature, args, kwargs)
+            await evaluate(raw, None, config, validated=False)
             return await inner_coroutine(*args, **kwargs)
 
         cast(Any, guarded).coroutine = guarded_coroutine
