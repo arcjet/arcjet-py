@@ -629,6 +629,13 @@ def test_a_resolver_reads_the_config_the_tool_runs_with() -> None:
 
 
 def test_guarding_preserves_a_tools_own_private_state() -> None:
+    """The handle is the tool's own class, so the tool's state lives on it too.
+
+    Asserted on the handle rather than only through the call: delegating means
+    a call reaches the untouched original whatever the handle lost, so a test
+    that only invokes cannot see the handle's own state being clobbered.
+    """
+
     class Stateful(BaseTool):
         name: str = "stateful"
         description: str = "d"
@@ -642,9 +649,57 @@ def test_guarding_preserves_a_tools_own_private_state() -> None:
         guard=_guard(_Transport()), tool=original, action="stateful.called"
     )
 
+    assert cast(Any, wrapped)._arcjet == "the tool's own state"
     assert wrapped.invoke(cast(Any, {"query": "q"})) == original.invoke(
         cast(Any, {"query": "q"})
     )
+
+
+def test_a_tool_keeping_an_undeclared_arcjet_attribute_still_works() -> None:
+    """Pydantic keeps an undeclared underscore attribute in the instance dict.
+
+    That is the same place the handle's own state would be, so a tool setting
+    one used to win the name and leave the guard reading the tool's value —
+    failing on the next call with an error about that value, not the clash.
+    """
+
+    class Undeclared(BaseTool):
+        name: str = "undeclared"
+        description: str = "d"
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            object.__setattr__(self, "_arcjet", "the tool's own state")
+
+        def _run(self, query: str) -> str:
+            return "ran"
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=Undeclared(), action="undeclared.called"
+    )
+
+    assert cast(Any, wrapped)._arcjet == "the tool's own state"
+    assert wrapped.invoke(cast(Any, {"query": "q"})) == "ran"
+
+
+def test_a_tool_colliding_with_the_guards_own_state_is_refused() -> None:
+    """Where a collision is unavoidable, name it rather than pick a loser."""
+
+    class Colliding(BaseTool):
+        name: str = "colliding"
+        description: str = "d"
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            object.__setattr__(self, "_arcjet_policy", "not a policy")
+
+        def _run(self, query: str) -> str:
+            return "ran"
+
+    with pytest.raises(ArcjetMisconfiguration, match="_arcjet_policy"):
+        guard_tool(
+            guard=_guard(_Transport()), tool=Colliding(), action="colliding.called"
+        )
 
 
 def test_guarding_registers_one_subclass_per_tool_class() -> None:
