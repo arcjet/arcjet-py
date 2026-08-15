@@ -786,11 +786,14 @@ def test_unpickling_without_a_registered_client_says_so() -> None:
 class _Recorder(BaseCallbackHandler):
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
+        self.starts: list[tuple[str, Any]] = []
+        """Each start's ``input_str`` and ``inputs``, for asserting on content."""
 
     def on_tool_start(
         self, serialized: dict[str, Any], input_str: str, **kwargs: Any
     ) -> None:
         self.events.append(("start", serialized.get("name", "")))
+        self.starts.append((input_str, kwargs.get("inputs")))
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         self.events.append(("end", str(output)))
@@ -893,6 +896,117 @@ def test_a_denied_async_call_is_reported_to_the_callbacks() -> None:
         ("start", "dangerous"),
         ("error", "ArcjetToolDeniedError"),
     ]
+
+
+def test_a_handled_denial_is_a_run_that_ends() -> None:
+    """LangChain closes a handled ToolException with on_tool_end, not error.
+
+    The caller got a normal result back, so the run did not fail; reporting an
+    error would mark it failed in a trace and over-count hard failures.
+    """
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="dangerous", description="d"
+    )
+    original.handle_tool_error = "policy said no"
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="dangerous.called",
+    )
+
+    result = wrapped.invoke(
+        cast(Any, {"value": "no"}), config={"callbacks": [recorder]}
+    )
+
+    assert result == "policy said no"
+    assert recorder.events == [
+        ("start", "dangerous"),
+        ("end", "policy said no"),
+    ]
+
+
+def test_a_handled_async_denial_is_a_run_that_ends() -> None:
+    recorder = _Recorder()
+
+    async def lookup(value: str) -> str:
+        return "ok"
+
+    original = StructuredTool.from_function(
+        coroutine=lookup, name="dangerous", description="d"
+    )
+    original.handle_tool_error = "policy said no"
+    wrapped = guard_tool(
+        guard=ArcjetGuard(
+            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
+        ),
+        tool=original,
+        action="dangerous.called",
+    )
+
+    result = asyncio.run(
+        wrapped.ainvoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
+    )
+
+    assert result == "policy said no"
+    assert recorder.events == [
+        ("start", "dangerous"),
+        ("end", "policy said no"),
+    ]
+
+
+def test_a_direct_function_call_is_not_a_tool_run() -> None:
+    """Calling a tool's own function opens no run on the unguarded tool.
+
+    The guarded one must not fabricate a span for it either — the checkpoint
+    still evaluates and denies, but a trace only records tool runs.
+    """
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="dangerous", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="dangerous.called",
+    )
+    wrapped.callbacks = [recorder]
+
+    with pytest.raises(ArcjetToolDeniedError):
+        cast(Any, wrapped).func("no")
+
+    assert recorder.events == []
+
+
+def test_a_blocked_calls_report_hides_injected_arguments() -> None:
+    """An allowed call's trace never shows an injected credential.
+
+    ``BaseTool.run`` filters them before reporting, so a blocked call's report
+    filters the same way — otherwise denials would be the one place secrets
+    land on a trace.
+    """
+    recorder = _Recorder()
+
+    def send(query: str, api_token: Annotated[str, InjectedToolArg]) -> str:
+        return "sent"
+
+    original = StructuredTool.from_function(send, name="send", description="d")
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="send.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.invoke(
+            cast(Any, {"query": "q", "api_token": "sk-SECRET"}),
+            config={"callbacks": [recorder]},
+        )
+
+    assert recorder.events[0] == ("start", "send")
+    input_str, inputs = recorder.starts[0]
+    assert "sk-SECRET" not in input_str
+    assert inputs == {"query": "q"}
 
 
 def test_guarding_preserves_an_artifact_result() -> None:
