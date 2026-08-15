@@ -1304,6 +1304,22 @@ def test_a_tools_own_handler_does_not_follow_its_body_into_child_runs() -> None:
     assert recorder.events == unguarded
 
 
+def test_a_tool_built_on_a_signature_less_callable_can_be_guarded() -> None:
+    """LangChain accepts a C callable as a tool's func; guarding must too.
+
+    `inspect.signature` has nothing to report for one, and that is not a
+    reason for the tool to become unguardable.
+    """
+    import time
+
+    original = Tool(name="clock", description="d", func=time.time)
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="clock.called"
+    )
+
+    assert isinstance(cast(Any, wrapped).func(), float)
+
+
 def test_a_v1_schemas_rejection_reaches_the_tools_own_handler() -> None:
     """langchain-core accepts a pydantic v1 args_schema, and `run` catches both.
 
