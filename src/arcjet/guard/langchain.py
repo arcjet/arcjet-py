@@ -35,7 +35,7 @@ from langchain_core.callbacks import (
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
-from langchain_core.tools.base import FILTERED_ARGS
+from langchain_core.tools.base import FILTERED_ARGS, ValidationErrorV1
 from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr, ValidationError
 
@@ -90,6 +90,12 @@ class ArcjetToolUnavailableError(ToolException):
 
 # What the checkpoint raises to stop a call, as one except clause.
 _BLOCKED = (ArcjetToolDeniedError, ArcjetToolUnavailableError)
+
+# What a tool's own schema raises when it rejects a call's arguments. Both
+# flavours, because langchain-core accepts a pydantic v1 `args_schema` and
+# `BaseTool.run` catches both before running `handle_validation_error`; seeing
+# only one of them turns a routine, model-recoverable mistake into an outage.
+_SCHEMA_REJECTED = (ValidationError, ValidationErrorV1)
 
 
 @contextmanager
@@ -680,7 +686,7 @@ class _GuardMixin:
         # arguments: a tool with no resolver configured is never parsed at all.
         try:
             arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
-        except ValidationError as exc:
+        except _SCHEMA_REJECTED as exc:
             if not validated:
                 # This surface runs the tool's body with the arguments as
                 # given, so nothing downstream will reject them. The rule was
