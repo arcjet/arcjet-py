@@ -293,6 +293,12 @@ def _decorated(location: str, units: str = "c") -> str:
     return f"weather({location},{units})"
 
 
+class _LegacyArgs(BaseModel):
+    """A schema declared on a ``Tool``, which the bare-function gate ignores."""
+
+    q: str
+
+
 def _authored_tools() -> dict[str, BaseTool]:
     return {
         "decorator": _decorated,
@@ -301,6 +307,22 @@ def _authored_tools() -> dict[str, BaseTool]:
         ),
         "subclass": _SubclassTool(),
         "simple": Tool(name="legacy", description="Legacy", func=lambda v: f"lg({v})"),
+        "simple_with_schema": Tool(
+            name="legacy_schema",
+            description="Legacy with a schema",
+            func=lambda q: f"lg({q})",
+            args_schema=_LegacyArgs,
+        ),
+        # LangChain reads this metadata off the concrete Tool class to decide
+        # the tool is a "custom" one, which is a different tool type to the
+        # model rather than a different schema.
+        "custom_tool": Tool(
+            name="custom",
+            description="Marked custom",
+            func=lambda q: f"ct({q})",
+            args_schema=_LegacyArgs,
+            metadata={"type": "custom_tool"},
+        ),
         "json_schema": StructuredTool.from_function(
             lambda **kwargs: "js",
             name="js",
