@@ -33,11 +33,14 @@ from langchain_core.callbacks import (
     AsyncCallbackManager,
     CallbackManager,
 )
-from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import ensure_config
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import FILTERED_ARGS
+from langchain_core.tools.base import _format_output as _lc_format_output
+from langchain_core.tools.base import (
+    _handle_tool_error as _lc_handle_tool_error,
+)
 from pydantic import BaseModel, PrivateAttr, ValidationError
 from pydantic.v1 import ValidationError as ValidationErrorV1
 
@@ -301,34 +304,30 @@ def _check_decision(
 def _handles_tool_errors(tool: BaseTool) -> bool:
     """Whether *tool* converts a ``ToolException`` rather than raising it.
 
+    Gated on truthiness, as ``BaseTool.run`` gates it: an empty string is a
+    handler that produces nothing, and the tool raises rather than answering
+    with it.
+
     Asked before the handler runs, so that a handler which raises is not
     mistaken for there being no handler at all: its exception is the tool
     author's, and it belongs to the caller.
     """
-    handler = tool.handle_tool_error
-    return isinstance(handler, str) or handler is True or callable(handler)
+    return bool(tool.handle_tool_error)
 
 
 def _handle_tool_exception(
     tool: BaseTool, error: ToolException, tool_call_id: str | None
 ) -> Any:
-    handler = tool.handle_tool_error
-    if isinstance(handler, str):
-        content = handler
-    elif handler is True:
-        content = error.args[0] if error.args else "Tool execution error"
-    elif callable(handler):
-        content = cast(Callable[[ToolException], str], handler)(error)
-    else:
-        raise error
-    if tool_call_id is not None:
-        return ToolMessage(
-            content=cast(Any, content),
-            tool_call_id=tool_call_id,
-            name=tool.name,
-            status="error",
-        )
-    return content
+    """The outcome LangChain would give this error, from LangChain's own code.
+
+    Re-deriving it drifted: a handler returning a ``ToolMessage`` — a
+    documented return — was wrapped in a second one with the first repr'd into
+    its body, and one returning a mapping was rendered with Python's repr where
+    LangChain renders JSON. What reaches the model is now exactly what an
+    unguarded tool's own error would have produced.
+    """
+    content = _lc_handle_tool_error(error, flag=tool.handle_tool_error)
+    return _lc_format_output(content, None, tool_call_id, tool.name, "error")
 
 
 @dataclass(frozen=True, slots=True)
