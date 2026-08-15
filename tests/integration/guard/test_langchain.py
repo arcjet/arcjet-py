@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import gc
 import pickle
 import threading
 import uuid
@@ -729,6 +730,23 @@ def test_guarding_registers_one_subclass_per_tool_class() -> None:
 
     assert registered == ["ArcjetGuardedRegistering"]
     assert type(first) is type(second)
+
+    # Once means once for the life of the process, not once per generation of
+    # live guarded tools: a request-scoped guard drops its handle every
+    # request, and regenerating the class would register again on nothing but
+    # a collection — enough to make a hook rejecting a duplicate name raise
+    # intermittently.
+    #
+    # Nothing here may hold the generated class across the collection, or the
+    # cache cannot drop it and the test proves nothing. Its identity is checked
+    # through the surviving handle afterwards instead.
+    del first, second
+    gc.collect()
+    third = guard_tool(guard=guard, tool=Registering(), action="reg.called")
+    fourth = guard_tool(guard=guard, tool=Registering(), action="reg.called")
+
+    assert registered == ["ArcjetGuardedRegistering"]
+    assert type(third) is type(fourth)
 
 
 def test_guarding_keeps_a_field_the_tool_declares_an_alias_for() -> None:
