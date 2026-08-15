@@ -1523,27 +1523,41 @@ def test_a_zero_argument_tool_is_still_guarded() -> None:
 
 
 def test_unreadable_arguments_still_reach_the_checkpoint() -> None:
-    """A schema shape this cannot parse must not become an Arcjet outage.
+    """Arguments this cannot read must not become an Arcjet outage under allow.
 
     Policy still runs — without inputs, which is weaker and still a decision —
     and the tool then does whatever it would have done unguarded.
+
+    The failure is in deriving the model-facing schema, which is what the
+    checkpoint reads to hide injected arguments — not in parsing, which the
+    tool itself needs to run. So the tool executes and only the checkpoint's
+    view of the arguments is lost, which is exactly the case being described.
     """
     transport = _Transport()
-    original = StructuredTool.from_function(
-        lambda **kwargs: "ran",
-        name="permissive",
-        description="d",
-        args_schema={"type": "object", "additionalProperties": True},
-    )
+    seen: list[dict[str, Any]] = []
+
+    class Unparseable(BaseTool):
+        name: str = "unparseable"
+        description: str = "d"
+
+        @property
+        def tool_call_schema(self) -> Any:
+            raise RecursionError("schema is self-referential")
+
+        def _run(self, **kwargs: Any) -> str:
+            return "ran"
+
     wrapped = guard_tool(
         guard=_guard(transport),
-        tool=original,
-        action="permissive.called",
-        inputs=lambda arguments, _config: {},
+        tool=Unparseable(),
+        action="unparseable.called",
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+        on_guard_error="allow",
     )
 
-    assert wrapped.invoke(cast(Any, {"a": 1})) == original.invoke(cast(Any, {"a": 1}))
+    assert wrapped.invoke(cast(Any, {"a": 1})) == "ran"
     assert transport.calls == 1
+    assert seen == []  # the resolver never saw arguments it could not be given
 
 
 def test_a_resolver_sees_the_keys_the_model_was_told_to_send() -> None:
