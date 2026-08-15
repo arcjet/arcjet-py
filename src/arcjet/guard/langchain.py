@@ -27,6 +27,7 @@ from arcjet._logging import logger
 
 from ._client import ArcjetGuard, ArcjetGuardSync
 from ._policy_input import PolicyInputMap
+from ._registry import _awaitable, _blocking
 from ._rules import RuleWithInput
 from ._types import Decision
 
@@ -270,9 +271,11 @@ class _GuardMixin:
     def _arcjet_evaluate(
         self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
     ) -> None:
-        if not isinstance(self._arcjet.guard, ArcjetGuardSync):
+        guard = _blocking(self._arcjet.guard, "guard_sync", "guard")
+        if guard is None:
             raise TypeError(
-                "A synchronous LangChain invocation requires ArcjetGuardSync"
+                "A synchronous LangChain invocation requires a guard client with a "
+                "blocking guard(), such as ArcjetGuardSync"
             )
         resolved = config if config is not None else cast(RunnableConfig, {})
         try:
@@ -282,7 +285,7 @@ class _GuardMixin:
                 inputs = self._arcjet_inputs(raw, tool_call_id, resolved)
             except _UnreadableArguments:
                 inputs, readable = None, False
-            decision = self._arcjet.guard.guard(
+            decision = guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
@@ -310,8 +313,12 @@ class _GuardMixin:
     async def _arcjet_evaluate_async(
         self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
     ) -> None:
-        if not isinstance(self._arcjet.guard, ArcjetGuard):
-            raise TypeError("An asynchronous LangChain invocation requires ArcjetGuard")
+        guard = _awaitable(self._arcjet.guard, "guard")
+        if guard is None:
+            raise TypeError(
+                "An asynchronous LangChain invocation requires a guard client with an "
+                "awaitable guard(), such as ArcjetGuard"
+            )
         resolved = config if config is not None else cast(RunnableConfig, {})
         try:
             actor = await self._arcjet_actor_async(resolved)
@@ -320,7 +327,7 @@ class _GuardMixin:
                 inputs = await self._arcjet_inputs_async(raw, tool_call_id, resolved)
             except _UnreadableArguments:
                 inputs, readable = None, False
-            decision = await self._arcjet.guard.guard(
+            decision = await guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
                 actor=actor,
@@ -498,6 +505,15 @@ def guard_tool(
     and is represented by :class:`ArcjetToolDeniedError`; the wrapped tool's
     ``handle_tool_error`` may convert it into a LangChain error result. It is
     distinct from an unavailable evaluation.
+
+    *guard* is recognised by the shape of its ``guard()`` rather than by its
+    class, matching the free guard calls, so an
+    :class:`~arcjet.guard.testing.ArcjetTestClient` or a hand-rolled double
+    drives a guarded tool without subclassing anything. A recorder answers a
+    fail-open decision, so pair one with ``on_guard_error="allow"`` unless the
+    test is asserting the denial. A client of the wrong flavour still raises
+    ``TypeError``: that is a wiring mistake, not a degraded evaluation, and
+    ``on_guard_error`` deliberately does not govern it.
     """
     wrapper: type[BaseTool]
     if isinstance(tool, SimpleTool) and not tool.args_schema:
