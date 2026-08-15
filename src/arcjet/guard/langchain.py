@@ -946,6 +946,44 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
         return generated
 
 
+def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
+    """*tool*'s state, in an instance of *wrapper*.
+
+    The state is copied across rather than replayed through the class's own
+    constructor. Re-running ``__init__`` re-validates by *alias*, so a field
+    the tool declares one for is silently reset to its default; it also drops
+    whatever an ``extra="allow"`` tool holds outside its declared fields, and
+    it cannot construct a class whose ``__init__`` requires something that is
+    not a field at all. None of that is a copy of the tool.
+
+    Containers are copied one level down. Sharing them would let a tag or a
+    callback attached to either tool show up on the other, so an audit trail
+    could record executions that never passed the checkpoint.
+    """
+    guarded = wrapper.__new__(wrapper)
+    fields = {
+        name: list(value)
+        if isinstance(value, list)
+        else dict(value)
+        if isinstance(value, dict)
+        else value
+        for name, value in (tool.__dict__ or {}).items()
+    }
+    object.__setattr__(guarded, "__dict__", fields)
+    object.__setattr__(
+        guarded, "__pydantic_fields_set__", set(tool.__pydantic_fields_set__)
+    )
+    extra = tool.__pydantic_extra__
+    object.__setattr__(
+        guarded, "__pydantic_extra__", dict(extra) if extra is not None else None
+    )
+    private = tool.__pydantic_private__
+    object.__setattr__(
+        guarded, "__pydantic_private__", dict(private) if private else {}
+    )
+    return guarded
+
+
 def guard_tool(
     *,
     guard: ArcjetGuard | ArcjetGuardSync,
@@ -997,23 +1035,7 @@ def guard_tool(
     ``TypeError``: that is a wiring mistake, not a degraded evaluation, and
     ``on_guard_error`` deliberately does not govern it.
     """
-    wrapper = _guarded_class(type(tool))
-
-    values: dict[str, Any] = {}
-    # The wrapper subclasses the tool's class, so it has every field the tool
-    # has; no membership check is needed.
-    for name in type(tool).model_fields:
-        value = getattr(tool, name)
-        # One level of copy on the containers. Sharing them would let a tag or
-        # a callback attached to either tool show up on the other, so an audit
-        # trail could record executions that never passed the checkpoint.
-        if isinstance(value, list):
-            value = list(value)
-        elif isinstance(value, dict):
-            value = dict(value)
-        values[name] = value
-
-    guarded = wrapper(**values)
+    guarded = _copy_of(tool, _guarded_class(type(tool)))
     guarded._arcjet_tool = tool
     guarded._arcjet = _Policy(
         guard=guard,
