@@ -1334,6 +1334,31 @@ def test_a_v1_schemas_rejection_reaches_the_tools_own_handler() -> None:
     )
 
 
+def test_an_unreadable_arguments_failure_carries_its_cause() -> None:
+    """`could not be evaluated` alone does not say what stopped the read."""
+
+    class Broken(BaseTool):
+        name: str = "broken"
+        description: str = "d"
+
+        def _parse_input(self, *args: Any, **kwargs: Any) -> Any:
+            raise RecursionError("schema is self-referential")
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=Broken(),
+        action="broken.called",
+        inputs=lambda arguments, _config: {},
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError) as raised:
+        wrapped.invoke(cast(Any, {"query": "q"}))
+    assert isinstance(raised.value.__cause__, RecursionError)
+
+
 def test_an_error_handler_that_raises_reaches_the_caller() -> None:
     """A handler's own exception is the tool author's, and it belongs to the caller.
 
