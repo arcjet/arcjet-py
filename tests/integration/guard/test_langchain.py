@@ -21,7 +21,7 @@ from langchain_core.tools import (
 )
 from langchain_core.tools.render import render_text_description
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import (
@@ -800,6 +800,79 @@ def test_a_tool_whose_constructor_takes_more_than_fields_can_be_guarded() -> Non
     )
 
     assert wrapped.name == "withclient"
+
+
+def test_a_frozen_tool_can_be_guarded() -> None:
+    """A tool class may be frozen, and guarding must not be what fails.
+
+    The guarded callables are written onto the handle, and going through
+    validation to do it made guard_tool itself raise for such a tool.
+    """
+
+    class Frozen(StructuredTool):
+        model_config = ConfigDict(frozen=True)
+
+    original = cast(Any, Frozen)(
+        name="frozen",
+        description="d",
+        func=lambda value: "ok",
+        args_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="frozen.called"
+    )
+
+    assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
+
+
+def test_a_tool_class_that_validates_its_subclasses_can_be_guarded() -> None:
+    """Requiring a docstring is a common thing for such a hook to check.
+
+    The generated class is given one, because there is no reason for it not to
+    have a docstring and it makes the common hook pass.
+    """
+
+    class Documented(BaseTool):
+        name: str = "documented"
+        description: str = "d"
+
+        def __init_subclass__(cls, **kwargs: Any) -> None:
+            super().__init_subclass__(**kwargs)
+            if not cls.__doc__:
+                raise TypeError(f"{cls.__name__} must have a docstring")
+
+        def _run(self, query: str) -> str:
+            return "ran"
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=Documented(), action="documented.called"
+    )
+
+    assert wrapped.invoke(cast(Any, {"query": "q"})) == "ran"
+
+
+def test_a_hook_that_refuses_the_guards_subclass_says_so() -> None:
+    """A hook can refuse for a reason the guard cannot satisfy.
+
+    The failure then comes from the tool's own code, with nothing to say that
+    guarding is what triggered it.
+    """
+
+    class Refusing(BaseTool):
+        name: str = "refusing"
+        description: str = "d"
+
+        def __init_subclass__(cls, **kwargs: Any) -> None:
+            super().__init_subclass__(**kwargs)
+            raise TypeError("this class does not permit subclasses")
+
+        def _run(self, query: str) -> str:
+            return "ran"
+
+    with pytest.raises(ArcjetMisconfiguration, match="makes a subclass"):
+        guard_tool(
+            guard=_guard(_Transport()), tool=Refusing(), action="refusing.called"
+        )
 
 
 def test_guarding_from_inside_a_subclass_hook_does_not_deadlock() -> None:
