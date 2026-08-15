@@ -15,7 +15,15 @@ from __future__ import annotations
 import functools
 import inspect
 import threading
-from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 from weakref import ReferenceType, WeakKeyDictionary, ref
@@ -74,6 +82,27 @@ class ArcjetToolUnavailableError(ToolException):
         super().__init__(f'Arcjet policy for "{action}" could not be evaluated')
         self.action = action
         self.__cause__ = cause
+
+
+# What the checkpoint raises to stop a call, as one except clause.
+_BLOCKED = (ArcjetToolDeniedError, ArcjetToolUnavailableError)
+
+
+@contextmanager
+def _reporting(action: str) -> Iterator[None]:
+    """Swallow and log a failure to report on the callbacks.
+
+    A trace is observational: a callback handler that fails must not turn a
+    denial into some other error.
+    """
+    try:
+        yield
+    except Exception:
+        logger.warning(
+            "arcjet: could not report a blocked call to %r on its callbacks",
+            action,
+            exc_info=True,
+        )
 
 
 def _unwrap_tool_call(value: Any) -> tuple[Any, str | None]:
@@ -245,8 +274,8 @@ class _GuardMixin:
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
             self._arcjet_evaluate(raw, tool_call_id, config)
-        except ArcjetToolDeniedError as exc:
-            return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
+        except _BLOCKED as exc:
+            return self._arcjet_blocked(exc, raw, tool_call_id, config)
         return self._arcjet_tool.invoke(input, config, **kwargs)
 
     async def ainvoke(
@@ -255,26 +284,28 @@ class _GuardMixin:
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
             await self._arcjet_evaluate_async(raw, tool_call_id, config)
-        except ArcjetToolDeniedError as exc:
-            return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
+        except _BLOCKED as exc:
+            return await self._arcjet_blocked_async(exc, raw, tool_call_id, config)
         return await self._arcjet_tool.ainvoke(input, config, **kwargs)
 
     def run(self, tool_input: Any, *args: Any, **kwargs: Any) -> Any:
         tool_call_id = kwargs.get("tool_call_id")
+        config = kwargs.get("config")
         try:
-            self._arcjet_evaluate(tool_input, tool_call_id, kwargs.get("config"))
-        except ArcjetToolDeniedError as exc:
-            return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
+            self._arcjet_evaluate(tool_input, tool_call_id, config)
+        except _BLOCKED as exc:
+            return self._arcjet_blocked(exc, tool_input, tool_call_id, config)
         return self._arcjet_tool.run(tool_input, *args, **kwargs)
 
     async def arun(self, tool_input: Any, *args: Any, **kwargs: Any) -> Any:
         tool_call_id = kwargs.get("tool_call_id")
+        config = kwargs.get("config")
         try:
-            await self._arcjet_evaluate_async(
-                tool_input, tool_call_id, kwargs.get("config")
+            await self._arcjet_evaluate_async(tool_input, tool_call_id, config)
+        except _BLOCKED as exc:
+            return await self._arcjet_blocked_async(
+                exc, tool_input, tool_call_id, config
             )
-        except ArcjetToolDeniedError as exc:
-            return _handle_tool_exception(cast(BaseTool, self), exc, tool_call_id)
         return await self._arcjet_tool.arun(tool_input, *args, **kwargs)
 
     def _arcjet_evaluate(
@@ -301,14 +332,13 @@ class _GuardMixin:
                 inputs=inputs,
             )
             self._arcjet_after_decision(decision, readable)
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
-            self._arcjet_report_blocked(exc, raw, tool_call_id, resolved)
+        except _BLOCKED:
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
-                blocked = ArcjetToolUnavailableError(self._arcjet.action, cause=exc)
-                self._arcjet_report_blocked(blocked, raw, tool_call_id, resolved)
-                raise blocked from exc
+                raise ArcjetToolUnavailableError(
+                    self._arcjet.action, cause=exc
+                ) from exc
 
     async def _arcjet_evaluate_async(
         self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
@@ -334,16 +364,13 @@ class _GuardMixin:
                 inputs=inputs,
             )
             self._arcjet_after_decision(decision, readable)
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
-            await self._arcjet_report_blocked_async(exc, raw, tool_call_id, resolved)
+        except _BLOCKED:
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
-                blocked = ArcjetToolUnavailableError(self._arcjet.action, cause=exc)
-                await self._arcjet_report_blocked_async(
-                    blocked, raw, tool_call_id, resolved
-                )
-                raise blocked from exc
+                raise ArcjetToolUnavailableError(
+                    self._arcjet.action, cause=exc
+                ) from exc
 
     def _arcjet_after_decision(self, decision: Decision, readable: bool) -> None:
         """The fail-closed rules, applied once for both flavours.
@@ -390,88 +417,150 @@ class _GuardMixin:
             ),
         )
 
-    def _arcjet_start_fields(
-        self, raw: Any, config: RunnableConfig
-    ) -> tuple[dict[str, Any], str, Any]:
-        """What ``on_tool_start`` is given, matching what the tool would send."""
-        tool = cast(BaseTool, self)
-        inputs = raw if isinstance(raw, dict) else None
-        return (
-            {"name": tool.name, "description": tool.description},
-            raw if isinstance(raw, str) else str(raw),
-            inputs,
-        )
-
-    def _arcjet_report_blocked(
+    def _arcjet_blocked(
         self,
         error: ToolException,
         raw: Any,
         tool_call_id: str | None,
-        config: RunnableConfig,
-    ) -> None:
-        """Put a call the checkpoint stopped onto the trace.
+        config: RunnableConfig | None,
+    ) -> Any:
+        """Report a blocked call to the tool's callbacks and produce its outcome.
 
         The wrapped tool never runs, so it never opens a run of its own and a
         trace would otherwise hold no record at all of a blocked call — the one
-        kind of call an operator most wants to find. It is reported as the
-        wrapped tool would have reported a failure: a start, then an error.
+        kind of call an operator most wants to find. The report takes the shape
+        LangChain itself gives the outcome: a denial the tool's
+        ``handle_tool_error`` converts is a run that *ends*, with the handled
+        content, exactly as ``BaseTool.run`` closes a handled ``ToolException``;
+        anything else is a start then an error, and re-raises.
 
-        Only the blocked path reports. An allowed call is delegated to the tool,
-        which opens its own run, and reporting here as well would double every
-        span. Nothing here may raise: a trace is observational, and a callback
-        handler that fails must not turn a denial into something else.
+        Only the blocked path reports. An allowed call is delegated to the
+        tool, which opens its own run, and reporting here as well would double
+        every span.
         """
-        serialized, input_str, inputs = self._arcjet_start_fields(raw, config)
-        try:
-            manager = CallbackManager.configure(
-                config.get("callbacks"),
-                cast(BaseTool, self).callbacks,
-                cast(BaseTool, self).verbose,
-                config.get("tags"),
-                cast(BaseTool, self).tags,
-                config.get("metadata"),
-                cast(BaseTool, self).metadata,
-            )
-            run_manager = manager.on_tool_start(
-                serialized, input_str, inputs=inputs, tool_call_id=tool_call_id
-            )
-            run_manager.on_tool_error(error)
-        except Exception:
-            logger.warning(
-                "arcjet: could not report a blocked call to %r on its callbacks",
-                self._arcjet.action,
-                exc_info=True,
-            )
+        resolved = config if config is not None else cast(RunnableConfig, {})
+        run_manager = self._arcjet_open_run(raw, tool_call_id, resolved)
+        if isinstance(error, ArcjetToolDeniedError):
+            try:
+                content = _handle_tool_exception(
+                    cast(BaseTool, self), error, tool_call_id
+                )
+            except ToolException:
+                pass  # No handler took it; report the error below and re-raise.
+            else:
+                if run_manager is not None:
+                    with _reporting(self._arcjet.action):
+                        run_manager.on_tool_end(content)
+                return content
+        if run_manager is not None:
+            with _reporting(self._arcjet.action):
+                run_manager.on_tool_error(error)
+        raise error
 
-    async def _arcjet_report_blocked_async(
+    async def _arcjet_blocked_async(
         self,
         error: ToolException,
         raw: Any,
         tool_call_id: str | None,
-        config: RunnableConfig,
-    ) -> None:
-        """The awaitable counterpart of :meth:`_arcjet_report_blocked`."""
-        serialized, input_str, inputs = self._arcjet_start_fields(raw, config)
+        config: RunnableConfig | None,
+    ) -> Any:
+        """The awaitable counterpart of :meth:`_arcjet_blocked`."""
+        resolved = config if config is not None else cast(RunnableConfig, {})
+        run_manager = await self._arcjet_open_run_async(raw, tool_call_id, resolved)
+        if isinstance(error, ArcjetToolDeniedError):
+            try:
+                content = _handle_tool_exception(
+                    cast(BaseTool, self), error, tool_call_id
+                )
+            except ToolException:
+                pass  # No handler took it; report the error below and re-raise.
+            else:
+                if run_manager is not None:
+                    with _reporting(self._arcjet.action):
+                        await run_manager.on_tool_end(content)
+                return content
+        if run_manager is not None:
+            with _reporting(self._arcjet.action):
+                await run_manager.on_tool_error(error)
+        raise error
+
+    def _arcjet_open_run(
+        self, raw: Any, tool_call_id: str | None, config: RunnableConfig
+    ) -> Any:
+        """Open the blocked call's run on the callbacks, or ``None``.
+
+        ``None`` on any failure: a trace is observational, and a callback
+        handler that fails must not turn a denial into something else.
+        """
         try:
-            manager = AsyncCallbackManager.configure(
-                config.get("callbacks"),
-                cast(BaseTool, self).callbacks,
-                cast(BaseTool, self).verbose,
-                config.get("tags"),
-                cast(BaseTool, self).tags,
-                config.get("metadata"),
-                cast(BaseTool, self).metadata,
+            manager = CallbackManager.configure(*self._arcjet_configure_args(config))
+            serialized, input_str, start_kwargs = self._arcjet_start_args(
+                raw, tool_call_id
             )
-            run_manager = await manager.on_tool_start(
-                serialized, input_str, inputs=inputs, tool_call_id=tool_call_id
-            )
-            await run_manager.on_tool_error(error)
+            return manager.on_tool_start(serialized, input_str, **start_kwargs)
         except Exception:
             logger.warning(
                 "arcjet: could not report a blocked call to %r on its callbacks",
                 self._arcjet.action,
                 exc_info=True,
             )
+            return None
+
+    async def _arcjet_open_run_async(
+        self, raw: Any, tool_call_id: str | None, config: RunnableConfig
+    ) -> Any:
+        """The awaitable counterpart of :meth:`_arcjet_open_run`."""
+        try:
+            manager = AsyncCallbackManager.configure(
+                *self._arcjet_configure_args(config)
+            )
+            serialized, input_str, start_kwargs = self._arcjet_start_args(
+                raw, tool_call_id
+            )
+            return await manager.on_tool_start(serialized, input_str, **start_kwargs)
+        except Exception:
+            logger.warning(
+                "arcjet: could not report a blocked call to %r on its callbacks",
+                self._arcjet.action,
+                exc_info=True,
+            )
+            return None
+
+    def _arcjet_configure_args(self, config: RunnableConfig) -> tuple[Any, ...]:
+        """The seven ``configure`` arguments, once, for both manager flavours."""
+        tool = cast(BaseTool, self)
+        return (
+            config.get("callbacks"),
+            tool.callbacks,
+            tool.verbose,
+            config.get("tags"),
+            tool.tags,
+            config.get("metadata"),
+            tool.metadata,
+        )
+
+    def _arcjet_start_args(
+        self, raw: Any, tool_call_id: str | None
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        """What ``on_tool_start`` is given, matching what the tool would send.
+
+        Injected arguments are filtered the way ``BaseTool.run`` filters them
+        before it reports: they carry credentials and framework state, and an
+        allowed call's trace never shows them, so a blocked call's must not
+        either.
+        """
+        tool = cast(BaseTool, self)
+        filtered = tool._filter_injected_args(raw) if isinstance(raw, dict) else None
+        input_str = (
+            raw
+            if isinstance(raw, str)
+            else str(filtered if filtered is not None else raw)
+        )
+        return (
+            {"name": tool.name, "description": tool.description},
+            input_str,
+            {"inputs": filtered, "tool_call_id": tool_call_id},
+        )
 
     def _arcjet_resolve_actor(
         self, config: RunnableConfig
