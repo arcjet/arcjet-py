@@ -384,8 +384,8 @@ class _GuardMixin:
     match the instance.
     """
 
-    _arcjet: _Policy
-    _arcjet_tool: BaseTool
+    _arcjet_policy: _Policy
+    _arcjet_delegate: BaseTool
 
     def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
         # The one schema override: everything else that reports a schema —
@@ -393,7 +393,7 @@ class _GuardMixin:
         # this on the base class, so forwarding here forwards them all.
         if self._arcjet_owns_schema():
             return BaseTool.get_input_schema(cast(BaseTool, self), config)
-        return self._arcjet_tool.get_input_schema(config)
+        return self._arcjet_delegate.get_input_schema(config)
 
     def _arcjet_owns_schema(self) -> bool:
         """Whether this wrapper's own ``args_schema`` should be believed.
@@ -405,7 +405,7 @@ class _GuardMixin:
         Reassigning it is how an application narrows what a model may send, so
         a schema that is no longer the wrapped tool's wins instead.
         """
-        return cast(BaseTool, self).args_schema is not self._arcjet_tool.args_schema
+        return cast(BaseTool, self).args_schema is not self._arcjet_delegate.args_schema
 
     def invoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
@@ -430,7 +430,7 @@ class _GuardMixin:
             self._arcjet_evaluate(raw, tool_call_id, resolved)
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, raw, report)
-        return self._arcjet_tool.invoke(input, resolved, **kwargs)
+        return self._arcjet_delegate.invoke(input, resolved, **kwargs)
 
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
@@ -443,7 +443,7 @@ class _GuardMixin:
             await self._arcjet_evaluate_async(raw, tool_call_id, resolved)
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(exc, raw, report)
-        return await self._arcjet_tool.ainvoke(input, resolved, **kwargs)
+        return await self._arcjet_delegate.ainvoke(input, resolved, **kwargs)
 
     def run(
         self,
@@ -477,7 +477,7 @@ class _GuardMixin:
             self._arcjet_evaluate(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, tool_input, report)
-        return self._arcjet_tool.run(
+        return self._arcjet_delegate.run(
             tool_input,
             verbose,
             start_color,
@@ -515,7 +515,7 @@ class _GuardMixin:
             await self._arcjet_evaluate_async(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(exc, tool_input, report)
-        return await self._arcjet_tool.arun(
+        return await self._arcjet_delegate.arun(
             tool_input,
             verbose,
             start_color,
@@ -539,14 +539,14 @@ class _GuardMixin:
         on the guarded handle, and the checkpoint still runs first, so there
         is no unguarded path through here.
         """
-        delegate = self._arcjet_tool
+        delegate = self._arcjet_delegate
         raw = _call_arguments(_signature_of(delegate._run), args, kwargs)
         self._arcjet_evaluate(raw, None, None, validated=False)
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
-        delegate = self._arcjet_tool
+        delegate = self._arcjet_delegate
         raw = _call_arguments(_signature_of(delegate._arun), args, kwargs)
         await self._arcjet_evaluate_async(raw, None, None, validated=False)
         return await delegate._arun(*args, **kwargs)
@@ -559,14 +559,16 @@ class _GuardMixin:
         *,
         validated: bool = True,
     ) -> None:
-        guard = self._arcjet.blocking
+        guard = self._arcjet_policy.blocking
         if guard is None:
             raise TypeError(
                 "A synchronous LangChain invocation requires a guard client with a "
                 "blocking guard(), such as ArcjetGuardSync"
             )
         resolved = ensure_config(config)
-        with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
+        with _fail_closed(
+            self._arcjet_policy.action, self._arcjet_policy.on_guard_error
+        ):
             actor, degraded = _resolved(self._arcjet_actor, resolved)
             inputs, degraded = _resolved(
                 self._arcjet_inputs,
@@ -577,8 +579,8 @@ class _GuardMixin:
                 so_far=degraded,
             )
             decision = guard(
-                self._arcjet.rules,
-                label=self._arcjet.action,
+                self._arcjet_policy.rules,
+                label=self._arcjet_policy.action,
                 actor=actor,
                 inputs=inputs,
             )
@@ -592,14 +594,16 @@ class _GuardMixin:
         *,
         validated: bool = True,
     ) -> None:
-        guard = self._arcjet.awaitable
+        guard = self._arcjet_policy.awaitable
         if guard is None:
             raise TypeError(
                 "An asynchronous LangChain invocation requires a guard client with an "
                 "awaitable guard(), such as ArcjetGuard"
             )
         resolved = ensure_config(config)
-        with _fail_closed(self._arcjet.action, self._arcjet.on_guard_error):
+        with _fail_closed(
+            self._arcjet_policy.action, self._arcjet_policy.on_guard_error
+        ):
             actor, degraded = await _resolved_async(self._arcjet_actor_async, resolved)
             inputs, degraded = await _resolved_async(
                 self._arcjet_inputs_async,
@@ -610,8 +614,8 @@ class _GuardMixin:
                 so_far=degraded,
             )
             decision = await guard(
-                self._arcjet.rules,
-                label=self._arcjet.action,
+                self._arcjet_policy.rules,
+                label=self._arcjet_policy.action,
                 actor=actor,
                 inputs=inputs,
             )
@@ -630,18 +634,20 @@ class _GuardMixin:
         Pure sync code: it raises or returns, so the async evaluator calls it
         without crossing the boundary.
         """
-        _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
+        _check_decision(
+            decision, self._arcjet_policy.action, self._arcjet_policy.on_guard_error
+        )
         if degraded is None:
             return
-        if self._arcjet.on_guard_error == "deny":
+        if self._arcjet_policy.on_guard_error == "deny":
             # The cause travels with it: without it the operator is told only
             # that policy could not be evaluated, not what stopped it.
-            raise ArcjetToolUnavailableError(self._arcjet.action, cause=degraded)
+            raise ArcjetToolUnavailableError(self._arcjet_policy.action, cause=degraded)
         logger.warning(
             "arcjet: could not resolve everything policy needed for a call to %r; "
             "it was evaluated without that, and the call proceeds because "
             "on_guard_error is 'allow'",
-            self._arcjet.action,
+            self._arcjet_policy.action,
             exc_info=degraded,
         )
 
@@ -666,7 +672,7 @@ class _GuardMixin:
         ``coroutine`` stay out: they are this module's guarded closures, and
         the rebuild derives fresh ones.
         """
-        policy = self._arcjet
+        policy = self._arcjet_policy
         own = {
             name: value
             for name, value in self.__dict__.items()
@@ -675,7 +681,7 @@ class _GuardMixin:
         return (
             _rebuild_guarded_tool,
             (
-                self._arcjet_tool,
+                self._arcjet_delegate,
                 policy.action,
                 policy.actor,
                 policy.inputs,
@@ -705,17 +711,17 @@ class _GuardMixin:
         """
         run_manager = self._arcjet_open_run(raw, report)
         if isinstance(error, ArcjetToolDeniedError) and _handles_tool_errors(
-            self._arcjet_tool
+            self._arcjet_delegate
         ):
             content = _handle_tool_exception(
-                self._arcjet_tool, error, report.tool_call_id
+                self._arcjet_delegate, error, report.tool_call_id
             )
             if run_manager is not None:
-                with _reporting(self._arcjet.action):
+                with _reporting(self._arcjet_policy.action):
                     run_manager.on_tool_end(content)
             return content
         if run_manager is not None:
-            with _reporting(self._arcjet.action):
+            with _reporting(self._arcjet_policy.action):
                 run_manager.on_tool_error(error)
         raise error
 
@@ -725,17 +731,17 @@ class _GuardMixin:
         """The awaitable counterpart of :meth:`_arcjet_blocked`."""
         run_manager = await self._arcjet_open_run_async(raw, report)
         if isinstance(error, ArcjetToolDeniedError) and _handles_tool_errors(
-            self._arcjet_tool
+            self._arcjet_delegate
         ):
             content = _handle_tool_exception(
-                self._arcjet_tool, error, report.tool_call_id
+                self._arcjet_delegate, error, report.tool_call_id
             )
             if run_manager is not None:
-                with _reporting(self._arcjet.action):
+                with _reporting(self._arcjet_policy.action):
                     await run_manager.on_tool_end(content)
             return content
         if run_manager is not None:
-            with _reporting(self._arcjet.action):
+            with _reporting(self._arcjet_policy.action):
                 await run_manager.on_tool_error(error)
         raise error
 
@@ -745,7 +751,7 @@ class _GuardMixin:
         ``None`` on any failure: a trace is observational, and a callback
         handler that fails must not turn a denial into something else.
         """
-        with _reporting(self._arcjet.action):
+        with _reporting(self._arcjet_policy.action):
             manager = CallbackManager.configure(*self._arcjet_configure_args(report))
             serialized, input_str, start_kwargs = self._arcjet_start_args(raw, report)
             return manager.on_tool_start(serialized, input_str, **start_kwargs)
@@ -753,7 +759,7 @@ class _GuardMixin:
 
     async def _arcjet_open_run_async(self, raw: Any, report: _Report) -> Any:
         """The awaitable counterpart of :meth:`_arcjet_open_run`."""
-        with _reporting(self._arcjet.action):
+        with _reporting(self._arcjet_policy.action):
             manager = AsyncCallbackManager.configure(
                 *self._arcjet_configure_args(report)
             )
@@ -768,7 +774,7 @@ class _GuardMixin:
         what an allowed call's own run reads; the call-level values come from
         what the caller passed, which is what ``BaseTool.run`` was given.
         """
-        tool = self._arcjet_tool
+        tool = self._arcjet_delegate
         return (
             report.callbacks,
             tool.callbacks,
@@ -789,7 +795,7 @@ class _GuardMixin:
         allowed call's trace never shows them, so a blocked call's must not
         either.
         """
-        tool = self._arcjet_tool
+        tool = self._arcjet_delegate
         filtered = tool._filter_injected_args(raw) if isinstance(raw, dict) else None
         input_str = (
             raw
@@ -810,7 +816,7 @@ class _GuardMixin:
     def _arcjet_resolve_actor(
         self, config: RunnableConfig
     ) -> str | None | Awaitable[str | None]:
-        actor = self._arcjet.actor
+        actor = self._arcjet_policy.actor
         if not callable(actor):
             return actor
         return cast(_ActorFn, actor)(config)
@@ -823,13 +829,13 @@ class _GuardMixin:
         *,
         validated: bool,
     ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
-        resolver = self._arcjet.inputs
+        resolver = self._arcjet_policy.inputs
         if not callable(resolver):
             return resolver
         # Parsed only here, because a resolver is the only thing that reads the
         # arguments: a tool with no resolver configured is never parsed at all.
         try:
-            arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
+            arguments = _arguments(self._arcjet_delegate, raw, tool_call_id)
         except _SCHEMA_REJECTED as exc:
             if not validated:
                 # This surface runs the tool's body with the arguments as
@@ -844,7 +850,7 @@ class _GuardMixin:
             logger.warning(
                 "arcjet: the arguments of a call to %r did not validate; "
                 "evaluating policy without them",
-                self._arcjet.action,
+                self._arcjet_policy.action,
             )
             return None
         except Exception as exc:
@@ -1113,8 +1119,8 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
             if member_name not in _NAMESPACE_SKIP
         }
         namespace.update(
-            _arcjet=PrivateAttr(),
-            _arcjet_tool=PrivateAttr(),
+            _arcjet_policy=PrivateAttr(),
+            _arcjet_delegate=PrivateAttr(),
             # Named for this module rather than for the caller's, so a repr or
             # a traceback points at the code that made the class.
             __module__=__name__,
@@ -1124,6 +1130,38 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
         generated = cast("type[BaseTool]", type(name, (base,), namespace))
         _guarded_classes[base] = ref(generated)
         return generated
+
+
+#: Where the guard keeps its own state on the handle, and what it keeps there.
+#: Namespaced because the handle is an instance of the tool's own class, so
+#: anything the tool keeps under the same name is in the same place.
+_GUARD_STATE: tuple[tuple[str, type], ...] = (
+    ("_arcjet_policy", _Policy),
+    ("_arcjet_delegate", BaseTool),
+)
+
+
+def _refuse_colliding_state(tool: BaseTool) -> None:
+    """Refuse a tool that keeps its own state where the guard keeps the guard's.
+
+    The handle carries the tool's state and the guard's together, so a
+    collision has no good outcome: whichever is written second wins, and the
+    loser is either the tool's state — silently dropped from the handle — or
+    the guard's, which then fails on the next call with an error naming the
+    tool's value rather than the collision.
+
+    An already-guarded tool is not a collision: guarding one again is
+    supported, and what it holds under these names is the guard's own.
+    """
+    for name, kind in _GUARD_STATE:
+        for holder in (tool.__dict__ or {}, tool.__pydantic_private__ or {}):
+            if name in holder and not isinstance(holder[name], kind):
+                raise ArcjetMisconfiguration(
+                    f"Cannot guard a tool that keeps its own {name!r}: a "
+                    f"guarded tool is an instance of the tool's own class, so "
+                    f"that name is where the guard keeps its state. Rename the "
+                    f"tool's attribute."
+                )
 
 
 def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
@@ -1223,9 +1261,10 @@ def guard_tool(
     degraded evaluation, and ``on_guard_error`` deliberately does not govern
     it.
     """
+    _refuse_colliding_state(tool)
     guarded = _copy_of(tool, _guarded_class(type(tool)))
-    guarded._arcjet_tool = tool
-    guarded._arcjet = _Policy(
+    guarded._arcjet_delegate = tool
+    guarded._arcjet_policy = _Policy(
         guard=guard,
         action=action,
         actor=actor,
