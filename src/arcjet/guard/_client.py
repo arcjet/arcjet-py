@@ -321,6 +321,20 @@ def _prepare_guard(
     )
 
 
+def _shared_with_copies(self: Any, memo: dict[int, Any]) -> Any:
+    """A ``__deepcopy__`` that shares the client rather than duplicating it.
+
+    A client owns a transport holding a connection pool and a lock, which
+    ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
+    meaningful if it could. Answering on the client rather than only where a
+    client happens to be held makes the sharing independent of traversal
+    order: a structure that reaches the client before whatever else refers to
+    it copies as readily as one that reaches it after.
+    """
+    memo[id(self)] = self
+    return self
+
+
 class _AsyncGuardTransport(Protocol):
     async def guard(
         self,
@@ -406,18 +420,7 @@ class ArcjetGuard:
             fetch, self._sensitive_info_backend
         )
 
-    def __deepcopy__(self, memo: dict[int, Any]) -> ArcjetGuard:
-        """Shared with the copy rather than duplicated.
-
-        A client owns a transport holding a connection pool and a lock, which
-        ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
-        meaningful if it could. Answering here rather than only where a client
-        happens to be held makes the sharing independent of traversal order: a
-        structure that reaches the client before whatever else refers to it
-        copies as readily as one that reaches it after.
-        """
-        memo[id(self)] = self
-        return self
+    __deepcopy__ = _shared_with_copies
 
     def capture(
         self,
@@ -656,18 +659,7 @@ class ArcjetGuardSync:
             fetch, self._sensitive_info_backend
         )
 
-    def __deepcopy__(self, memo: dict[int, Any]) -> ArcjetGuardSync:
-        """Shared with the copy rather than duplicated.
-
-        A client owns a transport holding a connection pool and a lock, which
-        ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
-        meaningful if it could. Answering here rather than only where a client
-        happens to be held makes the sharing independent of traversal order: a
-        structure that reaches the client before whatever else refers to it
-        copies as readily as one that reaches it after.
-        """
-        memo[id(self)] = self
-        return self
+    __deepcopy__ = _shared_with_copies
 
     def capture(
         self,

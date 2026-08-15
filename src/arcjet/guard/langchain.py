@@ -220,15 +220,12 @@ class _GuardMixin:
     _arcjet_tool: BaseTool
 
     def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
+        # The one schema override: everything else that reports a schema —
+        # `tool_call_schema`, `args`, the provider conversions — derives from
+        # this on the base class, so forwarding here forwards them all.
         if self._arcjet_owns_schema():
             return BaseTool.get_input_schema(cast(BaseTool, self), config)
         return self._arcjet_tool.get_input_schema(config)
-
-    @property
-    def tool_call_schema(self) -> Any:
-        if self._arcjet_owns_schema():
-            return cast(Any, BaseTool.tool_call_schema).fget(self)
-        return self._arcjet_tool.tool_call_schema
 
     def _arcjet_owns_schema(self) -> bool:
         """Whether this wrapper's own ``args_schema`` should be believed.
@@ -303,17 +300,7 @@ class _GuardMixin:
                 actor=actor,
                 inputs=inputs,
             )
-            _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-            if not readable and self._arcjet.on_guard_error == "deny":
-                # Guard still saw the call, so the decision is on the record.
-                # The input rule was not evaluated, so the call does not run.
-                raise ArcjetToolUnavailableError(self._arcjet.action)
-            if not readable:
-                logger.warning(
-                    "arcjet: could not read the arguments of a call to %r; "
-                    "policy ran without them because on_guard_error is 'allow'",
-                    self._arcjet.action,
-                )
+            self._arcjet_after_decision(decision, readable)
         except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
             self._arcjet_report_blocked(exc, raw, tool_call_id, resolved)
             raise
@@ -346,17 +333,7 @@ class _GuardMixin:
                 actor=actor,
                 inputs=inputs,
             )
-            _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
-            if not readable and self._arcjet.on_guard_error == "deny":
-                # Guard still saw the call, so the decision is on the record.
-                # The input rule was not evaluated, so the call does not run.
-                raise ArcjetToolUnavailableError(self._arcjet.action)
-            if not readable:
-                logger.warning(
-                    "arcjet: could not read the arguments of a call to %r; "
-                    "policy ran without them because on_guard_error is 'allow'",
-                    self._arcjet.action,
-                )
+            self._arcjet_after_decision(decision, readable)
         except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
             await self._arcjet_report_blocked_async(exc, raw, tool_call_id, resolved)
             raise
@@ -367,6 +344,24 @@ class _GuardMixin:
                     blocked, raw, tool_call_id, resolved
                 )
                 raise blocked from exc
+
+    def _arcjet_after_decision(self, decision: Decision, readable: bool) -> None:
+        """The fail-closed rules, applied once for both flavours.
+
+        Pure sync code: it raises or returns, so the async evaluator calls it
+        without crossing the boundary.
+        """
+        _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
+        if not readable and self._arcjet.on_guard_error == "deny":
+            # Guard still saw the call, so the decision is on the record.
+            # The input rule was not evaluated, so the call does not run.
+            raise ArcjetToolUnavailableError(self._arcjet.action)
+        if not readable:
+            logger.warning(
+                "arcjet: could not read the arguments of a call to %r; "
+                "policy ran without them because on_guard_error is 'allow'",
+                self._arcjet.action,
+            )
 
     def __reduce__(self) -> tuple[Any, ...]:
         """Pickle as the tool plus its policy, and never as the client.
@@ -586,7 +581,7 @@ def _rebuild_guarded_tool(
 
 
 def _call_arguments(
-    fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+    signature: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Any:
     """A direct call's arguments, keyed the way the tool's own schema keys them.
 
@@ -597,9 +592,9 @@ def _call_arguments(
     it anyway, and the checkpoint should not be the thing that reports it.
     """
     try:
-        bound = inspect.signature(fn).bind(*args, **kwargs)
+        bound = signature.bind(*args, **kwargs)
     except TypeError:
-        return kwargs if kwargs else args[0] if len(args) == 1 else dict(kwargs)
+        return kwargs or (args[0] if len(args) == 1 else {})
     bound.apply_defaults()
     return dict(bound.arguments)
 
@@ -615,16 +610,18 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
     The replacements keep the wrapped function's signature, because that is
     what ``render_text_description`` reports and what makes a guarded tool
-    render as the unguarded one did.
+    render as the unguarded one did. The signature is computed here, once,
+    because the wrapped callable never changes for the wrapper's lifetime.
     """
     func = getattr(guarded, "func", None)
     if callable(func):
         inner_func = cast(Callable[..., Any], func)
+        func_signature = inspect.signature(inner_func)
 
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
-            evaluate(_call_arguments(inner_func, args, kwargs), None, None)
+            evaluate(_call_arguments(func_signature, args, kwargs), None, None)
             return inner_func(*args, **kwargs)
 
         cast(Any, guarded).func = guarded_func
@@ -632,11 +629,14 @@ def _guarded_callables(guarded: BaseTool) -> None:
     coroutine = getattr(guarded, "coroutine", None)
     if callable(coroutine):
         inner_coroutine = cast(Callable[..., Awaitable[Any]], coroutine)
+        coroutine_signature = inspect.signature(inner_coroutine)
 
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
-            await evaluate(_call_arguments(inner_coroutine, args, kwargs), None, None)
+            await evaluate(
+                _call_arguments(coroutine_signature, args, kwargs), None, None
+            )
             return await inner_coroutine(*args, **kwargs)
 
         cast(Any, guarded).coroutine = guarded_coroutine
@@ -650,11 +650,12 @@ async def _refuse_direct_arun(self: Any, *args: Any, **kwargs: Any) -> Any:
     raise RuntimeError("Guarded tools delegate to the tool they wrap")
 
 
-# Copied wholesale into each generated namespace, minus the entries that
-# describe where a class was written rather than what it does.
-_NAMESPACE_SKIP = frozenset(
-    {"__dict__", "__weakref__", "__module__", "__doc__", "__qualname__"}
-)
+# Copied wholesale into each generated namespace. `__dict__` and `__weakref__`
+# are descriptors bound to _GuardMixin and break the copy's instances if they
+# come along; `__doc__` describes the mixin, not the generated class; and
+# pydantic collects the two PrivateAttr assignments below without needing
+# `__annotations__`.
+_NAMESPACE_SKIP = frozenset({"__dict__", "__weakref__", "__doc__", "__annotations__"})
 
 # Keyed weakly so guarding a tool cannot keep its class alive, and *valued*
 # weakly for the same reason: a generated class holds its base in `__bases__`,
@@ -686,26 +687,25 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
         if existing is not None:
             return existing
 
-        namespace: dict[str, Any] = {
-            name: member
-            for name, member in _GuardMixin.__dict__.items()
-            if name not in _NAMESPACE_SKIP
-        }
-        namespace["__annotations__"] = dict(
-            _GuardMixin.__dict__.get("__annotations__", {})
-        )
-        namespace["_arcjet"] = PrivateAttr()
-        namespace["_arcjet_tool"] = PrivateAttr()
-        # The tool's own body is never reached through the wrapper — every
-        # entrypoint delegates to the inner tool — so these refuse rather than
-        # offer a way past the checkpoint.
-        namespace["_run"] = _refuse_direct_run
-        namespace["_arun"] = _refuse_direct_arun
         name = f"ArcjetGuarded{base.__name__}"
-        # Named for this module rather than for the caller's, so a repr or a
-        # traceback points at the code that made the class.
-        namespace["__module__"] = __name__
-        namespace["__qualname__"] = name
+        namespace: dict[str, Any] = {
+            member_name: member
+            for member_name, member in _GuardMixin.__dict__.items()
+            if member_name not in _NAMESPACE_SKIP
+        }
+        namespace.update(
+            _arcjet=PrivateAttr(),
+            _arcjet_tool=PrivateAttr(),
+            # The tool's own body is never reached through the wrapper — every
+            # entrypoint delegates to the inner tool — so these refuse rather
+            # than offer a way past the checkpoint.
+            _run=_refuse_direct_run,
+            _arun=_refuse_direct_arun,
+            # Named for this module rather than for the caller's, so a repr or
+            # a traceback points at the code that made the class.
+            __module__=__name__,
+            __qualname__=name,
+        )
 
         generated = cast("type[BaseTool]", type(name, (base,), namespace))
         _guarded_classes[base] = ref(generated)
@@ -766,9 +766,9 @@ def guard_tool(
     wrapper = _guarded_class(type(tool))
 
     values: dict[str, Any] = {}
+    # The wrapper subclasses the tool's class, so it has every field the tool
+    # has; no membership check is needed.
     for name in type(tool).model_fields:
-        if name not in wrapper.model_fields:
-            continue
         value = getattr(tool, name)
         # One level of copy on the containers. Sharing them would let a tag or
         # a callback attached to either tool show up on the other, so an audit
