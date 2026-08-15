@@ -2022,6 +2022,25 @@ def test_a_resolver_receives_plain_data_for_nested_models() -> None:
     assert seen == [{"street": "1 Main"}]
 
 
+def test_a_dict_schema_tool_still_advertises_the_tools_own_derivation() -> None:
+    """Who owns the schema is decided by whether the handle still holds the
+    tool's own, so rebuilding it made every dict-schema tool look reassigned.
+
+    The handle then answered from the base class's derivation instead of the
+    tool's, which for a tool class that derives its own is a different answer.
+    """
+    original = StructuredTool.from_function(
+        lambda **kwargs: "ok",
+        name="js",
+        description="d",
+        args_schema={"type": "object", "properties": {"value": {"type": "string"}}},
+    )
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=original, action="js.called")
+
+    assert not cast(Any, wrapped)._arcjet_owns_schema()
+    assert wrapped.get_input_schema() is original.get_input_schema()
+
+
 def test_a_narrowed_args_schema_changes_only_what_the_model_is_told() -> None:
     """Narrowing the guarded copy hides a field from the model, and no more.
 
