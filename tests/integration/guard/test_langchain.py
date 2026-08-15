@@ -7,6 +7,7 @@ from typing import Annotated, Any, cast
 
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import (
     BaseTool,
     InjectedToolArg,
@@ -768,14 +769,16 @@ def test_pickling_a_guarded_tool_does_not_serialize_the_site_key() -> None:
 
 
 def test_pickling_preserves_fields_set_on_the_guarded_handle() -> None:
-    """A denial handled in the parent process must not raise in the worker.
+    """The worker must hold the tool the parent had, not a freshly guarded one.
 
-    The handle's own field values ride along and are reapplied, so control
-    flow is the same on both sides of the boundary.
+    Rebuilding from the delegate and the policy alone would drop every field
+    the application set on the handle, so a tool tagged for one team arrives
+    untagged and a narrowed schema arrives widened.
     """
     guard = _guard(_Transport(pb.GUARD_CONCLUSION_DENY))
-    wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
-    wrapped.handle_tool_error = "policy said no"
+    original = _SubclassTool()
+    original.handle_tool_error = "policy said no"
+    wrapped = guard_tool(guard=guard, tool=original, action="search.called")
     wrapped.tags = ["team-a"]
 
     blob = pickle.dumps(wrapped)
@@ -823,6 +826,17 @@ class _Recorder(BaseCallbackHandler):
 
     def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
         self.events.append(("error", type(error).__name__))
+
+    # Recorded so a handler that has been promoted to inheritable — and so
+    # follows the tool's body into whatever it invokes — is visible as extra
+    # events rather than silently absent.
+    def on_chain_start(
+        self, serialized: dict[str, Any], inputs: Any, **kwargs: Any
+    ) -> None:
+        self.events.append(("chain_start", ""))
+
+    def on_chain_end(self, outputs: Any, **kwargs: Any) -> None:
+        self.events.append(("chain_end", ""))
 
 
 def test_a_denied_call_is_reported_to_the_callbacks() -> None:
@@ -1032,42 +1046,12 @@ def test_a_blocked_calls_report_hides_injected_arguments() -> None:
     assert inputs == {"query": "q"}
 
 
-def test_a_handler_attached_after_guarding_sees_every_call() -> None:
-    """A late-attached handler must not see only the denials.
+def test_a_handler_on_the_call_fires_once_per_event() -> None:
+    """The delegate opens the run, so nothing the checkpoint does may double it.
 
-    The delegate executes with the copies it got when guard_tool ran, so a
-    handler attached to the guarded handle afterwards fires on the blocked
-    path (reported by the handle) but never on the allowed path (run by the
-    delegate) unless the handle folds its own fields into the delegated call.
-    A handler that records only denials reads as a tool denying everything.
+    A handler reaching the tool through the call's own config is the supported
+    way to trace a guarded tool, and it must see one start and one end.
     """
-    recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="tool", description="d"
-    )
-    allowed = guard_tool(
-        guard=_guard(_Transport()), tool=original, action="tool.called"
-    )
-    allowed.callbacks = [recorder]
-
-    assert allowed.invoke(cast(Any, {"value": "yes"})) == "ok"
-    assert [kind for kind, _ in recorder.events] == ["start", "end"]
-
-    recorder.events.clear()
-    denied = guard_tool(
-        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=original,
-        action="tool.called",
-    )
-    denied.callbacks = [recorder]
-
-    with pytest.raises(ArcjetToolDeniedError):
-        denied.invoke(cast(Any, {"value": "no"}))
-    assert [kind for kind, _ in recorder.events] == ["start", "error"]
-
-
-def test_a_handler_attached_after_guarding_is_not_doubled() -> None:
-    """One handler on both the handle and the call fires once per event."""
     recorder = _Recorder()
     original = StructuredTool.from_function(
         lambda value: "ok", name="tool", description="d"
@@ -1075,7 +1059,6 @@ def test_a_handler_attached_after_guarding_is_not_doubled() -> None:
     wrapped = guard_tool(
         guard=_guard(_Transport()), tool=original, action="tool.called"
     )
-    wrapped.callbacks = [recorder]
 
     result = wrapped.invoke(
         cast(Any, {"value": "yes"}), config={"callbacks": [recorder]}
@@ -1085,20 +1068,68 @@ def test_a_handler_attached_after_guarding_is_not_doubled() -> None:
     assert [kind for kind, _ in recorder.events] == ["start", "end"]
 
 
-def test_late_attached_fields_reach_the_run_entrypoint_too() -> None:
-    """run() takes callbacks as a keyword, not in a config, so it folds there."""
+def test_a_tools_own_handler_does_not_follow_its_body_into_child_runs() -> None:
+    """A tool-local handler is local: the unguarded tool never inherits it down.
+
+    Folding the handle's handlers into the delegated config would promote them
+    to inheritable and fire them for whatever the tool's body invokes, which is
+    a per-tool audit handler counting runs the unguarded tool never reported.
+    """
+    inner = RunnableLambda(lambda value: value)
+
+    def body(value: str) -> str:
+        return cast(Any, inner.invoke(value))
+
     recorder = _Recorder()
+    original = StructuredTool.from_function(body, name="tool", description="d")
+    original.callbacks = [recorder]
+    original.invoke(cast(Any, {"value": "x"}))
+    unguarded = list(recorder.events)
+
+    recorder.events.clear()
+    guarded_original = StructuredTool.from_function(body, name="tool", description="d")
+    guarded_original.callbacks = [recorder]
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=guarded_original, action="tool.called"
+    )
+    wrapped.invoke(cast(Any, {"value": "x"}))
+
+    assert recorder.events == unguarded
+
+
+def test_the_delegates_error_handler_governs_a_denial() -> None:
+    """One rule for both error sources, so an agent loop sees one behaviour.
+
+    The wrapped tool's `handle_tool_error` is what converts its own
+    ToolExceptions, so it is what converts a denial too — rather than the
+    denial following the handle and the tool's own errors following the
+    delegate.
+    """
     original = StructuredTool.from_function(
         lambda value: "ok", name="tool", description="d"
     )
+    original.handle_tool_error = "handled by the tool"
     wrapped = guard_tool(
-        guard=_guard(_Transport()), tool=original, action="tool.called"
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="tool.called",
     )
-    wrapped.callbacks = [recorder]
-    wrapped.tags = ["late-tag"]
 
-    assert wrapped.run({"value": "yes"}) == "ok"
-    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+    assert wrapped.invoke(cast(Any, {"value": "no"})) == "handled by the tool"
+
+    # Set on the handle rather than the tool, it does not govern either path.
+    plain = StructuredTool.from_function(
+        lambda value: "ok", name="tool", description="d"
+    )
+    handle_only = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=plain,
+        action="tool.called",
+    )
+    handle_only.handle_tool_error = "handled by the handle"
+
+    with pytest.raises(ArcjetToolDeniedError):
+        handle_only.invoke(cast(Any, {"value": "no"}))
 
 
 def test_guarding_preserves_an_artifact_result() -> None:
