@@ -993,17 +993,29 @@ including one a chain passed down without the caller re-threading it.
 
 The guarded tool is an instance of the wrapped tool's class, so application code
 and LangChain itself keep taking the same branch when they check a tool's
-concrete type. It is a generated subclass, created once per tool class: a tool
-class that hooks `__init_subclass__` to register or validate its subclasses sees
-that subclass once, at the first `guard_tool()` call for it. A subclass has its
-own name, so a trace or a `repr` labels the tool `ArcjetGuarded<ClassName>` —
-the labelling is the one place the substitution shows.
+concrete type. It is a generated subclass, created once per tool class and kept
+for the life of the process: a tool class that hooks `__init_subclass__` to
+register or validate its subclasses sees that subclass once, at the first
+`guard_tool()` call for it, and a registry keyed by class name gains an entry
+for it. A trace still shows the tool's own `name`; it is `repr()` and the class
+name that show `ArcjetGuarded<ClassName>`.
+
+A tool that keeps its own state under one of the names the guard uses for its
+own — `_arcjet_policy`, `_arcjet_delegate` — is refused by `guard_tool()`,
+because a guarded tool is an instance of the tool's class and there is nowhere
+else for either to live. Rename the tool's attribute.
 
 A blocked call is reported to the tool's callbacks the way LangChain reports the
 outcome: a denial the tool's `handle_tool_error` converts is a run that ends
 with the handled content, and anything else is a start followed by an error. So
 a blocked call appears on a trace rather than leaving a gap, and a handled
-denial is not counted as a failure.
+denial is not counted as a failure. What the handler returns is formatted by
+LangChain's own code, so a denial reaches the model shaped exactly as the tool's
+own error would have been.
+
+If a resolver fails, Guard still sees the call — the decision is made without
+that input rather than not made at all — and `on_guard_error` decides whether
+the call may run.
 
 Fields reassigned on the guarded tool after `guard_tool()` returns — callbacks,
 tags, `handle_tool_error` — do not reach the call. The wrapped tool executes
