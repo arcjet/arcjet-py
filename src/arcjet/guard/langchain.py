@@ -25,6 +25,7 @@ from collections.abc import (
 )
 from contextlib import contextmanager
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal, cast
 from weakref import WeakKeyDictionary
 
@@ -207,6 +208,10 @@ class _Report:
     run_name: str | None
     run_id: Any
     tool_call_id: str | None
+    verbose: bool = False
+    start_color: str | None = "green"
+    color: str | None = "green"
+    extra: Mapping[str, Any] = MappingProxyType({})
 
     @classmethod
     def of(cls, config: RunnableConfig, tool_call_id: str | None) -> "_Report":
@@ -461,7 +466,18 @@ class _GuardMixin:
         resolver should read what the tool runs with.
         """
         resolved = ensure_config(config)
-        report = _Report(callbacks, tags, metadata, run_name, run_id, tool_call_id)
+        report = _Report(
+            callbacks,
+            tags,
+            metadata,
+            run_name,
+            run_id,
+            tool_call_id,
+            bool(verbose),
+            start_color,
+            color,
+            MappingProxyType(dict(kwargs)),
+        )
         try:
             self._arcjet_evaluate(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
@@ -499,7 +515,18 @@ class _GuardMixin:
     ) -> Any:
         """The awaitable counterpart of :meth:`run`."""
         resolved = ensure_config(config)
-        report = _Report(callbacks, tags, metadata, run_name, run_id, tool_call_id)
+        report = _Report(
+            callbacks,
+            tags,
+            metadata,
+            run_name,
+            run_id,
+            tool_call_id,
+            bool(verbose),
+            start_color,
+            color,
+            MappingProxyType(dict(kwargs)),
+        )
         try:
             await self._arcjet_evaluate_async(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
@@ -730,7 +757,7 @@ class _GuardMixin:
             return content
         if run_manager is not None:
             with _reporting(self._arcjet_policy.action):
-                run_manager.on_tool_error(error)
+                run_manager.on_tool_error(error, tool_call_id=report.tool_call_id)
         raise error
 
     async def _arcjet_blocked_async(
@@ -750,7 +777,7 @@ class _GuardMixin:
             return content
         if run_manager is not None:
             with _reporting(self._arcjet_policy.action):
-                await run_manager.on_tool_error(error)
+                await run_manager.on_tool_error(error, tool_call_id=report.tool_call_id)
         raise error
 
     def _arcjet_open_run(self, raw: Any, report: _Report) -> Any:
@@ -786,7 +813,7 @@ class _GuardMixin:
         return (
             report.callbacks,
             tool.callbacks,
-            tool.verbose,
+            tool.verbose or report.verbose,
             report.tags,
             tool.tags,
             report.metadata,
@@ -818,6 +845,8 @@ class _GuardMixin:
                 "tool_call_id": report.tool_call_id,
                 "name": report.run_name,
                 "run_id": report.run_id,
+                "color": report.start_color,
+                **report.extra,
             },
         )
 
