@@ -498,8 +498,20 @@ class _GuardMixin:
         pickling would write into whatever the pickle is sent to or stored in.
         The receiving process supplies its own through ``register_arcjet``,
         which is how a client is shared with code that did not construct it.
+
+        The handle's own field values ride along and are reapplied after the
+        rebuild, so a ``handle_tool_error`` or a tag set on the guarded handle
+        survives the boundary — a denial that returned a handled message in
+        the parent process must not raise in the worker. ``func`` and
+        ``coroutine`` stay out: they are this module's guarded closures, and
+        the rebuild derives fresh ones.
         """
         policy = self._arcjet
+        own = {
+            name: value
+            for name, value in self.__dict__.items()
+            if name not in ("func", "coroutine")
+        }
         return (
             _rebuild_guarded_tool,
             (
@@ -509,6 +521,7 @@ class _GuardMixin:
                 policy.inputs,
                 policy.rules,
                 policy.on_guard_error,
+                own,
             ),
         )
 
@@ -749,11 +762,14 @@ def _rebuild_guarded_tool(
     inputs: InputResolver | AsyncInputResolver | None,
     rules: tuple[RuleWithInput, ...],
     on_guard_error: OnGuardError,
+    fields: dict[str, Any],
 ) -> BaseTool:
     """Guard *tool* again, with the client the receiving process registered.
 
     Named at module level because :meth:`_GuardMixin.__reduce__` names it, and
-    pickle resolves that by import.
+    pickle resolves that by import. *fields* are the pickled handle's own
+    field values, reapplied so the rebuilt handle behaves as the one that was
+    pickled rather than as a freshly guarded *tool*.
     """
     guard = registered_client()
     if guard is None:
@@ -763,7 +779,7 @@ def _rebuild_guarded_tool(
             "client cannot cross a process boundary and carries the site key. "
             "Call register_arcjet() before loading it."
         )
-    return guard_tool(
+    guarded = guard_tool(
         guard=guard,
         tool=tool,
         action=action,
@@ -772,6 +788,9 @@ def _rebuild_guarded_tool(
         rules=rules,
         on_guard_error=on_guard_error,
     )
+    for name, value in fields.items():
+        setattr(guarded, name, value)
+    return guarded
 
 
 def _call_arguments(
