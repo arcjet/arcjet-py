@@ -326,7 +326,10 @@ def _handle_tool_exception(
     LangChain renders JSON. What reaches the model is now exactly what an
     unguarded tool's own error would have produced.
     """
-    content = _lc_handle_tool_error(error, flag=tool.handle_tool_error)
+    # Only reached when `_handles_tool_errors` said there is one, so the
+    # falsy half of the field's type — which LangChain's own helper does not
+    # accept — cannot arrive here.
+    content = _lc_handle_tool_error(error, flag=cast(Any, tool.handle_tool_error))
     return _lc_format_output(content, None, tool_call_id, tool.name, "error")
 
 

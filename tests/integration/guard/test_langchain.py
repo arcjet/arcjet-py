@@ -10,6 +10,7 @@ from typing import Annotated, Any, cast
 
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.runnables.config import ensure_config, set_config_context
 from langchain_core.tools import (
@@ -1792,6 +1793,66 @@ def test_an_unreadable_arguments_failure_carries_its_cause() -> None:
     with pytest.raises(ArcjetToolUnavailableError) as raised:
         wrapped.invoke(cast(Any, {"query": "q"}))
     assert isinstance(raised.value.__cause__, RecursionError)
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        pytest.param(
+            lambda error: ToolMessage(content="m", tool_call_id="c9"), id="message"
+        ),
+        pytest.param(lambda error: {"error": "kaboom"}, id="mapping"),
+        pytest.param(lambda error: "plain", id="string"),
+    ],
+)
+def test_a_handled_denial_is_shaped_like_a_handled_tool_error(handler: Any) -> None:
+    """What reaches the model must be what LangChain would have produced.
+
+    Re-deriving the formatting drifted: a handler returning a ToolMessage — a
+    documented return — was wrapped in a second one with the first repr'd into
+    its body, and a mapping was rendered with Python's repr rather than as
+    JSON. Compared against the unguarded tool's own error rather than a value
+    written down here.
+    """
+    raising = StructuredTool.from_function(
+        lambda value: (_ for _ in ()).throw(ToolException("boom")),
+        name="t",
+        description="d",
+    )
+    raising.handle_tool_error = handler
+    unguarded = raising.run({"value": "x"}, tool_call_id="c1")
+
+    allowed = StructuredTool.from_function(
+        lambda value: "ok", name="t", description="d"
+    )
+    allowed.handle_tool_error = handler
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=allowed,
+        action="t.called",
+    )
+
+    assert repr(wrapped.run({"value": "x"}, tool_call_id="c1")) == repr(unguarded)
+
+
+def test_an_empty_error_handler_does_not_handle() -> None:
+    """`BaseTool.run` gates on truthiness, so an empty string raises.
+
+    Treating it as a handler answered a denial with an empty message and
+    reported the run as having ended successfully.
+    """
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="t", description="d"
+    )
+    original.handle_tool_error = ""
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="t.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.run({"value": "x"}, tool_call_id="c1")
 
 
 def test_an_error_handler_that_raises_reaches_the_caller() -> None:
