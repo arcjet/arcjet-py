@@ -407,11 +407,8 @@ def test_bad_model_arguments_reach_the_tools_own_validation_handler(
 def test_a_guarded_tool_can_be_copied() -> None:
     """LangGraph and several tracing paths clone the objects they hold.
 
-    The Arcjet client cannot be copied — it owns a lock — so it is shared with
-    the copy. That only holds while the copy reaches the guarded tool before it
-    reaches the client by some other edge, which a caller cannot control; an
-    application holding its client alongside its tools can still fail, and
-    fixing that needs the client itself to be copy-aware.
+    The Arcjet client cannot be copied — it owns a lock — so it answers a copy
+    of itself with itself, and a guarded tool copies like any other object.
     """
     wrapped = guard_tool(
         guard=_guard(_Transport()), tool=_SubclassTool(), action="search.called"
@@ -421,6 +418,27 @@ def test_a_guarded_tool_can_be_copied() -> None:
     assert wrapped.model_copy(deep=True).invoke(cast(Any, {"query": "q"})) == (
         "search(q,5)"
     )
+
+
+def test_a_client_held_beside_its_tools_can_be_copied() -> None:
+    """Sharing the client must not depend on the order of the traversal.
+
+    An application that holds its client next to the tools it guards — a
+    settings object, a module namespace, an agent's state — offers the copy an
+    edge to the client that does not pass through any guarded tool. Nothing on
+    the tool can memoise a client the copy reaches first, so the client is what
+    answers.
+    """
+    guard = _guard(_Transport())
+    wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
+    # Insertion order decides which edge deepcopy walks first, so the client
+    # deliberately goes in ahead of the tool that refers to it.
+    bundle = {"client": guard, "tool": wrapped}
+
+    copied = copy.deepcopy(bundle)
+
+    assert copied["client"] is guard
+    assert cast(Any, copied["tool"]).invoke(cast(Any, {"query": "q"})) == "search(q,5)"
 
 
 def test_every_execution_is_guarded_including_a_tools_own_recursion() -> None:
