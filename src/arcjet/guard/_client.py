@@ -446,6 +446,17 @@ class ArcjetGuard:
             fetch, self._sensitive_info_backend
         )
 
+    def __repr__(self) -> str:
+        """Render without the site key.
+
+        The key authenticates as this site, and a client reaches a great many
+        places that render objects: a traceback captured with frame locals, a
+        log line, an error reporter, a debugger. Redacting it here covers every
+        one of them, where each holder redacting its own copy covers only the
+        holders anyone thought of.
+        """
+        return f"{type(self).__name__}(key=<redacted>, timeout_ms={self._timeout_ms})"
+
     __deepcopy__ = _shared_with_copies
 
     def capture(
@@ -684,6 +695,17 @@ class ArcjetGuardSync:
         self._remote_policy = SyncRemotePolicyRuntime(
             fetch, self._sensitive_info_backend
         )
+
+    def __repr__(self) -> str:
+        """Render without the site key.
+
+        The key authenticates as this site, and a client reaches a great many
+        places that render objects: a traceback captured with frame locals, a
+        log line, an error reporter, a debugger. Redacting it here covers every
+        one of them, where each holder redacting its own copy covers only the
+        holders anyone thought of.
+        """
+        return f"{type(self).__name__}(key=<redacted>, timeout_ms={self._timeout_ms})"
 
     __deepcopy__ = _shared_with_copies
 

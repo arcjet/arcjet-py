@@ -338,14 +338,10 @@ def _handle_tool_exception(
     return content
 
 
-# ``repr=False`` because this holds the Arcjet client, whose own repr renders
-# the API key. A dataclass repr would put that key in any traceback captured
-# with locals, which is what pytest --showlocals and most error reporters do.
-@dataclass(frozen=True, slots=True, repr=False)
+@dataclass(frozen=True, slots=True)
 class _Policy:
     """What guarding one tool needs, held apart from the tool's own fields."""
 
-    guard: GuardClient
     action: str
     actor: ActorResolver | AsyncActorResolver | None
     inputs: InputResolver | AsyncInputResolver | None
@@ -1265,7 +1261,6 @@ def guard_tool(
     guarded = _copy_of(tool, _guarded_class(type(tool)))
     guarded._arcjet_delegate = tool
     guarded._arcjet_policy = _Policy(
-        guard=guard,
         action=action,
         actor=actor,
         inputs=inputs,
