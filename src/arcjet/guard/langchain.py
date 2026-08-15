@@ -21,7 +21,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.simple import Tool as SimpleTool
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, PrivateAttr, ValidationError
 
 from arcjet._logging import logger
 
@@ -184,6 +184,17 @@ class _Policy:
     on_guard_error: OnGuardError
 
 
+class _UnreadableArguments(Exception):
+    """The call's arguments could not be read, and the tool may still run.
+
+    Distinct from arguments the tool's own schema rejects: those stop the tool
+    before its body, so an input rule has no effect to protect. This means the
+    rule was configured, could not see what it was meant to evaluate, and the
+    call would otherwise proceed — an unevaluated policy, which is what
+    ``on_guard_error`` governs.
+    """
+
+
 class _GuardMixin:
     """The checkpoint, in front of a tool this wrapper delegates to.
 
@@ -265,13 +276,29 @@ class _GuardMixin:
             )
         resolved = config if config is not None else cast(RunnableConfig, {})
         try:
+            actor = self._arcjet_actor(resolved)
+            readable = True
+            try:
+                inputs = self._arcjet_inputs(raw, tool_call_id, resolved)
+            except _UnreadableArguments:
+                inputs, readable = None, False
             decision = self._arcjet.guard.guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
-                actor=self._arcjet_actor(resolved),
-                inputs=self._arcjet_inputs(raw, tool_call_id, resolved),
+                actor=actor,
+                inputs=inputs,
             )
             _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
+            if not readable and self._arcjet.on_guard_error == "deny":
+                # Guard still saw the call, so the decision is on the record.
+                # The input rule was not evaluated, so the call does not run.
+                raise ArcjetToolUnavailableError(self._arcjet.action)
+            if not readable:
+                logger.warning(
+                    "arcjet: could not read the arguments of a call to %r; "
+                    "policy ran without them because on_guard_error is 'allow'",
+                    self._arcjet.action,
+                )
         except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
             raise
         except Exception as exc:
@@ -287,13 +314,29 @@ class _GuardMixin:
             raise TypeError("An asynchronous LangChain invocation requires ArcjetGuard")
         resolved = config if config is not None else cast(RunnableConfig, {})
         try:
+            actor = await self._arcjet_actor_async(resolved)
+            readable = True
+            try:
+                inputs = await self._arcjet_inputs_async(raw, tool_call_id, resolved)
+            except _UnreadableArguments:
+                inputs, readable = None, False
             decision = await self._arcjet.guard.guard(
                 self._arcjet.rules,
                 label=self._arcjet.action,
-                actor=await self._arcjet_actor_async(resolved),
-                inputs=await self._arcjet_inputs_async(raw, tool_call_id, resolved),
+                actor=actor,
+                inputs=inputs,
             )
             _check_decision(decision, self._arcjet.action, self._arcjet.on_guard_error)
+            if not readable and self._arcjet.on_guard_error == "deny":
+                # Guard still saw the call, so the decision is on the record.
+                # The input rule was not evaluated, so the call does not run.
+                raise ArcjetToolUnavailableError(self._arcjet.action)
+            if not readable:
+                logger.warning(
+                    "arcjet: could not read the arguments of a call to %r; "
+                    "policy ran without them because on_guard_error is 'allow'",
+                    self._arcjet.action,
+                )
         except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
             raise
         except Exception as exc:
@@ -320,18 +363,19 @@ class _GuardMixin:
         # arguments: a tool with no resolver configured is never parsed at all.
         try:
             arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
-        except Exception:
-            # The tool will reject these arguments itself, or accept them in a
-            # shape this could not read. Either way the checkpoint still has to
-            # run: skipping it would let a call the tool does accept through
-            # unevaluated. Policy sees no inputs, which is weaker than usual
-            # and still a decision.
+        except ValidationError:
+            # The tool's own schema rejected these arguments, so the tool
+            # rejects the call too and its body never runs. Policy still gets a
+            # decision, without inputs — there is no effect for an input rule
+            # to protect, and the tool keeps its own `handle_validation_error`.
             logger.warning(
-                "arcjet: could not read the arguments of a call to %r; "
+                "arcjet: the arguments of a call to %r did not validate; "
                 "evaluating policy without them",
                 self._arcjet.action,
             )
             return None
+        except Exception as exc:
+            raise _UnreadableArguments from exc
         return cast(_InputsFn, resolver)(arguments, config)
 
     def _arcjet_actor(self, config: RunnableConfig) -> str | None:

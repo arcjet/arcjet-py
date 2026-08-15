@@ -607,9 +607,11 @@ def test_a_zero_argument_tool_is_still_guarded() -> None:
     )
 
     for probe in ("", "N/A"):
-        with pytest.raises(ArcjetToolDeniedError):
+        with pytest.raises((ArcjetToolDeniedError, ArcjetToolUnavailableError)):
             wrapped.invoke(cast(Any, probe))
     assert ran == 0
+    # Guard saw both calls, so a blocked call is on the record rather than
+    # looking like a call that never happened.
     assert transport.calls == 2
 
 
@@ -769,3 +771,62 @@ def test_an_unevaluated_policy_is_governed_by_on_guard_error(
     else:
         assert wrapped.invoke(cast(Any, {"value": "x"})) == "done"
         assert ran == 1
+
+
+def test_arguments_a_resolver_cannot_read_are_an_unevaluated_policy() -> None:
+    """An input rule that sees nothing has not run, whatever Guard replied.
+
+    A tool taking no arguments accepts input no schema validates, so the rule
+    is configured, sees nothing, and the call would otherwise proceed.
+    """
+    transport = _Transport()
+    ran = 0
+
+    @tool
+    def zero() -> str:
+        """Take no arguments."""
+        nonlocal ran
+        ran += 1
+        return "done"
+
+    denied = guard_tool(
+        guard=_guard(transport),
+        tool=zero,
+        action="zero.called",
+        inputs=lambda arguments, _config: {},
+    )
+    with pytest.raises(ArcjetToolUnavailableError):
+        denied.invoke(cast(Any, ""))
+    assert ran == 0
+    assert transport.calls == 1
+
+    allowed = guard_tool(
+        guard=_guard(transport),
+        tool=zero,
+        action="zero.called",
+        inputs=lambda arguments, _config: {},
+        on_guard_error="allow",
+    )
+    assert allowed.invoke(cast(Any, "")) == "done"
+
+
+def test_arguments_the_tool_itself_rejects_are_not_an_arcjet_failure() -> None:
+    """A schema rejection stops the tool, so there is no effect to protect."""
+    transport = _Transport()
+
+    class Amount(BaseModel):
+        amount: int = Field(ge=0)
+
+    original = StructuredTool.from_function(
+        lambda amount: "charged", name="charge", description="d", args_schema=Amount
+    )
+    original.handle_validation_error = "the model sent bad arguments"
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=original,
+        action="charge.made",
+        inputs=lambda arguments, _config: {},
+    )
+
+    assert wrapped.invoke(cast(Any, {"amount": -5})) == "the model sent bad arguments"
+    assert transport.calls == 1
