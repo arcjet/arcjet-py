@@ -1881,8 +1881,15 @@ def test_a_resolver_receives_plain_data_for_nested_models() -> None:
     assert seen == [{"street": "1 Main"}]
 
 
-def test_a_narrowed_args_schema_on_the_guarded_tool_is_honoured() -> None:
-    """Narrowing the guarded copy is how an app hides a privileged field."""
+def test_a_narrowed_args_schema_changes_only_what_the_model_is_told() -> None:
+    """Narrowing the guarded copy hides a field from the model, and no more.
+
+    The wrapped tool parses and executes against its own schema, so a field the
+    narrowed one omits still reaches the tool if something sends it anyway.
+    That boundary is asserted here rather than implied, because "narrows what a
+    model may send" reads like enforcement and is not: to stop the argument,
+    narrow the wrapped tool or bind a rule to it.
+    """
 
     class Full(BaseModel):
         to: str
@@ -1894,7 +1901,7 @@ def test_a_narrowed_args_schema_on_the_guarded_tool_is_honoured() -> None:
     wrapped = guard_tool(
         guard=_guard(_Transport()),
         tool=StructuredTool.from_function(
-            lambda to, admin_override=False: "sent",
+            lambda to, admin_override=False: f"sent override={admin_override}",
             name="send",
             description="d",
             args_schema=Full,
@@ -1906,6 +1913,12 @@ def test_a_narrowed_args_schema_on_the_guarded_tool_is_honoured() -> None:
     properties = convert_to_openai_tool(wrapped)["function"]["parameters"]["properties"]
     assert set(properties) == {"to"}
     assert set(wrapped.args) == {"to"}
+
+    # The limit of it: the hidden field is not advertised, but is not refused.
+    assert (
+        wrapped.invoke(cast(Any, {"to": "a@b.c", "admin_override": True}))
+        == "sent override=True"
+    )
 
 
 def test_no_wrapper_exposes_an_unguarded_execution_path() -> None:

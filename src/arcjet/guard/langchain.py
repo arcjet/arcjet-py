@@ -386,8 +386,13 @@ class _GuardMixin:
         normally has nothing to add, so the derivation is forwarded to the tool
         that owns it — which is the only way a tool declaring no schema gets
         one, since it is derived from a ``_run`` this wrapper does not have.
-        Reassigning it is how an application narrows what a model may send, so
-        a schema that is no longer the wrapped tool's wins instead.
+        Reassigning it is how an application changes what the *model is told*,
+        so a schema that is no longer the wrapped tool's wins instead.
+
+        It changes only that. The wrapped tool parses and executes against its
+        own schema, so an argument the narrowed one omits still reaches the
+        tool if something sends it anyway. To stop the argument rather than
+        stop advertising it, narrow the wrapped tool or bind a rule to it.
         """
         return cast(BaseTool, self).args_schema is not self._arcjet_delegate.args_schema
 
