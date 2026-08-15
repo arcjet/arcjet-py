@@ -1101,6 +1101,49 @@ def test_a_denial_reaches_callbacks_passed_as_run_keywords() -> None:
 
 
 # --- Crossing a process boundary ---------------------------------------------
+#
+# Pickle resolves a class by name, so anything round-tripped here is declared at
+# module level rather than inside the test that uses it.
+
+
+class _FrozenPickleTool(BaseTool):
+    """A tool class whose instances cannot be assigned to."""
+
+    model_config = ConfigDict(frozen=True)
+    name: str = "frozen"
+    description: str = "d"
+
+    def _run(self, query: str) -> str:
+        return "ran"
+
+
+class _ExtraPickleTool(BaseTool):
+    """A tool class that carries state outside its declared fields."""
+
+    model_config = ConfigDict(extra="allow")
+    name: str = "extra"
+    description: str = "d"
+
+    def _run(self, query: str) -> str:
+        return "ran"
+
+
+class _PlainPickleTool(BaseTool):
+    name: str = "plain"
+    description: str = "d"
+
+    def _run(self, query: str) -> str:
+        return "ran"
+
+
+def _round_trip(wrapped: Any, guard: ArcjetGuardSync) -> Any:
+    """Pickle and load *wrapped*, with *guard* registered for the rebuild."""
+    blob = pickle.dumps(wrapped)
+    register_arcjet(guard)
+    try:
+        return pickle.loads(blob)
+    finally:
+        unregister_arcjet()
 
 
 def test_a_guarded_tool_pickles_and_still_guards() -> None:
@@ -1183,6 +1226,31 @@ def test_pickling_preserves_fields_set_on_the_guarded_handle() -> None:
     assert restored.handle_tool_error == "policy said no"
     assert restored.tags == ["team-a"]
     assert restored.invoke(cast(Any, {"query": "q"})) == "policy said no"
+
+
+def test_pickling_carries_the_handles_pydantic_state() -> None:
+    """The handle's state travels as pydantic's own, not as a bag of fields.
+
+    Replaying fields through assignment cannot restore a frozen model — so
+    guarding was what destroyed picklability — drops whatever an extra-allowing
+    tool holds outside its declared fields, and marks every field as explicitly
+    set, which makes `model_dump(exclude_unset=True)` on the far side emit the
+    whole model instead of the author's overrides.
+    """
+    guard = _guard(_Transport())
+
+    frozen = cast(Any, _FrozenPickleTool)()
+    assert pickle.dumps(frozen)  # picklable before guarding
+    restored = _round_trip(guard_tool(guard=guard, tool=frozen, action="a.b"), guard)
+    assert restored.invoke(cast(Any, {"query": "q"})) == "ran"
+
+    extra = cast(Any, _ExtraPickleTool)()
+    wrapped = guard_tool(guard=guard, tool=extra, action="a.b")
+    cast(Any, wrapped).custom_marker = "kept"
+    assert _round_trip(wrapped, guard).custom_marker == "kept"
+
+    plain = guard_tool(guard=guard, tool=_PlainPickleTool(), action="a.b")
+    assert _round_trip(plain, guard).model_dump(exclude_unset=True) == {}
 
 
 def test_unpickling_without_a_registered_client_says_so() -> None:

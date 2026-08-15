@@ -668,7 +668,7 @@ class _GuardMixin:
         handle. The rebuild derives all of them fresh.
         """
         policy = self._arcjet_policy
-        state = self.__getstate__()
+        state = cast(Any, self).__getstate__()
         fields = {
             name: value
             for name, value in (state.get("__dict__") or {}).items()
