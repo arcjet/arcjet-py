@@ -1212,6 +1212,24 @@ def _refuse_colliding_state(tool: BaseTool) -> None:
                 )
 
 
+#: Fields shared with the handle rather than copied. `args_schema` is the one
+#: that matters: a schema is a definition rather than per-tool state, a class
+#: one is already shared because a class is atomic to a copy, and whether the
+#: handle still holds *the tool's* schema is what decides who answers a
+#: question about it. Rebuilding a dict schema made every such tool look like
+#: one whose schema had been reassigned.
+_SHARED_FIELDS = frozenset({"args_schema"})
+
+
+def _copied_container(value: Any) -> Any:
+    """One level of copy, so a tag or a callback cannot show up on both tools."""
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, dict):
+        return dict(value)
+    return value
+
+
 def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
     """*tool*'s state, in an instance of *wrapper*.
 
@@ -1224,15 +1242,12 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
 
     Containers are copied one level down. Sharing them would let a tag or a
     callback attached to either tool show up on the other, so an audit trail
-    could record executions that never passed the checkpoint.
+    could record executions that never passed the checkpoint. A schema is not
+    that kind of container — see ``_SHARED_FIELDS``.
     """
     guarded = wrapper.__new__(wrapper)
     fields = {
-        name: list(value)
-        if isinstance(value, list)
-        else dict(value)
-        if isinstance(value, dict)
-        else value
+        name: _copied_container(value) if name not in _SHARED_FIELDS else value
         for name, value in (tool.__dict__ or {}).items()
     }
     object.__setattr__(guarded, "__dict__", fields)
