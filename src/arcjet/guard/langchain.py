@@ -34,10 +34,12 @@ from langchain_core.callbacks import (
 )
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import ensure_config
 from langchain_core.tools import BaseTool, ToolException
-from langchain_core.tools.base import FILTERED_ARGS, ValidationErrorV1
+from langchain_core.tools.base import FILTERED_ARGS
 from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr, ValidationError
+from pydantic.v1 import ValidationError as ValidationErrorV1
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
@@ -165,6 +167,31 @@ class _Report:
     run_name: str | None
     run_id: Any
     tool_call_id: str | None
+
+    @classmethod
+    def of(cls, config: RunnableConfig, tool_call_id: str | None) -> "_Report":
+        """The same values ``BaseTool.invoke`` would hand its own ``run``."""
+        return cls(
+            config.get("callbacks"),
+            config.get("tags"),
+            config.get("metadata"),
+            config.get("run_name"),
+            config.get("run_id"),
+            tool_call_id,
+        )
+
+
+def _unwrap_tool_call(value: Any) -> tuple[Any, str | None]:
+    """A ToolCall-shaped input split into its arguments and its id.
+
+    The arguments are copied for the same reason ``_prep_run_args`` copies
+    them: they are usually the ``args`` of a ``ToolCall`` living in message
+    history, and the tool's own parsing writes into the mapping it is given.
+    """
+    if isinstance(value, dict) and value.get("type") == "tool_call":
+        args = value.get("args", {})
+        return (dict(args) if isinstance(args, Mapping) else args), value.get("id")
+    return value, None
 
 
 def _has_derivable_schema(tool: BaseTool) -> bool:
@@ -339,6 +366,44 @@ class _GuardMixin:
         """
         return cast(BaseTool, self).args_schema is not self._arcjet_tool.args_schema
 
+    def invoke(
+        self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
+    ) -> Any:
+        """Guard a call in the flavour it was made in, then hand it on.
+
+        Overridden rather than left to ``BaseTool.invoke`` because that would
+        reduce every call to ``run``, and a tool with no async body sends an
+        awaited call there too — so an application with an async client would
+        reach the blocking checkpoint and be refused a client it correctly
+        supplied. The flavour of the checkpoint follows the entrypoint; how the
+        tool then executes is the tool's own business.
+
+        The config is resolved here so the checkpoint reads what the tool will
+        run with, including one a chain passed down without the caller
+        re-threading it.
+        """
+        resolved = ensure_config(config)
+        raw, tool_call_id = _unwrap_tool_call(input)
+        report = _Report.of(resolved, tool_call_id)
+        try:
+            self._arcjet_evaluate(raw, tool_call_id, resolved)
+        except _BLOCKED as exc:
+            return self._arcjet_blocked(exc, raw, report)
+        return self._arcjet_tool.invoke(input, resolved, **kwargs)
+
+    async def ainvoke(
+        self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
+    ) -> Any:
+        """The awaitable counterpart of :meth:`invoke`."""
+        resolved = ensure_config(config)
+        raw, tool_call_id = _unwrap_tool_call(input)
+        report = _Report.of(resolved, tool_call_id)
+        try:
+            await self._arcjet_evaluate_async(raw, tool_call_id, resolved)
+        except _BLOCKED as exc:
+            return await self._arcjet_blocked_async(exc, raw, report)
+        return await self._arcjet_tool.ainvoke(input, resolved, **kwargs)
+
     def run(
         self,
         tool_input: str | dict[str, Any],
@@ -355,21 +420,20 @@ class _GuardMixin:
         tool_call_id: str | None = None,
         **kwargs: Any,
     ) -> Any:
-        """The one checkpoint, on the entrypoint everything else reduces to.
+        """The checkpoint for a call made through ``run`` rather than ``invoke``.
 
-        ``invoke`` is deliberately not overridden: ``BaseTool.invoke`` resolves
-        the ambient config, unwraps a ``ToolCall`` and normalizes the rest into
-        these parameters before calling here, so the checkpoint sees one
-        canonical view of a call however it arrived — and a tool class that
-        overrides ``invoke`` itself keeps its override.
+        Mirroring ``BaseTool.run``'s signature rather than taking ``*args`` is
+        what lets a caller pass ``callbacks`` positionally, as that signature
+        allows, without the value arriving twice — and what puts the values a
+        blocked call is reported from in named parameters.
 
-        Mirroring the signature rather than taking ``*args`` is what lets a
-        caller pass ``callbacks`` positionally, as ``BaseTool.run`` allows,
-        without the value arriving twice.
+        The config is resolved for the same reason it is in :meth:`invoke`: a
+        resolver should read what the tool runs with.
         """
+        resolved = ensure_config(config)
         report = _Report(callbacks, tags, metadata, run_name, run_id, tool_call_id)
         try:
-            self._arcjet_evaluate(tool_input, tool_call_id, config)
+            self._arcjet_evaluate(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, tool_input, report)
         return self._arcjet_tool.run(
@@ -404,9 +468,10 @@ class _GuardMixin:
         **kwargs: Any,
     ) -> Any:
         """The awaitable counterpart of :meth:`run`."""
+        resolved = ensure_config(config)
         report = _Report(callbacks, tags, metadata, run_name, run_id, tool_call_id)
         try:
-            await self._arcjet_evaluate_async(tool_input, tool_call_id, config)
+            await self._arcjet_evaluate_async(tool_input, tool_call_id, resolved)
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(exc, tool_input, report)
         return await self._arcjet_tool.arun(
