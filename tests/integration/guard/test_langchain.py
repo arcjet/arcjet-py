@@ -1334,6 +1334,36 @@ def test_a_v1_schemas_rejection_reaches_the_tools_own_handler() -> None:
     )
 
 
+def test_allowing_a_failed_evaluation_still_reports_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A permanently broken resolver has no other symptom.
+
+    Under `allow` the call proceeds, so nothing raises and nothing is denied;
+    without a log line the tool looks guarded while no decision is being made.
+    """
+
+    def broken_actor(config: Any) -> str:
+        raise KeyError("user_id")
+
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        actor=broken_actor,
+        on_guard_error="allow",
+    )
+
+    with caplog.at_level("WARNING", logger="arcjet"):
+        assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
+
+    assert any(
+        "could not evaluate policy" in record.message for record in caplog.records
+    )
+
+
 def test_an_unreadable_arguments_failure_carries_its_cause() -> None:
     """`could not be evaluated` alone does not say what stopped the read."""
 
