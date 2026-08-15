@@ -429,14 +429,14 @@ class _GuardMixin:
         is no unguarded path through here.
         """
         delegate = self._arcjet_tool
-        raw = _call_arguments(inspect.signature(delegate._run), args, kwargs)
+        raw = _call_arguments(_signature_of(delegate._run), args, kwargs)
         self._arcjet_evaluate(raw, None, None, validated=False)
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_tool
-        raw = _call_arguments(inspect.signature(delegate._arun), args, kwargs)
+        raw = _call_arguments(_signature_of(delegate._arun), args, kwargs)
         await self._arcjet_evaluate_async(raw, None, None, validated=False)
         return await delegate._arun(*args, **kwargs)
 
@@ -837,8 +837,24 @@ def _rebuild_guarded_tool(
     return guarded
 
 
+def _signature_of(fn: Callable[..., Any]) -> inspect.Signature | None:
+    """*fn*'s signature, or ``None`` when it does not have one to report.
+
+    A C or extension callable — a numpy ufunc, a pybind11 function,
+    ``time.time`` — has no introspectable signature, and LangChain accepts one
+    as a tool's ``func`` regardless. Guarding such a tool must not be the thing
+    that fails; the call's keyword arguments stand in as the resolver's view.
+    """
+    try:
+        return inspect.signature(fn)
+    except (TypeError, ValueError):
+        return None
+
+
 def _call_arguments(
-    signature: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
+    signature: inspect.Signature | None,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
 ) -> Any:
     """A direct call's arguments, shaped the way the tool reads its input.
 
@@ -858,6 +874,8 @@ def _call_arguments(
     An unbindable call is handed on untouched: the tool is about to raise over
     it anyway, and the checkpoint should not be the thing that reports it.
     """
+    if signature is None:
+        return kwargs or (args[0] if len(args) == 1 else {})
     try:
         bound = signature.bind(*args, **kwargs)
     except TypeError:
@@ -904,7 +922,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
     func = getattr(guarded, "func", None)
     if callable(func):
         inner_func = cast(Callable[..., Any], func)
-        func_signature = inspect.signature(inner_func)
+        func_signature = _signature_of(inner_func)
 
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
@@ -922,7 +940,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
     coroutine = getattr(guarded, "coroutine", None)
     if callable(coroutine):
         inner_coroutine = cast(Callable[..., Awaitable[Any]], coroutine)
-        coroutine_signature = inspect.signature(inner_coroutine)
+        coroutine_signature = _signature_of(inner_coroutine)
 
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
