@@ -12,10 +12,13 @@ advertises and executes exactly what the unguarded one did.
 
 from __future__ import annotations
 
+import functools
 import inspect
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+import threading
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
+from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -199,9 +202,16 @@ class _UnreadableArguments(Exception):
 class _GuardMixin:
     """The checkpoint, in front of a tool this wrapper delegates to.
 
-    Both wrapper classes below mix this in.  It holds no pydantic state of its
-    own — the concrete classes declare the private attributes — so it cannot
-    disturb the field definitions of the model it is mixed into.
+    Never used as a base class.  Its members are copied into the namespace of
+    each generated wrapper (see :func:`_guarded_class`), because a wrapper that
+    inherited this as well as the tool's own class could not be guarded a
+    second time: the second wrapper would need this ahead of a class that
+    already has it behind, which is not a linearizable MRO.  A namespace entry
+    has no such constraint and still beats every base.
+
+    It follows that nothing here may use a zero-argument ``super()``, whose
+    ``__class__`` cell would still name this class after the copy and no longer
+    match the instance.
     """
 
     _arcjet: _Policy
@@ -209,7 +219,7 @@ class _GuardMixin:
 
     def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
         if self._arcjet_owns_schema():
-            return cast(BaseTool, super()).get_input_schema(config)
+            return BaseTool.get_input_schema(cast(BaseTool, self), config)
         return self._arcjet_tool.get_input_schema(config)
 
     @property
@@ -427,43 +437,131 @@ def _discard(value: Any) -> None:
         close()
 
 
-class _GuardedTool(_GuardMixin, BaseTool):
-    """Guards any tool, and asks that tool what its schema is.
+def _call_arguments(
+    fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> Any:
+    """A direct call's arguments, keyed the way the tool's own schema keys them.
 
-    ``args_schema`` is a cache of an answer, not the answer: a tool that
-    declares none has its schema derived from its own ``_run``, which this
-    wrapper does not have.  Forwarding the derivation keeps ``args``, the
-    provider conversions and ``bind_tools`` reading the tool that knows.
+    Binding to the signature is what turns a positional call into the mapping a
+    policy resolver is documented to receive, so a resolver sees the same thing
+    whether the model called the tool or the application called its function.
+    An unbindable call is handed on untouched: the tool is about to raise over
+    it anyway, and the checkpoint should not be the thing that reports it.
     """
+    try:
+        bound = inspect.signature(fn).bind(*args, **kwargs)
+    except TypeError:
+        return kwargs if kwargs else args[0] if len(args) == 1 else dict(kwargs)
+    bound.apply_defaults()
+    return dict(bound.arguments)
 
-    _arcjet: _Policy = PrivateAttr()
-    _arcjet_tool: BaseTool = PrivateAttr()
 
-    def _run(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("Guarded tools delegate to the tool they wrap")
+def _guarded_callables(guarded: BaseTool) -> None:
+    """Put the checkpoint in front of the tool's own callables.
 
+    ``func`` and ``coroutine`` are ordinary fields, so they are copied from the
+    wrapped tool with everything else — and they are public. LangChain reads
+    ``func`` to render a tool's signature, and application code calls it
+    directly. Copied verbatim they would run the tool's body with no
+    checkpoint, which is a way past a ``DENY`` on the guarded tool itself.
 
-class _GuardedSimpleTool(_GuardMixin, SimpleTool):
-    """Guards a ``Tool``, whatever that tool declares.
-
-    LangChain decides what to tell a model about a ``Tool`` through gates on
-    the concrete class — the escape hatch in
-    ``_format_tool_to_openai_function`` for one built from a bare function, and
-    the ``"type": "custom_tool"`` metadata check for one an application marks
-    that way.  Neither reads anything but the class, so every ``Tool`` is
-    wrapped in a ``Tool`` and both gates keep answering as they did.  A schema
-    the tool declares is copied across like its other fields; one it does not
-    declare stays unset, which is the other half of the bare-function gate.
+    The replacements keep the wrapped function's signature, because that is
+    what ``render_text_description`` reports and what makes a guarded tool
+    render as the unguarded one did.
     """
+    func = getattr(guarded, "func", None)
+    if callable(func):
+        inner_func = func
 
-    _arcjet: _Policy = PrivateAttr()
-    _arcjet_tool: BaseTool = PrivateAttr()
+        @functools.wraps(inner_func)
+        def guarded_func(*args: Any, **kwargs: Any) -> Any:
+            evaluate = cast(Any, guarded)._arcjet_evaluate
+            evaluate(_call_arguments(inner_func, args, kwargs), None, None)
+            return inner_func(*args, **kwargs)
 
-    def _run(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("Guarded tools delegate to the tool they wrap")
+        cast(Any, guarded).func = guarded_func
 
-    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("Guarded tools delegate to the tool they wrap")
+    coroutine = getattr(guarded, "coroutine", None)
+    if callable(coroutine):
+        inner_coroutine = coroutine
+
+        @functools.wraps(inner_coroutine)
+        async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
+            evaluate = cast(Any, guarded)._arcjet_evaluate_async
+            await evaluate(_call_arguments(inner_coroutine, args, kwargs), None, None)
+            return await inner_coroutine(*args, **kwargs)
+
+        cast(Any, guarded).coroutine = guarded_coroutine
+
+
+def _refuse_direct_run(self: Any, *args: Any, **kwargs: Any) -> Any:
+    raise RuntimeError("Guarded tools delegate to the tool they wrap")
+
+
+async def _refuse_direct_arun(self: Any, *args: Any, **kwargs: Any) -> Any:
+    raise RuntimeError("Guarded tools delegate to the tool they wrap")
+
+
+# Copied wholesale into each generated namespace, minus the entries that
+# describe where a class was written rather than what it does.
+_NAMESPACE_SKIP = frozenset(
+    {"__dict__", "__weakref__", "__module__", "__doc__", "__qualname__"}
+)
+
+# Keyed weakly so guarding a tool cannot keep its class alive, and *valued*
+# weakly for the same reason: a generated class holds its base in `__bases__`,
+# so a strong value would make every entry immortal. A guarded tool keeps its
+# own class alive, which is exactly as long as the entry is worth having.
+_guarded_classes: MutableMapping[type[BaseTool], ReferenceType[type[BaseTool]]] = (
+    WeakKeyDictionary()
+)
+_guarded_classes_lock = threading.Lock()
+
+
+def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
+    """A subclass of *base* that guards before delegating, made once per class.
+
+    A guarded tool has to *be* the tool it wraps: applications and parts of
+    LangChain itself branch on a tool's concrete class, and a wrapper of some
+    other class silently changes what they decide.  Subclassing is the only
+    thing ``isinstance`` accepts, so the wrapper is generated from whatever
+    class it was handed.
+
+    Generated once per class and reused, so a tool class that registers its
+    subclasses sees one registration rather than one per guarded tool.  The
+    guard's own members go in the namespace, which beats every base, so the
+    tool's fields and methods are inherited untouched.
+    """
+    with _guarded_classes_lock:
+        cached = _guarded_classes.get(base)
+        existing = cached() if cached is not None else None
+        if existing is not None:
+            return existing
+
+        namespace: dict[str, Any] = {
+            name: member
+            for name, member in _GuardMixin.__dict__.items()
+            if name not in _NAMESPACE_SKIP
+        }
+        namespace["__annotations__"] = dict(
+            _GuardMixin.__dict__.get("__annotations__", {})
+        )
+        namespace["_arcjet"] = PrivateAttr()
+        namespace["_arcjet_tool"] = PrivateAttr()
+        # The tool's own body is never reached through the wrapper — every
+        # entrypoint delegates to the inner tool — so these refuse rather than
+        # offer a way past the checkpoint.
+        namespace["_run"] = _refuse_direct_run
+        namespace["_arun"] = _refuse_direct_arun
+        name = f"ArcjetGuarded{base.__name__}"
+        # Named for this module rather than for the caller's, so a repr or a
+        # traceback points at the code that made the class.
+        namespace["__module__"] = __name__
+        namespace["__qualname__"] = name
+
+        generated = cast("type[BaseTool]", type(name, (base,), namespace))
+        _guarded_classes[base] = ref(generated)
+        return generated
 
 
 def guard_tool(
@@ -483,10 +581,11 @@ def guard_tool(
     class overrides still applies, and the model is told what the unguarded
     tool advertised.
 
-    The result is a wrapper, not an instance of *tool*'s class, so application
-    code that branches on a tool's concrete type sees the wrapper.  ``Tool`` is
-    the exception: LangChain decides what to advertise for that shape by
-    concrete class, so the wrapper is a ``Tool`` too.
+    The result is an instance of *tool*'s own class, so ``isinstance`` and the
+    concrete-class gates LangChain uses to decide what to advertise keep
+    answering as they did.  It is a generated subclass, made once per tool
+    class: a class that registers or validates its subclasses sees one such
+    subclass, at the first ``guard_tool`` call for it.
 
     Unlike the core Guard client, which returns a fail-open ``ALLOW`` decision
     when evaluation is degraded, this helper fails closed by default. With
@@ -510,11 +609,7 @@ def guard_tool(
     ``TypeError``: that is a wiring mistake, not a degraded evaluation, and
     ``on_guard_error`` deliberately does not govern it.
     """
-    wrapper: type[BaseTool]
-    if isinstance(tool, SimpleTool):
-        wrapper = _GuardedSimpleTool
-    else:
-        wrapper = _GuardedTool
+    wrapper = _guarded_class(type(tool))
 
     values: dict[str, Any] = {}
     for name in type(tool).model_fields:
@@ -540,6 +635,7 @@ def guard_tool(
         rules=tuple(rules),
         on_guard_error=on_guard_error,
     )
+    _guarded_callables(guarded)
     return guarded
 
 
