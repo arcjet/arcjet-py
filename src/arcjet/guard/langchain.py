@@ -283,6 +283,11 @@ class _Policy:
     inputs: InputResolver | AsyncInputResolver | None
     rules: tuple[RuleWithInput, ...]
     on_guard_error: OnGuardError
+    # Which of the client's two spellings answers each flavour, resolved once.
+    # The client cannot change flavour for the life of a guarded tool, so
+    # asking it on every call is introspection with one possible answer.
+    blocking: Callable[..., Any] | None
+    awaitable: Callable[..., Awaitable[Any]] | None
 
 
 class _UnreadableArguments(Exception):
@@ -448,7 +453,7 @@ class _GuardMixin:
         *,
         validated: bool = True,
     ) -> None:
-        guard = _blocking(self._arcjet.guard, "guard_sync", "guard")
+        guard = self._arcjet.blocking
         if guard is None:
             raise TypeError(
                 "A synchronous LangChain invocation requires a guard client with a "
@@ -482,7 +487,7 @@ class _GuardMixin:
         *,
         validated: bool = True,
     ) -> None:
-        guard = _awaitable(self._arcjet.guard, "guard")
+        guard = self._arcjet.awaitable
         if guard is None:
             raise TypeError(
                 "An asynchronous LangChain invocation requires a guard client with an "
@@ -1111,6 +1116,8 @@ def guard_tool(
         inputs=inputs,
         rules=tuple(rules),
         on_guard_error=on_guard_error,
+        blocking=_blocking(guard, "guard_sync", "guard"),
+        awaitable=_awaitable(guard, "guard"),
     )
     _guarded_callables(guarded)
     return guarded
