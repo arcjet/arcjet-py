@@ -37,7 +37,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import ensure_config
 from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import FILTERED_ARGS
-from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr, ValidationError
 from pydantic.v1 import ValidationError as ValidationErrorV1
 
@@ -235,15 +234,10 @@ def _unwrap_tool_call(value: Any) -> tuple[Any, str | None]:
     return value, None
 
 
-def _has_derivable_schema(tool: BaseTool) -> bool:
-    """Whether ``tool_call_schema`` describes this tool's actual arguments.
-
-    A ``Tool`` built from a bare function declares no schema, so the property
-    falls back to introspecting ``Tool._run(*args, config, **kwargs)`` and
-    reports that signature instead. LangChain works around this with the same
-    concrete-class check when it advertises such a tool.
-    """
-    return not (isinstance(tool, SimpleTool) and not tool.args_schema)
+#: Parameter names a derived schema reports that describe how ``_run`` is
+#: called rather than what the tool takes: a variadic ``_run`` reports only
+#: these, and they name nothing a resolver could bind a rule to.
+_SCAFFOLDING = frozenset({"args", "kwargs", "config", *FILTERED_ARGS})
 
 
 def _arguments(tool: BaseTool, raw: Any, tool_call_id: str | None) -> Mapping[str, Any]:
@@ -267,26 +261,20 @@ def _arguments(tool: BaseTool, raw: Any, tool_call_id: str | None) -> Mapping[st
 
     parsed = tool._parse_input(raw, tool_call_id)
     if not isinstance(parsed, dict):
-        # A bare string comes back unchanged. LangChain binds it to the
-        # schema's first field whatever the field count, so key it the same way
-        # rather than inventing a name the tool will never use.
-        names = list(tool.args)
+        # A bare value comes back unchanged, so it needs a key. The tool's own
+        # `args` supplies one — unless every name there is scaffolding, which
+        # is what a tool with no schema and a variadic `_run` reports. Naming
+        # the value after that scaffolding tells a resolver less than nothing.
+        names = [name for name in tool.args if name not in _SCAFFOLDING]
         return {names[0]: parsed} if names else {"input": parsed}
 
     # `_parse_input` re-adds arguments the framework injects — credentials,
-    # graph state, the tool call id — that `tool_call_schema` hides from the
-    # model. A policy resolver must not be handed those. Only that schema
-    # identifies them, so filtering happens only when it can say so; the
-    # alternative, `tool.args`, names a different key-space for a tool whose
-    # arguments the model supplies positionally.
-    schema = tool.tool_call_schema
-    if (
-        _has_derivable_schema(tool)
-        and isinstance(schema, type)
-        and issubclass(schema, BaseModel)
-    ):
-        visible = set(schema.model_fields)
-        parsed = {key: value for key, value in parsed.items() if key in visible}
+    # graph state, the tool call id — that the model never sent. A policy
+    # resolver must not be handed those, and the tool's own filter is what
+    # identifies them: deriving the rule from `tool_call_schema` instead
+    # filtered against a key-space the arguments are not in whenever that
+    # schema came from `_run`, which silently emptied the map.
+    parsed = tool._filter_injected_args(parsed)
 
     # Nested models come back as instances. Resolvers are documented to take a
     # `Mapping[str, Any]`, so hand them data rather than model objects.
