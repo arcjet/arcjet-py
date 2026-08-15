@@ -196,6 +196,17 @@ def _check_decision(
         raise ArcjetToolUnavailableError(action)
 
 
+def _handles_tool_errors(tool: BaseTool) -> bool:
+    """Whether *tool* converts a ``ToolException`` rather than raising it.
+
+    Asked before the handler runs, so that a handler which raises is not
+    mistaken for there being no handler at all: its exception is the tool
+    author's, and it belongs to the caller.
+    """
+    handler = tool.handle_tool_error
+    return isinstance(handler, str) or handler is True or callable(handler)
+
+
 def _handle_tool_exception(
     tool: BaseTool, error: ToolException, tool_call_id: str | None
 ) -> Any:
@@ -543,18 +554,16 @@ class _GuardMixin:
         id, with the same labels and the same error handling.
         """
         run_manager = self._arcjet_open_run(raw, report)
-        if isinstance(error, ArcjetToolDeniedError):
-            try:
-                content = _handle_tool_exception(
-                    self._arcjet_tool, error, report.tool_call_id
-                )
-            except ToolException:
-                pass  # No handler took it; report the error below and re-raise.
-            else:
-                if run_manager is not None:
-                    with _reporting(self._arcjet.action):
-                        run_manager.on_tool_end(content)
-                return content
+        if isinstance(error, ArcjetToolDeniedError) and _handles_tool_errors(
+            self._arcjet_tool
+        ):
+            content = _handle_tool_exception(
+                self._arcjet_tool, error, report.tool_call_id
+            )
+            if run_manager is not None:
+                with _reporting(self._arcjet.action):
+                    run_manager.on_tool_end(content)
+            return content
         if run_manager is not None:
             with _reporting(self._arcjet.action):
                 run_manager.on_tool_error(error)
@@ -565,18 +574,16 @@ class _GuardMixin:
     ) -> Any:
         """The awaitable counterpart of :meth:`_arcjet_blocked`."""
         run_manager = await self._arcjet_open_run_async(raw, report)
-        if isinstance(error, ArcjetToolDeniedError):
-            try:
-                content = _handle_tool_exception(
-                    self._arcjet_tool, error, report.tool_call_id
-                )
-            except ToolException:
-                pass  # No handler took it; report the error below and re-raise.
-            else:
-                if run_manager is not None:
-                    with _reporting(self._arcjet.action):
-                        await run_manager.on_tool_end(content)
-                return content
+        if isinstance(error, ArcjetToolDeniedError) and _handles_tool_errors(
+            self._arcjet_tool
+        ):
+            content = _handle_tool_exception(
+                self._arcjet_tool, error, report.tool_call_id
+            )
+            if run_manager is not None:
+                with _reporting(self._arcjet.action):
+                    await run_manager.on_tool_end(content)
+            return content
         if run_manager is not None:
             with _reporting(self._arcjet.action):
                 await run_manager.on_tool_error(error)
