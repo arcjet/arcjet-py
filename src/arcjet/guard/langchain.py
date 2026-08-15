@@ -1092,20 +1092,28 @@ def guard_tool(
     ``handle_tool_error`` may convert it into a LangChain error result. It is
     distinct from an unavailable evaluation.
 
-    A guarded tool pickles if the tool it wraps does, carrying the policy but
-    not *guard*: a client cannot cross a process boundary, and pickling one
-    would write the site key into whatever the pickle is stored in. The
-    receiving process supplies its own with
-    :func:`~arcjet.guard.register_arcjet` before loading the tool.
+    A guarded tool pickles if the tool it wraps does *and* its resolvers do,
+    carrying the policy but not *guard*: a client cannot cross a process
+    boundary, and pickling one would write the site key into whatever the
+    pickle is stored in. The receiving process supplies its own with
+    :func:`~arcjet.guard.register_arcjet` before loading the tool. Resolvers
+    are pickled as given, so a lambda or a closure — fine everywhere else —
+    makes a guarded tool unpicklable; a module-level function does not.
+
+    Fields reassigned on the guarded tool after this returns do not reach the
+    call. The wrapped tool executes with what it had, and both the call and
+    the report of a blocked one read the wrapped tool, so the two agree.
+    Configure the tool before guarding it.
 
     *guard* is recognised by the shape of its ``guard()`` rather than by its
     class, matching the free guard calls, so an
     :class:`~arcjet.guard.testing.ArcjetTestClient` or a hand-rolled double
     drives a guarded tool without subclassing anything. A recorder answers a
     fail-open decision, so pair one with ``on_guard_error="allow"`` unless the
-    test is asserting the denial. A client of the wrong flavour still raises
-    ``TypeError``: that is a wiring mistake, not a degraded evaluation, and
-    ``on_guard_error`` deliberately does not govern it.
+    test is asserting the denial. A client that cannot answer the flavour a
+    call takes still raises ``TypeError``: that is a wiring mistake, not a
+    degraded evaluation, and ``on_guard_error`` deliberately does not govern
+    it.
     """
     guarded = _copy_of(tool, _guarded_class(type(tool)))
     guarded._arcjet_tool = tool

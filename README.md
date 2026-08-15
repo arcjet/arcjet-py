@@ -985,7 +985,11 @@ guarded_send_email = guard_tool(
 
 The guarded tool advertises the same schema as the tool it wraps and delegates
 to it, so the model is told what it would have been told without the guard.
-`invoke()`, `ainvoke()`, `run()` and `arun()` are all checkpoints.
+Every way of calling the tool is a checkpoint — `invoke()`, `ainvoke()`,
+`run()`, `arun()`, streaming and batching, and the tool's own `func` — and each
+call is evaluated exactly once. LangChain normalizes a call before the
+checkpoint reads it, so a policy resolver sees the config the tool runs with,
+including one a chain passed down without the caller re-threading it.
 
 The guarded tool is an instance of the wrapped tool's class, so application code
 and LangChain itself keep taking the same branch when they check a tool's
@@ -1001,16 +1005,20 @@ with the handled content, and anything else is a start followed by an error. So
 a blocked call appears on a trace rather than leaving a gap, and a handled
 denial is not counted as a failure.
 
-Callbacks, tags and metadata attached to the guarded tool after `guard_tool()`
-returns are carried into every call, allowed or blocked. A name or description
-reassigned afterwards is the one thing the executing tool does not pick up.
+Fields reassigned on the guarded tool after `guard_tool()` returns — callbacks,
+tags, `handle_tool_error` — do not reach the call. The wrapped tool executes
+with what it had, and a blocked call is reported from the wrapped tool too, so
+allowed and blocked calls agree with each other. Configure the tool before
+guarding it.
 
-A guarded tool can be pickled if the tool it wraps can, which is what sending
-tools to a worker process needs. Fields set on the guarded tool survive the
-round trip. The client is not pickled with it — it cannot cross a process
-boundary, and pickling it would write your site key into whatever the pickle is
-stored in — so call `register_arcjet()` in the receiving process before loading
-the tool.
+A guarded tool can be pickled if the tool it wraps can and its resolvers can,
+which is what sending tools to a worker process needs. Fields set on the
+guarded tool survive the round trip. Resolvers are pickled as you gave them, so
+a lambda or a closure makes the tool unpicklable — use a module-level function
+if the tool has to cross a process boundary. The client is not pickled with it
+— it cannot cross a process boundary, and pickling it would write your site key
+into whatever the pickle is stored in — so call `register_arcjet()` in the
+receiving process before loading the tool.
 
 The core `guard()` API and the LangChain helper have intentionally different
 defaults when evaluation is unavailable:
