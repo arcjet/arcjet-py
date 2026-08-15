@@ -1078,7 +1078,12 @@ _NAMESPACE_SKIP = frozenset({"__dict__", "__weakref__", "__doc__", "__annotation
 _guarded_classes: MutableMapping[type[BaseTool], ReferenceType[type[BaseTool]]] = (
     WeakKeyDictionary()
 )
-_guarded_classes_lock = threading.Lock()
+# Reentrant because the lock is held across the class creation below, which
+# runs the tool class's `__init_subclass__` and pydantic's metaclass — code
+# this module does not own and cannot stop from guarding a tool of its own.
+# With a plain lock that re-entry blocks the thread on itself, for good: no
+# traceback, no timeout, just a worker that never returns.
+_guarded_classes_lock = threading.RLock()
 
 
 def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
