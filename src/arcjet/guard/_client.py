@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Protocol, Sequence, Union
+from typing import Any, Protocol, Sequence, Union
 
 import pyqwest
 
@@ -406,6 +406,19 @@ class ArcjetGuard:
             fetch, self._sensitive_info_backend
         )
 
+    def __deepcopy__(self, memo: dict[int, Any]) -> ArcjetGuard:
+        """Shared with the copy rather than duplicated.
+
+        A client owns a transport holding a connection pool and a lock, which
+        ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
+        meaningful if it could. Answering here rather than only where a client
+        happens to be held makes the sharing independent of traversal order: a
+        structure that reaches the client before whatever else refers to it
+        copies as readily as one that reaches it after.
+        """
+        memo[id(self)] = self
+        return self
+
     def capture(
         self,
         *,
@@ -642,6 +655,19 @@ class ArcjetGuardSync:
         self._remote_policy = SyncRemotePolicyRuntime(
             fetch, self._sensitive_info_backend
         )
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> ArcjetGuardSync:
+        """Shared with the copy rather than duplicated.
+
+        A client owns a transport holding a connection pool and a lock, which
+        ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
+        meaningful if it could. Answering here rather than only where a client
+        happens to be held makes the sharing independent of traversal order: a
+        structure that reaches the client before whatever else refers to it
+        copies as readily as one that reaches it after.
+        """
+        memo[id(self)] = self
+        return self
 
     def capture(
         self,

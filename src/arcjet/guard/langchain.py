@@ -415,15 +415,6 @@ class _GuardMixin:
             return cast("PolicyInputMap | None", await value)
         return cast("PolicyInputMap | None", value)
 
-    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Any:
-        # The Arcjet client owns a connection pool and a lock, so it is shared
-        # with the copy rather than duplicated: copying a client is not
-        # meaningful, and `copy.deepcopy` cannot do it at all.
-        memo = {} if memo is None else memo
-        guard = self._arcjet.guard
-        memo[id(guard)] = guard
-        return BaseModel.__deepcopy__(cast(BaseModel, self), memo)
-
 
 def _discard(value: Any) -> None:
     """Close a coroutine that will never be awaited.
