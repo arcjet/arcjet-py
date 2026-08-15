@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import pickle
+import threading
 import uuid
 from typing import Annotated, Any, cast
 
@@ -744,6 +745,51 @@ def test_a_tool_whose_constructor_takes_more_than_fields_can_be_guarded() -> Non
     )
 
     assert wrapped.name == "withclient"
+
+
+def test_guarding_from_inside_a_subclass_hook_does_not_deadlock() -> None:
+    """Generating the class runs code this module does not own.
+
+    A tool class's `__init_subclass__` can do anything, including guard a tool
+    of its own — a plugin base registering a guarded variant of each subclass.
+    Holding a non-reentrant lock across the class creation makes that re-entry
+    block the thread on itself, with no traceback and no timeout.
+
+    Driven from a worker thread so a regression fails this test rather than
+    hanging the whole suite: a deadlocked thread never returns to report.
+    """
+    guard = _guard(_Transport())
+
+    class Inner(BaseTool):
+        name: str = "inner"
+        description: str = "d"
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    class Reentrant(BaseTool):
+        name: str = "reentrant"
+        description: str = "d"
+
+        def __init_subclass__(cls, **kwargs: Any) -> None:
+            super().__init_subclass__(**kwargs)
+            guard_tool(guard=guard, tool=Inner(), action="inner.called")
+
+        def _run(self, query: str) -> str:
+            return "r"
+
+    done: list[Any] = []
+    worker = threading.Thread(
+        target=lambda: done.append(
+            guard_tool(guard=guard, tool=Reentrant(), action="reentrant.called")
+        ),
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=20)
+
+    assert not worker.is_alive(), "guard_tool deadlocked inside the subclass hook"
+    assert isinstance(done[0], Reentrant)
 
 
 def test_a_guarded_tool_is_an_instance_of_the_tool_it_wraps() -> None:
