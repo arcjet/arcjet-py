@@ -333,14 +333,14 @@ class _GuardMixin:
         """
         delegate = self._arcjet_tool
         raw = _call_arguments(inspect.signature(delegate._run), args, kwargs)
-        self._arcjet_evaluate(raw, None, None)
+        self._arcjet_evaluate(raw, None, None, validated=False)
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_tool
         raw = _call_arguments(inspect.signature(delegate._arun), args, kwargs)
-        await self._arcjet_evaluate_async(raw, None, None)
+        await self._arcjet_evaluate_async(raw, None, None, validated=False)
         return await delegate._arun(*args, **kwargs)
 
     def _arcjet_child_config(self, config: RunnableConfig | None) -> RunnableConfig:
@@ -409,7 +409,12 @@ class _GuardMixin:
         return merged
 
     def _arcjet_evaluate(
-        self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
+        self,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig | None,
+        *,
+        validated: bool = True,
     ) -> None:
         guard = _blocking(self._arcjet.guard, "guard_sync", "guard")
         if guard is None:
@@ -422,7 +427,9 @@ class _GuardMixin:
             actor = self._arcjet_actor(resolved)
             readable = True
             try:
-                inputs = self._arcjet_inputs(raw, tool_call_id, resolved)
+                inputs = self._arcjet_inputs(
+                    raw, tool_call_id, resolved, validated=validated
+                )
             except _UnreadableArguments:
                 inputs, readable = None, False
             decision = guard(
@@ -441,7 +448,12 @@ class _GuardMixin:
                 ) from exc
 
     async def _arcjet_evaluate_async(
-        self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
+        self,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig | None,
+        *,
+        validated: bool = True,
     ) -> None:
         guard = _awaitable(self._arcjet.guard, "guard")
         if guard is None:
@@ -454,7 +466,9 @@ class _GuardMixin:
             actor = await self._arcjet_actor_async(resolved)
             readable = True
             try:
-                inputs = await self._arcjet_inputs_async(raw, tool_call_id, resolved)
+                inputs = await self._arcjet_inputs_async(
+                    raw, tool_call_id, resolved, validated=validated
+                )
             except _UnreadableArguments:
                 inputs, readable = None, False
             decision = await guard(
@@ -694,7 +708,12 @@ class _GuardMixin:
         return cast(_ActorFn, actor)(config)
 
     def _arcjet_resolve_inputs(
-        self, raw: Any, tool_call_id: str | None, config: RunnableConfig
+        self,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig,
+        *,
+        validated: bool,
     ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
         resolver = self._arcjet.inputs
         if not callable(resolver):
@@ -703,7 +722,13 @@ class _GuardMixin:
         # arguments: a tool with no resolver configured is never parsed at all.
         try:
             arguments = _arguments(self._arcjet_tool, raw, tool_call_id)
-        except ValidationError:
+        except ValidationError as exc:
+            if not validated:
+                # This surface runs the tool's body with the arguments as
+                # given, so nothing downstream will reject them. The rule was
+                # configured, could not see the effect it protects, and the
+                # call would otherwise proceed — an unevaluated policy.
+                raise _UnreadableArguments from exc
             # The tool's own schema rejected these arguments, so the tool
             # rejects the call too and its body never runs. Policy still gets a
             # decision, without inputs — there is no effect for an input rule
@@ -726,9 +751,16 @@ class _GuardMixin:
         return cast("str | None", value)
 
     def _arcjet_inputs(
-        self, raw: Any, tool_call_id: str | None, config: RunnableConfig
+        self,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig,
+        *,
+        validated: bool,
     ) -> PolicyInputMap | None:
-        value = self._arcjet_resolve_inputs(raw, tool_call_id, config)
+        value = self._arcjet_resolve_inputs(
+            raw, tool_call_id, config, validated=validated
+        )
         if inspect.isawaitable(value):
             _discard(value)
             raise TypeError("A synchronous input resolver must not return an awaitable")
@@ -741,9 +773,16 @@ class _GuardMixin:
         return cast("str | None", value)
 
     async def _arcjet_inputs_async(
-        self, raw: Any, tool_call_id: str | None, config: RunnableConfig
+        self,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig,
+        *,
+        validated: bool,
     ) -> PolicyInputMap | None:
-        value = self._arcjet_resolve_inputs(raw, tool_call_id, config)
+        value = self._arcjet_resolve_inputs(
+            raw, tool_call_id, config, validated=validated
+        )
         if inspect.isawaitable(value):
             return cast("PolicyInputMap | None", await value)
         return cast("PolicyInputMap | None", value)
@@ -870,7 +909,12 @@ def _guarded_callables(guarded: BaseTool) -> None:
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
-            evaluate(_call_arguments(func_signature, args, kwargs), None, None)
+            evaluate(
+                _call_arguments(func_signature, args, kwargs),
+                None,
+                None,
+                validated=False,
+            )
             return inner_func(*args, **kwargs)
 
         cast(Any, guarded).func = guarded_func
@@ -884,7 +928,10 @@ def _guarded_callables(guarded: BaseTool) -> None:
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
             await evaluate(
-                _call_arguments(coroutine_signature, args, kwargs), None, None
+                _call_arguments(coroutine_signature, args, kwargs),
+                None,
+                None,
+                validated=False,
             )
             return await inner_coroutine(*args, **kwargs)
 
