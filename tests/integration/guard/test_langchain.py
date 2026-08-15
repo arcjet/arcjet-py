@@ -15,6 +15,7 @@ from langchain_core.tools import (
     InjectedToolArg,
     StructuredTool,
     Tool,
+    ToolException,
     tool,
 )
 from langchain_core.tools.render import render_text_description
@@ -1301,6 +1302,32 @@ def test_a_tools_own_handler_does_not_follow_its_body_into_child_runs() -> None:
     wrapped.invoke(cast(Any, {"value": "x"}))
 
     assert recorder.events == unguarded
+
+
+def test_an_error_handler_that_raises_reaches_the_caller() -> None:
+    """A handler's own exception is the tool author's, and it belongs to the caller.
+
+    LangChain lets a raising `handle_tool_error` propagate, so an agent
+    branching on the handler's error type must see it rather than the denial
+    that triggered it.
+    """
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="tool", description="d"
+    )
+
+    def handler(error: ToolException) -> str:
+        raise ToolException("quota exhausted - retry tomorrow")
+
+    original.handle_tool_error = handler
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="tool.called",
+    )
+
+    with pytest.raises(ToolException, match="quota exhausted") as raised:
+        wrapped.invoke(cast(Any, {"value": "no"}))
+    assert not isinstance(raised.value, ArcjetToolDeniedError)
 
 
 def test_the_delegates_error_handler_governs_a_denial() -> None:
