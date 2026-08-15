@@ -987,10 +987,20 @@ The guarded tool advertises the same schema as the tool it wraps and delegates
 to it, so the model is told what it would have been told without the guard.
 `invoke()`, `ainvoke()`, `run()` and `arun()` are all checkpoints.
 
-The guarded tool is a wrapper, not an instance of the wrapped tool's class, so
-application code that branches on a tool's concrete type sees the wrapper. The
-one exception is a `Tool` built from a bare function, which is wrapped by a
-`Tool` subclass because LangChain advertises that shape by concrete class.
+The guarded tool is an instance of the wrapped tool's class, so application code
+and LangChain itself keep taking the same branch when they check a tool's
+concrete type. It is a generated subclass, created once per tool class: a tool
+class that hooks `__init_subclass__` to register or validate its subclasses sees
+that subclass once, at the first `guard_tool()` call for it.
+
+A denied call is reported to the tool's callbacks as a start followed by an
+error, so a blocked call appears on a trace rather than leaving a gap.
+
+A guarded tool can be pickled if the tool it wraps can, which is what sending
+tools to a worker process needs. The client is not pickled with it — it cannot
+cross a process boundary, and pickling it would write your site key into
+whatever the pickle is stored in — so call `register_arcjet()` in the receiving
+process before loading the tool.
 
 The core `guard()` API and the LangChain helper have intentionally different
 defaults when evaluation is unavailable:
@@ -1557,6 +1567,10 @@ The test client answers both `guard()` and `guard_sync()`, so it does not care
 which flavor your application uses. It records the call and returns a fail-open
 `ALLOW`, because no rule actually ran. It is not a mock server and does not let
 you stub per-rule verdicts.
+
+`guard_tool()` accepts it too — it identifies a client by the shape of its
+`guard()`, not by its class. Because the recorder answers a fail-open decision,
+pass `on_guard_error="allow"` unless the test is asserting the denial.
 
 ## Best practices
 
