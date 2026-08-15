@@ -5,6 +5,7 @@ import copy
 from typing import Annotated, Any, cast
 
 import pytest
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tools import (
     BaseTool,
     InjectedToolArg,
@@ -718,6 +719,121 @@ def test_guarding_preserves_a_rendered_tool_signature() -> None:
             guard=_guard(_Transport()), tool=original, action="a.called"
         )
         assert render_text_description([wrapped]) == render_text_description([original])
+
+
+# --- A blocked call is still a call, and belongs on the trace ----------------
+
+
+class _Recorder(BaseCallbackHandler):
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    def on_tool_start(
+        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
+    ) -> None:
+        self.events.append(("start", serialized.get("name", "")))
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        self.events.append(("end", str(output)))
+
+    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
+        self.events.append(("error", type(error).__name__))
+
+
+def test_a_denied_call_is_reported_to_the_callbacks() -> None:
+    """A trace with no record of a blocked call hides the interesting ones."""
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="dangerous", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="dangerous.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.invoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
+
+    assert recorder.events == [
+        ("start", "dangerous"),
+        ("error", "ArcjetToolDeniedError"),
+    ]
+
+
+def test_an_unavailable_policy_is_reported_to_the_callbacks() -> None:
+    """Failing closed stops the call too, so it is reported the same way."""
+    recorder = _Recorder()
+
+    def explode(_config: Any) -> str:
+        raise RuntimeError("resolver down")
+
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="dangerous", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=original,
+        action="dangerous.called",
+        actor=explode,
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        wrapped.invoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
+
+    assert recorder.events == [
+        ("start", "dangerous"),
+        ("error", "ArcjetToolUnavailableError"),
+    ]
+
+
+def test_an_allowed_call_is_reported_once() -> None:
+    """The tool opens its own run, so the checkpoint must not open a second."""
+    recorder = _Recorder()
+    original = StructuredTool.from_function(
+        lambda value: "ok", name="safe", description="d"
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="safe.called"
+    )
+
+    assert (
+        wrapped.invoke(cast(Any, {"value": "yes"}), config={"callbacks": [recorder]})
+        == "ok"
+    )
+
+    assert [name for kind, name in recorder.events if kind == "start"] == ["safe"]
+    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+
+
+def test_a_denied_async_call_is_reported_to_the_callbacks() -> None:
+    recorder = _Recorder()
+
+    async def lookup(value: str) -> str:
+        return "ok"
+
+    original = StructuredTool.from_function(
+        coroutine=lookup, name="dangerous", description="d"
+    )
+    wrapped = guard_tool(
+        guard=ArcjetGuard(
+            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
+        ),
+        tool=original,
+        action="dangerous.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        asyncio.run(
+            wrapped.ainvoke(
+                cast(Any, {"value": "no"}), config={"callbacks": [recorder]}
+            )
+        )
+
+    assert recorder.events == [
+        ("start", "dangerous"),
+        ("error", "ArcjetToolDeniedError"),
+    ]
 
 
 def test_guarding_preserves_an_artifact_result() -> None:
