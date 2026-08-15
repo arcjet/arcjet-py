@@ -654,18 +654,30 @@ class _GuardMixin:
         The receiving process supplies its own through ``register_arcjet``,
         which is how a client is shared with code that did not construct it.
 
-        The handle's own field values ride along and are reapplied after the
-        rebuild, so a ``handle_tool_error`` or a tag set on the guarded handle
-        survives the boundary — a denial that returned a handled message in
-        the parent process must not raise in the worker. ``func`` and
-        ``coroutine`` stay out: they are this module's guarded closures, and
-        the rebuild derives fresh ones.
+        The handle's own state rides along and is reapplied after the rebuild,
+        so a tag or a narrowed schema set on the guarded handle survives the
+        boundary. It travels as pydantic's own state rather than as a bag of
+        fields: replaying fields through assignment cannot restore a frozen
+        model, drops whatever an ``extra="allow"`` tool holds outside its
+        declared fields, and marks every field as explicitly set — which makes
+        ``model_dump(exclude_unset=True)`` on the far side emit the whole model
+        instead of the author's overrides.
+
+        The guard's own private attributes and the guarded callables stay out:
+        the first hold the client, and the second are closures over this
+        handle. The rebuild derives all of them fresh.
         """
         policy = self._arcjet_policy
-        own = {
+        state = self.__getstate__()
+        fields = {
             name: value
-            for name, value in self.__dict__.items()
+            for name, value in (state.get("__dict__") or {}).items()
             if name not in ("func", "coroutine")
+        }
+        private = {
+            name: value
+            for name, value in (state.get("__pydantic_private__") or {}).items()
+            if name not in dict(_GUARD_STATE)
         }
         return (
             _rebuild_guarded_tool,
@@ -676,7 +688,14 @@ class _GuardMixin:
                 policy.inputs,
                 policy.rules,
                 policy.on_guard_error,
-                own,
+                {
+                    "__dict__": fields,
+                    "__pydantic_extra__": state.get("__pydantic_extra__"),
+                    "__pydantic_fields_set__": set(
+                        state.get("__pydantic_fields_set__") or ()
+                    ),
+                    "__pydantic_private__": private,
+                },
             ),
         )
 
@@ -909,13 +928,13 @@ def _rebuild_guarded_tool(
     inputs: InputResolver | AsyncInputResolver | None,
     rules: tuple[RuleWithInput, ...],
     on_guard_error: OnGuardError,
-    fields: dict[str, Any],
+    state: dict[str, Any],
 ) -> BaseTool:
     """Guard *tool* again, with the client the receiving process registered.
 
     Named at module level because :meth:`_GuardMixin.__reduce__` names it, and
-    pickle resolves that by import. *fields* are the pickled handle's own
-    field values, reapplied so the rebuilt handle behaves as the one that was
+    pickle resolves that by import. *state* is the pickled handle's own
+    pydantic state, reapplied so the rebuilt handle behaves as the one that was
     pickled rather than as a freshly guarded *tool*.
     """
     guard = registered_client()
@@ -935,8 +954,32 @@ def _rebuild_guarded_tool(
         rules=rules,
         on_guard_error=on_guard_error,
     )
-    for name, value in fields.items():
-        setattr(guarded, name, value)
+    if not state:
+        return guarded
+
+    # Merge rather than replace: the rebuild has just derived the guard's own
+    # private attributes and the guarded callables, and those are the parts the
+    # pickle deliberately left out.
+    fresh = guarded.__getstate__()
+    merged_fields = {**state["__dict__"]}
+    for name in ("func", "coroutine"):
+        if name in (fresh.get("__dict__") or {}):
+            merged_fields[name] = fresh["__dict__"][name]
+    guarded.__setstate__(
+        {
+            "__dict__": merged_fields,
+            "__pydantic_extra__": state["__pydantic_extra__"],
+            "__pydantic_fields_set__": state["__pydantic_fields_set__"],
+            "__pydantic_private__": {
+                **state["__pydantic_private__"],
+                **{
+                    name: value
+                    for name, value in (fresh.get("__pydantic_private__") or {}).items()
+                    if name in dict(_GUARD_STATE)
+                },
+            },
+        }
+    )
     return guarded
 
 
