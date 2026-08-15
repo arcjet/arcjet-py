@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
+from langchain_core.callbacks import AsyncCallbackManager, CallbackManager
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
@@ -312,13 +313,14 @@ class _GuardMixin:
                     "policy ran without them because on_guard_error is 'allow'",
                     self._arcjet.action,
                 )
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
+        except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
+            self._arcjet_report_blocked(exc, raw, tool_call_id, resolved)
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
-                raise ArcjetToolUnavailableError(
-                    self._arcjet.action, cause=exc
-                ) from exc
+                blocked = ArcjetToolUnavailableError(self._arcjet.action, cause=exc)
+                self._arcjet_report_blocked(blocked, raw, tool_call_id, resolved)
+                raise blocked from exc
 
     async def _arcjet_evaluate_async(
         self, raw: Any, tool_call_id: str | None, config: RunnableConfig | None
@@ -354,13 +356,99 @@ class _GuardMixin:
                     "policy ran without them because on_guard_error is 'allow'",
                     self._arcjet.action,
                 )
-        except (ArcjetToolDeniedError, ArcjetToolUnavailableError):
+        except (ArcjetToolDeniedError, ArcjetToolUnavailableError) as exc:
+            await self._arcjet_report_blocked_async(exc, raw, tool_call_id, resolved)
             raise
         except Exception as exc:
             if self._arcjet.on_guard_error == "deny":
-                raise ArcjetToolUnavailableError(
-                    self._arcjet.action, cause=exc
-                ) from exc
+                blocked = ArcjetToolUnavailableError(self._arcjet.action, cause=exc)
+                await self._arcjet_report_blocked_async(
+                    blocked, raw, tool_call_id, resolved
+                )
+                raise blocked from exc
+
+    def _arcjet_start_fields(
+        self, raw: Any, config: RunnableConfig
+    ) -> tuple[dict[str, Any], str, Any]:
+        """What ``on_tool_start`` is given, matching what the tool would send."""
+        tool = cast(BaseTool, self)
+        inputs = raw if isinstance(raw, dict) else None
+        return (
+            {"name": tool.name, "description": tool.description},
+            raw if isinstance(raw, str) else str(raw),
+            inputs,
+        )
+
+    def _arcjet_report_blocked(
+        self,
+        error: ToolException,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig,
+    ) -> None:
+        """Put a call the checkpoint stopped onto the trace.
+
+        The wrapped tool never runs, so it never opens a run of its own and a
+        trace would otherwise hold no record at all of a blocked call — the one
+        kind of call an operator most wants to find. It is reported as the
+        wrapped tool would have reported a failure: a start, then an error.
+
+        Only the blocked path reports. An allowed call is delegated to the tool,
+        which opens its own run, and reporting here as well would double every
+        span. Nothing here may raise: a trace is observational, and a callback
+        handler that fails must not turn a denial into something else.
+        """
+        serialized, input_str, inputs = self._arcjet_start_fields(raw, config)
+        try:
+            manager = CallbackManager.configure(
+                config.get("callbacks"),
+                cast(BaseTool, self).callbacks,
+                cast(BaseTool, self).verbose,
+                config.get("tags"),
+                cast(BaseTool, self).tags,
+                config.get("metadata"),
+                cast(BaseTool, self).metadata,
+            )
+            run_manager = manager.on_tool_start(
+                serialized, input_str, inputs=inputs, tool_call_id=tool_call_id
+            )
+            run_manager.on_tool_error(error)
+        except Exception:
+            logger.warning(
+                "arcjet: could not report a blocked call to %r on its callbacks",
+                self._arcjet.action,
+                exc_info=True,
+            )
+
+    async def _arcjet_report_blocked_async(
+        self,
+        error: ToolException,
+        raw: Any,
+        tool_call_id: str | None,
+        config: RunnableConfig,
+    ) -> None:
+        """The awaitable counterpart of :meth:`_arcjet_report_blocked`."""
+        serialized, input_str, inputs = self._arcjet_start_fields(raw, config)
+        try:
+            manager = AsyncCallbackManager.configure(
+                config.get("callbacks"),
+                cast(BaseTool, self).callbacks,
+                cast(BaseTool, self).verbose,
+                config.get("tags"),
+                cast(BaseTool, self).tags,
+                config.get("metadata"),
+                cast(BaseTool, self).metadata,
+            )
+            run_manager = await manager.on_tool_start(
+                serialized, input_str, inputs=inputs, tool_call_id=tool_call_id
+            )
+            await run_manager.on_tool_error(error)
+        except Exception:
+            logger.warning(
+                "arcjet: could not report a blocked call to %r on its callbacks",
+                self._arcjet.action,
+                exc_info=True,
+            )
 
     def _arcjet_resolve_actor(
         self, config: RunnableConfig
@@ -471,7 +559,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
     """
     func = getattr(guarded, "func", None)
     if callable(func):
-        inner_func = func
+        inner_func = cast(Callable[..., Any], func)
 
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
@@ -483,7 +571,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
     coroutine = getattr(guarded, "coroutine", None)
     if callable(coroutine):
-        inner_coroutine = coroutine
+        inner_coroutine = cast(Callable[..., Awaitable[Any]], coroutine)
 
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
