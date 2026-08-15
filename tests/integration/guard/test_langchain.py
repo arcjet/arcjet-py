@@ -1425,6 +1425,57 @@ def test_a_denied_async_call_is_reported_to_the_callbacks() -> None:
     ]
 
 
+class _KwargRecorder(BaseCallbackHandler):
+    """Records the keyword arguments each callback was given."""
+
+    def __init__(self) -> None:
+        self.starts: list[dict[str, Any]] = []
+        self.ends: list[dict[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
+
+    def on_tool_start(
+        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
+    ) -> None:
+        self.starts.append(kwargs)
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        self.ends.append(kwargs)
+
+    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
+        self.errors.append(kwargs)
+
+
+def test_a_blocked_call_is_reported_with_what_an_allowed_one_carries() -> None:
+    """The report claims to read what an allowed call's own run reads.
+
+    `BaseTool.run` hands its callbacks the caller's colour, the tool call id on
+    the error, and whatever extra keywords the caller passed. Omitting them
+    made a handler reading `kwargs['tool_call_id']` on an error — the natural
+    way to correlate one to a tool call — raise only for Arcjet-blocked calls.
+    """
+    recorder = _KwargRecorder()
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.run(
+            {"value": "x"},
+            callbacks=[recorder],
+            tool_call_id="c1",
+            trace_marker="mine",
+        )
+
+    assert recorder.starts[0]["tool_call_id"] == "c1"
+    assert recorder.starts[0]["color"] == "green"
+    assert recorder.starts[0]["trace_marker"] == "mine"
+    assert recorder.errors[0]["tool_call_id"] == "c1"
+
+
 def test_a_handled_denial_is_a_run_that_ends() -> None:
     """LangChain closes a handled ToolException with on_tool_end, not error.
 
