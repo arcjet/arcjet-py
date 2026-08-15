@@ -27,11 +27,12 @@ from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.simple import Tool as SimpleTool
 from pydantic import BaseModel, PrivateAttr, ValidationError
 
+from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
 from ._client import ArcjetGuard, ArcjetGuardSync
 from ._policy_input import PolicyInputMap
-from ._registry import _awaitable, _blocking
+from ._registry import _awaitable, _blocking, registered_client
 from ._rules import RuleWithInput
 from ._types import Decision
 
@@ -367,6 +368,33 @@ class _GuardMixin:
                 )
                 raise blocked from exc
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickle as the tool plus its policy, and never as the client.
+
+        The generated class cannot be looked up by name, so the wrapper is
+        rebuilt by guarding the wrapped tool again rather than restored field
+        by field. The wrapped tool pickles by its own machinery, so a tool that
+        could be pickled before it was guarded still can be.
+
+        The client is deliberately not part of this. It holds a transport that
+        cannot cross a process boundary, and it holds the site key — which
+        pickling would write into whatever the pickle is sent to or stored in.
+        The receiving process supplies its own through ``register_arcjet``,
+        which is how a client is shared with code that did not construct it.
+        """
+        policy = self._arcjet
+        return (
+            _rebuild_guarded_tool,
+            (
+                self._arcjet_tool,
+                policy.action,
+                policy.actor,
+                policy.inputs,
+                policy.rules,
+                policy.on_guard_error,
+            ),
+        )
+
     def _arcjet_start_fields(
         self, raw: Any, config: RunnableConfig
     ) -> tuple[dict[str, Any], str, Any]:
@@ -523,6 +551,38 @@ def _discard(value: Any) -> None:
     close = getattr(value, "close", None)
     if callable(close):
         close()
+
+
+def _rebuild_guarded_tool(
+    tool: BaseTool,
+    action: str,
+    actor: ActorResolver | AsyncActorResolver | None,
+    inputs: InputResolver | AsyncInputResolver | None,
+    rules: tuple[RuleWithInput, ...],
+    on_guard_error: OnGuardError,
+) -> BaseTool:
+    """Guard *tool* again, with the client the receiving process registered.
+
+    Named at module level because :meth:`_GuardMixin.__reduce__` names it, and
+    pickle resolves that by import.
+    """
+    guard = registered_client()
+    if guard is None:
+        raise ArcjetMisconfiguration(
+            "Unpickling a guarded tool needs an Arcjet client registered in "
+            "this process: a guarded tool is pickled without one, because a "
+            "client cannot cross a process boundary and carries the site key. "
+            "Call register_arcjet() before loading it."
+        )
+    return guard_tool(
+        guard=guard,
+        tool=tool,
+        action=action,
+        actor=actor,
+        inputs=inputs,
+        rules=rules,
+        on_guard_error=on_guard_error,
+    )
 
 
 def _call_arguments(
@@ -687,6 +747,12 @@ def guard_tool(
     and is represented by :class:`ArcjetToolDeniedError`; the wrapped tool's
     ``handle_tool_error`` may convert it into a LangChain error result. It is
     distinct from an unavailable evaluation.
+
+    A guarded tool pickles if the tool it wraps does, carrying the policy but
+    not *guard*: a client cannot cross a process boundary, and pickling one
+    would write the site key into whatever the pickle is stored in. The
+    receiving process supplies its own with
+    :func:`~arcjet.guard.register_arcjet` before loading the tool.
 
     *guard* is recognised by the shape of its ``guard()`` rather than by its
     class, matching the free guard calls, so an
