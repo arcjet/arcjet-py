@@ -26,7 +26,7 @@ from collections.abc import (
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Literal, cast
-from weakref import ReferenceType, WeakKeyDictionary, ref
+from weakref import WeakKeyDictionary
 
 from langchain_core.callbacks import (
     AsyncCallbackManager,
@@ -1109,13 +1109,16 @@ def _guarded_callables(guarded: BaseTool) -> None:
 # `__annotations__`.
 _NAMESPACE_SKIP = frozenset({"__dict__", "__weakref__", "__doc__", "__annotations__"})
 
-# Keyed weakly so guarding a tool cannot keep its class alive, and *valued*
-# weakly for the same reason: a generated class holds its base in `__bases__`,
-# so a strong value would make every entry immortal. A guarded tool keeps its
-# own class alive, which is exactly as long as the entry is worth having.
-_guarded_classes: MutableMapping[type[BaseTool], ReferenceType[type[BaseTool]]] = (
-    WeakKeyDictionary()
-)
+# Keyed weakly so guarding a tool cannot keep its class alive, and held
+# strongly from there: the generated class must outlive every instance of it,
+# because regenerating it fires the tool class's `__init_subclass__` a second
+# time — against the once-per-class this promises, and enough to make a hook
+# that rejects a duplicate name raise on nothing but a garbage collection.
+#
+# The value keeps its own key alive through `__bases__`, so an entry lasts as
+# long as the process. That is the intended lifetime: the number of distinct
+# tool *classes* is small and fixed by the code, unlike the number of tools.
+_guarded_classes: MutableMapping[type[BaseTool], type[BaseTool]] = WeakKeyDictionary()
 # Reentrant because the lock is held across the class creation below, which
 # runs the tool class's `__init_subclass__` and pydantic's metaclass — code
 # this module does not own and cannot stop from guarding a tool of its own.
@@ -1139,8 +1142,7 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
     tool's fields and methods are inherited untouched.
     """
     with _guarded_classes_lock:
-        cached = _guarded_classes.get(base)
-        existing = cached() if cached is not None else None
+        existing = _guarded_classes.get(base)
         if existing is not None:
             return existing
 
@@ -1176,7 +1178,7 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
                 f"A tool class that validates its subclasses has to accept "
                 f"one it did not write."
             ) from exc
-        _guarded_classes[base] = ref(generated)
+        _guarded_classes[base] = generated
         return generated
 
 
