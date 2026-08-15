@@ -1243,7 +1243,11 @@ def test_a_narrowed_args_schema_on_the_guarded_tool_is_honoured() -> None:
 
 
 def test_no_wrapper_exposes_an_unguarded_execution_path() -> None:
-    """`_run`/`_arun` are private but public enough to be reached."""
+    """`_run`/`_arun` are private but public enough to be reached.
+
+    They delegate like every other surface, so the checkpoint runs first and
+    a denial stops the body.
+    """
     for original in (
         _SubclassTool(),
         Tool(name="legacy", description="d", func=lambda v: f"EXECUTED:{v}"),
@@ -1253,8 +1257,59 @@ def test_no_wrapper_exposes_an_unguarded_execution_path() -> None:
             tool=original,
             action="a",
         )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ArcjetToolDeniedError):
             cast(Any, wrapped)._run("secret", config={})
+
+
+def test_a_tool_class_helper_built_on_run_still_works() -> None:
+    """A tool class may offer a preview or dry-run helper built on self._run.
+
+    The guarded handle is an instance of that class, so the helper is
+    callable on it; it runs the checkpoint and then the real body, rather
+    than failing on a stub.
+    """
+
+    class Previewing(BaseTool):
+        name: str = "p"
+        description: str = "d"
+
+        def _run(self, query: str) -> str:
+            return f"ran:{query}"
+
+        def preview(self) -> str:
+            return self._run("probe")
+
+    allowed = guard_tool(
+        guard=_guard(_Transport()), tool=Previewing(), action="p.called"
+    )
+    assert cast(Any, allowed).preview() == "ran:probe"
+
+    denied = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=Previewing(),
+        action="p.called",
+    )
+    with pytest.raises(ArcjetToolDeniedError):
+        cast(Any, denied).preview()
+
+
+def test_a_direct_arun_call_is_still_guarded() -> None:
+    async def lookup(value: str) -> str:
+        return f"found:{value}"
+
+    original = StructuredTool.from_function(
+        coroutine=lookup, name="lookup", description="d"
+    )
+    denied = guard_tool(
+        guard=ArcjetGuard(
+            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
+        ),
+        tool=original,
+        action="lookup.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        asyncio.run(cast(Any, denied)._arun(value="x"))
 
 
 @pytest.mark.parametrize("on_guard_error", ["deny", "allow"])
