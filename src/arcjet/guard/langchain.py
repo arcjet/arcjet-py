@@ -1026,6 +1026,9 @@ def _guarded_callables(guarded: BaseTool) -> None:
     what ``render_text_description`` reports and what makes a guarded tool
     render as the unguarded one did. The signature is computed here, once,
     because the wrapped callable never changes for the wrapper's lifetime.
+
+    Written past validation, as the rest of the handle's state is: a tool class
+    may be frozen, and guarding one must not be the thing that fails.
     """
     func = getattr(guarded, "func", None)
     if callable(func):
@@ -1039,7 +1042,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
             evaluate(raw, None, config, validated=False)
             return inner_func(*args, **kwargs)
 
-        cast(Any, guarded).func = guarded_func
+        object.__setattr__(guarded, "func", guarded_func)
 
     coroutine = getattr(guarded, "coroutine", None)
     if callable(coroutine):
@@ -1053,7 +1056,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
             await evaluate(raw, None, config, validated=False)
             return await inner_coroutine(*args, **kwargs)
 
-        cast(Any, guarded).coroutine = guarded_coroutine
+        object.__setattr__(guarded, "coroutine", guarded_coroutine)
 
 
 # Copied wholesale into each generated namespace. `__dict__` and `__weakref__`
@@ -1111,9 +1114,25 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
             # a traceback points at the code that made the class.
             __module__=__name__,
             __qualname__=name,
+            # A class a tool's own `__init_subclass__` may inspect. Given one
+            # because requiring a docstring is a common thing for such a hook
+            # to check, and there is no reason for this class not to have one.
+            __doc__=f"{base.__name__} with an Arcjet checkpoint in front of it.",
         )
 
-        generated = cast("type[BaseTool]", type(name, (base,), namespace))
+        try:
+            generated = cast("type[BaseTool]", type(name, (base,), namespace))
+        except Exception as exc:
+            # Creating the subclass runs the tool class's own
+            # `__init_subclass__`. A hook that validates its subclasses can
+            # refuse this one, and the failure reads as coming from the tool's
+            # own code with no hint that guarding is what triggered it.
+            raise ArcjetMisconfiguration(
+                f"Could not guard a {base.__name__}: guarding makes a subclass "
+                f"of the tool's own class, and {base.__name__} refused it. "
+                f"A tool class that validates its subclasses has to accept "
+                f"one it did not write."
+            ) from exc
         _guarded_classes[base] = ref(generated)
         return generated
 
