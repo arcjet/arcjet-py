@@ -991,16 +991,26 @@ The guarded tool is an instance of the wrapped tool's class, so application code
 and LangChain itself keep taking the same branch when they check a tool's
 concrete type. It is a generated subclass, created once per tool class: a tool
 class that hooks `__init_subclass__` to register or validate its subclasses sees
-that subclass once, at the first `guard_tool()` call for it.
+that subclass once, at the first `guard_tool()` call for it. A subclass has its
+own name, so a trace or a `repr` labels the tool `ArcjetGuarded<ClassName>` —
+the labelling is the one place the substitution shows.
 
-A denied call is reported to the tool's callbacks as a start followed by an
-error, so a blocked call appears on a trace rather than leaving a gap.
+A blocked call is reported to the tool's callbacks the way LangChain reports the
+outcome: a denial the tool's `handle_tool_error` converts is a run that ends
+with the handled content, and anything else is a start followed by an error. So
+a blocked call appears on a trace rather than leaving a gap, and a handled
+denial is not counted as a failure.
+
+Callbacks, tags and metadata attached to the guarded tool after `guard_tool()`
+returns are carried into every call, allowed or blocked. A name or description
+reassigned afterwards is the one thing the executing tool does not pick up.
 
 A guarded tool can be pickled if the tool it wraps can, which is what sending
-tools to a worker process needs. The client is not pickled with it — it cannot
-cross a process boundary, and pickling it would write your site key into
-whatever the pickle is stored in — so call `register_arcjet()` in the receiving
-process before loading the tool.
+tools to a worker process needs. Fields set on the guarded tool survive the
+round trip. The client is not pickled with it — it cannot cross a process
+boundary, and pickling it would write your site key into whatever the pickle is
+stored in — so call `register_arcjet()` in the receiving process before loading
+the tool.
 
 The core `guard()` API and the LangChain helper have intentionally different
 defaults when evaluation is unavailable:
