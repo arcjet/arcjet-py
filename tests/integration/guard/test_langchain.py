@@ -1902,7 +1902,7 @@ def test_the_in_memory_test_client_can_drive_a_guarded_tool() -> None:
         lambda value: f"found:{value}", name="lookup", description="d"
     )
     wrapped = guard_tool(
-        guard=cast(Any, client),
+        guard=client,
         tool=original,
         action="lookup.called",
         actor="user-1",
@@ -1930,7 +1930,7 @@ def test_the_in_memory_test_client_drives_the_async_path_too() -> None:
         coroutine=lookup, name="lookup", description="d"
     )
     wrapped = guard_tool(
-        guard=cast(Any, client),
+        guard=client,
         tool=original,
         action="lookup.called",
         actor="user-2",
@@ -1950,7 +1950,7 @@ def test_the_test_client_records_calls_made_through_a_copy() -> None:
     """
     client = ArcjetTestClient()
     wrapped = guard_tool(
-        guard=cast(Any, client),
+        guard=client,
         tool=StructuredTool.from_function(
             lambda value: "ok", name="t", description="d"
         ),
