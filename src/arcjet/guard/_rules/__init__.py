@@ -9,7 +9,11 @@ from __future__ import annotations
 from typing import Any, Union
 
 from ._custom import LocalCustomRule, LocalCustomWithInput, TypedCustomResult
-from ._moderate_content import ModerateContent, ModerateContentWithInput
+from ._moderate_content import (
+    ModerateContent,
+    ModerateContentWithInput,
+    experimental_ModerateContent,  # ty: ignore[deprecated]
+)
 from ._prompt_injection import DetectPromptInjection, PromptInjectionWithInput
 from ._rate_limit import (
     FixedWindow,
@@ -73,6 +77,7 @@ __all__ = [
     "ModerateContent",
     "SlidingWindow",
     "TokenBucket",
+    "experimental_ModerateContent",
     # Unions
     "RuleWithConfig",
     "RuleWithInput",

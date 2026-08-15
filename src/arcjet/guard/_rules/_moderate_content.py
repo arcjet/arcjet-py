@@ -1,8 +1,6 @@
-"""Content moderation rule (experimental).
+"""Content moderation rule.
 
-Mirrors :mod:`._prompt_injection`.  Publicly exported from ``arcjet.guard``
-as ``experimental_ModerateContent`` to signal that the rule and its result
-shape may change.
+Mirrors :mod:`._prompt_injection`.
 """
 
 from __future__ import annotations
@@ -10,6 +8,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from typing import Optional
+
+from typing_extensions import deprecated
 
 from arcjet._metadata import Metadata
 
@@ -66,24 +66,21 @@ class ModerateContentWithInput:
 
 
 class ModerateContent:
-    """Content moderation rule (experimental).
+    """Content moderation rule.
 
-    Exported publicly as ``experimental_ModerateContent``.  Instantiate
-    (optionally with ``mode``/``label``/``metadata``), then call with
-    ``text`` to produce a :class:`ModerateContentWithInput` for ``.guard()``.
+    Instantiate (optionally with ``mode``/``label``/``metadata``), then call
+    with ``text`` to produce a :class:`ModerateContentWithInput` for
+    ``.guard()``. The text is sent to the Arcjet Cloud API for analysis.
 
-    .. warning::
-
-        Experimental — the rule name and its result shape may change.
-        This functionality may not be available yet, so while this rule is
-        experimental a call may simply return an error result.
-        Errors are fail-open: the decision reports an error while the
-        conclusion stays ``"ALLOW"``.  Check the latest version of this SDK
-        to see whether the rule is now stable.
+    The result reports whether harmful content was ``detected`` and optional
+    ``billing`` (``text_units``). It does not include per-category scores.
 
     Args:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label.
+        label: Optional observability label. Validated server-side as a
+            slug: lowercase letters, digits, dash (``-``), and dot (``.``)
+            only; must start and end with a lowercase letter or digit;
+            max 256 bytes.
         metadata: Config-level metadata — string keys mapped to any
             JSON-serializable value, including nested objects and arrays.
             Merged with per-input metadata on each call: the merge is
@@ -91,9 +88,9 @@ class ModerateContent:
 
     Example::
 
-        from arcjet.guard import experimental_ModerateContent
+        from arcjet.guard import ModerateContent
 
-        moderate = experimental_ModerateContent()
+        moderate = ModerateContent()
         decision = await arcjet.guard(
             label="tools.weather",
             rules=[moderate(user_message)],
@@ -156,3 +153,13 @@ class ModerateContent:
     def error_result(self, decision: Decision) -> RuleResultError | None:
         """Get the first errored result for this rule, or ``None``."""
         return _error_result_for_config(decision, self._config_id)
+
+
+@deprecated("experimental_ModerateContent is deprecated; use ModerateContent instead.")
+class experimental_ModerateContent(ModerateContent):
+    """Deprecated alias for :class:`ModerateContent`.
+
+    .. deprecated::
+        Use :class:`ModerateContent` instead. This alias will be removed in a
+        future major release.
+    """

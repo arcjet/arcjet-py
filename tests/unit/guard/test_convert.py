@@ -10,10 +10,11 @@ from arcjet.guard import (
     DetectPromptInjection,
     FixedWindow,
     LocalDetectSensitiveInfo,
+    ModerateContent,
     RuleResultError,
+    RuleResultModerateContent,
     SlidingWindow,
     TokenBucket,
-    experimental_ModerateContent,
 )
 from arcjet.guard._convert import decision_from_proto, rule_to_proto
 from arcjet.guard._local import hash_text
@@ -76,7 +77,7 @@ class TestRuleToProto:
         )
 
     def test_converts_moderate_content(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         inp = rule("please moderate this")
         proto = rule_to_proto(inp)
 
@@ -293,7 +294,7 @@ class TestDecisionFromProto:
         assert result.billing is None
 
     def test_deny_with_moderate_content(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         inp = rule("some harmful content")
 
         response = make_response(
@@ -318,11 +319,44 @@ class TestDecisionFromProto:
         assert decision.reason == "MODERATE_CONTENT"
         r = inp.result(decision)
         assert r is not None
+        assert isinstance(r, RuleResultModerateContent)
         assert r.detected is True
+        assert r.type == "MODERATE_CONTENT"
+        assert r.reason == "MODERATE_CONTENT"
         assert r.billing == Billing(unit="text_units", count=3)
+        assert not hasattr(r, "score")
+        assert not hasattr(r, "categories")
+
+    def test_allow_with_moderate_content_detected_false(self) -> None:
+        rule = ModerateContent()
+        inp = rule("safe text")
+        response = make_response(
+            pb.GUARD_CONCLUSION_ALLOW,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_ALLOW,
+                        detected=False,
+                        billing=pb.Billing(unit="text_units", count=1),
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert result is not None
+        assert isinstance(result, RuleResultModerateContent)
+        assert result.conclusion == "ALLOW"
+        assert result.detected is False
+        assert result.billing == Billing(unit="text_units", count=1)
+        assert not hasattr(result, "score")
+        assert not hasattr(result, "categories")
 
     def test_moderate_content_without_billing(self) -> None:
-        rule = experimental_ModerateContent()
+        rule = ModerateContent()
         inp = rule("harmless")
         response = make_response(
             pb.GUARD_CONCLUSION_ALLOW,

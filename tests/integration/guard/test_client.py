@@ -388,7 +388,7 @@ class TestLaunchFactories:
                 guard = launch_arcjet(key="sk_test_123")
             assert isinstance(guard, ArcjetGuard)
             assert guard._key == "sk_test_123"
-            assert guard._timeout_ms == 1000
+            assert guard._timeout_ms == 2000
         finally:
             if cached is not None:
                 sys.modules["arcjet.guard.proto.decide.v2.decide_connect"] = cached

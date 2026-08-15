@@ -69,7 +69,13 @@ def _build_user_agent() -> str:
 
 
 _DEFAULT_BASE_URL = "https://decide.arcjet.com"
-_DEFAULT_TIMEOUT_MS = 1000
+# Deadline for a guard() call when timeout_ms is not set.
+#
+# Sized for the slowest rules rather than the fastest: content moderation and
+# prompt injection take materially longer than a rate-limit check, and a
+# deadline yields a fail-open decision, so a tight default drops those rules
+# instead of evaluating them.
+_DEFAULT_TIMEOUT_MS = 2000
 
 # The fallback sink, shared by every client that was not given a logger. Shared
 # on purpose: it exists to keep a repeated best-effort drop from flooding the
@@ -866,7 +872,7 @@ def launch_arcjet(
     Args:
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
-        timeout_ms: Request timeout in milliseconds (default 1000).
+        timeout_ms: Request timeout in milliseconds (default 2000).
         logger: Where to report capture diagnostics — dropped events, failed
             sends, expired flushes. Defaults to the ``arcjet`` logger with
             repeats of the same code coalesced for a minute, which keeps a drop
@@ -921,7 +927,7 @@ def launch_arcjet_sync(
     Args:
         key: Your Arcjet site key.
         base_url: Override the Arcjet API endpoint.
-        timeout_ms: Request timeout in milliseconds (default 1000).
+        timeout_ms: Request timeout in milliseconds (default 2000).
         logger: Where to report capture diagnostics — dropped events, failed
             sends, expired flushes. Defaults to the ``arcjet`` logger with
             repeats of the same code coalesced for a minute, which keeps a drop
