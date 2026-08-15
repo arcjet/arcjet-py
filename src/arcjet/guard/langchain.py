@@ -444,12 +444,16 @@ class _GuardedTool(_GuardMixin, BaseTool):
 
 
 class _GuardedSimpleTool(_GuardMixin, SimpleTool):
-    """Guards a ``Tool`` built from a bare function.
+    """Guards a ``Tool``, whatever that tool declares.
 
-    Such a tool has no schema to forward: LangChain advertises it through an
-    escape hatch in ``_format_tool_to_openai_function`` gated on the concrete
-    ``Tool`` class, so the wrapper has to be one for the model to be told the
-    same thing.  Leaving ``args_schema`` unset is the other half of that gate.
+    LangChain decides what to tell a model about a ``Tool`` through gates on
+    the concrete class — the escape hatch in
+    ``_format_tool_to_openai_function`` for one built from a bare function, and
+    the ``"type": "custom_tool"`` metadata check for one an application marks
+    that way.  Neither reads anything but the class, so every ``Tool`` is
+    wrapped in a ``Tool`` and both gates keep answering as they did.  A schema
+    the tool declares is copied across like its other fields; one it does not
+    declare stays unset, which is the other half of the bare-function gate.
     """
 
     _arcjet: _Policy = PrivateAttr()
@@ -480,9 +484,9 @@ def guard_tool(
     tool advertised.
 
     The result is a wrapper, not an instance of *tool*'s class, so application
-    code that branches on a tool's concrete type sees the wrapper.  A ``Tool``
-    built from a bare function is the exception: LangChain advertises that
-    shape by concrete class, so the wrapper is a ``Tool`` too.
+    code that branches on a tool's concrete type sees the wrapper.  ``Tool`` is
+    the exception: LangChain decides what to advertise for that shape by
+    concrete class, so the wrapper is a ``Tool`` too.
 
     Unlike the core Guard client, which returns a fail-open ``ALLOW`` decision
     when evaluation is degraded, this helper fails closed by default. With
@@ -507,7 +511,7 @@ def guard_tool(
     ``on_guard_error`` deliberately does not govern it.
     """
     wrapper: type[BaseTool]
-    if isinstance(tool, SimpleTool) and not tool.args_schema:
+    if isinstance(tool, SimpleTool):
         wrapper = _GuardedSimpleTool
     else:
         wrapper = _GuardedTool
