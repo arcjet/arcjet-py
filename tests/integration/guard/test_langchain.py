@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import copy
 import pickle
+import uuid
 from typing import Annotated, Any, cast
 
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables.config import ensure_config, set_config_context
 from langchain_core.tools import (
     BaseTool,
     InjectedToolArg,
@@ -601,8 +603,13 @@ def test_guarding_does_not_edit_the_callers_tool_call() -> None:
     assert call["args"] == {"query": "q"}
 
 
-def test_a_resolver_can_read_a_top_level_config_key() -> None:
-    """`Callable[[RunnableConfig], str]` permits reading the config as passed."""
+def test_a_resolver_reads_the_config_the_tool_runs_with() -> None:
+    """A resolver sees the config LangChain normalized, not the raw argument.
+
+    `ensure_config` relocates a key it does not know into `configurable`, and
+    that normalized config is what the tool itself runs with — so it is what
+    the resolver is shown, rather than a view only the checkpoint would have.
+    """
     transport = _Transport()
     wrapped = guard_tool(
         guard=_guard(transport),
@@ -610,7 +617,7 @@ def test_a_resolver_can_read_a_top_level_config_key() -> None:
             lambda value: "ok", name="echo", description="d"
         ),
         action="echo.called",
-        actor=lambda config: str(cast(Any, config)["user_id"]),
+        actor=lambda config: str((config.get("configurable") or {})["user_id"]),
     )
 
     wrapped.invoke(cast(Any, {"value": "x"}), cast(Any, {"user_id": "user-1"}))
@@ -731,6 +738,122 @@ def test_guarding_preserves_a_rendered_tool_signature() -> None:
         assert render_text_description([wrapped]) == render_text_description([original])
 
 
+def _in_ambient_config(config: dict[str, Any], call: Any) -> Any:
+    """Run *call* where LangChain's ambient config is *config*.
+
+    `set_config_context` installs the config in a copied context, so the call
+    has to be run through that context to see it — which is how a chain hands
+    its config to the steps inside it without threading it explicitly.
+    """
+    with set_config_context(ensure_config(cast(Any, config))) as ctx:
+        return ctx.run(call)
+
+
+def test_a_resolver_sees_the_ambient_config() -> None:
+    """A chain hands its config down without the caller re-threading it.
+
+    The tool runs with that config, so the checkpoint must resolve the actor
+    from it too, rather than from an empty mapping only it can see.
+    """
+    seen: list[dict[str, Any]] = []
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+        actor=lambda config: seen.append(dict(config)) or "u",
+    )
+
+    _in_ambient_config(
+        {"metadata": {"uid": "user-1"}},
+        lambda: wrapped.invoke(cast(Any, {"value": "x"})),
+    )
+
+    assert seen and seen[0].get("metadata", {}).get("uid") == "user-1"
+
+
+def test_a_blocked_call_reaches_an_ambient_tracer() -> None:
+    """The denials an operator most needs are the ones a chain must not lose."""
+    recorder = _Recorder()
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    def call() -> None:
+        with pytest.raises(ArcjetToolDeniedError):
+            wrapped.invoke(cast(Any, {"value": "x"}))
+
+    _in_ambient_config({"callbacks": [recorder]}, call)
+
+    assert [kind for kind, _ in recorder.events] == ["start", "error"]
+
+
+def test_a_blocked_call_is_reported_under_the_callers_run_id() -> None:
+    """A caller that assigned a run id must be able to find the blocked run."""
+    recorder = _RunIdRecorder()
+    run_id = uuid.uuid4()
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.invoke(
+            cast(Any, {"value": "x"}),
+            config=cast(Any, {"callbacks": [recorder], "run_id": run_id}),
+        )
+
+    assert recorder.run_ids == [run_id]
+
+
+def test_callbacks_passed_positionally_to_run_are_accepted() -> None:
+    """`BaseTool.run` takes callbacks as its fifth positional parameter.
+
+    A guarded tool mirrors the signature, so a legacy caller using the
+    positional form is not turned into a TypeError by the checkpoint.
+    """
+    recorder = _Recorder()
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    assert wrapped.run({"value": "x"}, False, "green", "green", [recorder]) == "ok"
+    assert [kind for kind, _ in recorder.events] == ["start", "end"]
+
+
+def test_a_denial_reaches_callbacks_passed_as_run_keywords() -> None:
+    """AgentExecutor calls `tool.run(..., callbacks=run_manager.get_child())`.
+
+    Reporting only from a config would leave every denial in that stack
+    invisible, which reads as a tool that never denies.
+    """
+    recorder = _Recorder()
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="t", description="d"
+        ),
+        action="t.called",
+    )
+
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.run({"value": "x"}, callbacks=[recorder])
+
+    assert [kind for kind, _ in recorder.events] == ["start", "error"]
+
+
 # --- Crossing a process boundary ---------------------------------------------
 
 
@@ -837,6 +960,18 @@ class _Recorder(BaseCallbackHandler):
 
     def on_chain_end(self, outputs: Any, **kwargs: Any) -> None:
         self.events.append(("chain_end", ""))
+
+
+class _RunIdRecorder(BaseCallbackHandler):
+    """Records the run id each tool run was opened under."""
+
+    def __init__(self) -> None:
+        self.run_ids: list[Any] = []
+
+    def on_tool_start(
+        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
+    ) -> None:
+        self.run_ids.append(kwargs.get("run_id"))
 
 
 def test_a_denied_call_is_reported_to_the_callbacks() -> None:
@@ -1419,10 +1554,10 @@ def test_arguments_a_direct_call_will_not_have_validated_are_unevaluated() -> No
         )
 
     with pytest.raises(ArcjetToolUnavailableError):
-        cast(Any, build("deny")).func(amount=-5)
+        build("deny").func(amount=-5)
     assert executed == []
 
-    assert cast(Any, build("allow")).func(amount=-5) == "charged"
+    assert build("allow").func(amount=-5) == "charged"
     assert executed == [-5]
 
 
@@ -1600,6 +1735,10 @@ def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
     The mismatch raises rather than being converted into an unavailable
     policy: it is a wiring mistake in the application, not a degraded
     evaluation, so ``on_guard_error`` deliberately does not govern it.
+
+    The flavour that matters is the one the call actually takes. A tool with
+    no coroutine runs its sync body even under `ainvoke`, so the async half
+    uses a tool that genuinely awaits.
     """
     original = StructuredTool.from_function(
         lambda value: "ok", name="lookup", description="d"
@@ -1614,12 +1753,36 @@ def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
     with pytest.raises(TypeError, match="blocking guard"):
         async_only.invoke(cast(Any, {"value": "one"}))
 
+    async def lookup(value: str) -> str:
+        return "ok"
+
     sync_only = guard_tool(
         guard=_guard(_Transport()),
-        tool=original,
+        tool=StructuredTool.from_function(
+            coroutine=lookup, name="lookup", description="d"
+        ),
         action="lookup.called",
         on_guard_error="allow",
     )
 
     with pytest.raises(TypeError, match="awaitable guard"):
         asyncio.run(sync_only.ainvoke(cast(Any, {"value": "one"})))
+
+
+def test_a_sync_only_tool_awaited_is_guarded_on_the_path_it_takes() -> None:
+    """`ainvoke` on a tool with no coroutine runs the sync body in an executor.
+
+    LangChain routes it there itself, so the sync client is the right flavour
+    and the call is guarded rather than refused for the flavour it never used.
+    """
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(
+            lambda value: "ok", name="lookup", description="d"
+        ),
+        action="lookup.called",
+    )
+
+    assert asyncio.run(wrapped.ainvoke(cast(Any, {"value": "one"}))) == "ok"
+    assert transport.calls == 1
