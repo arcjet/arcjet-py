@@ -37,9 +37,9 @@ from arcjet.guard import (
 from arcjet.guard.langchain import (
     ArcjetToolDeniedError,
     ArcjetToolUnavailableError,
-    _checkpoint_evaluated,
     guard_tool,
 )
+from arcjet.guard.langchain._tool import _checkpoint_evaluated
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 from arcjet.guard.testing import ArcjetTestClient
 

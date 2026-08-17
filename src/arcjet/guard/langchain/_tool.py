@@ -1,13 +1,12 @@
-"""Optional LangChain tool checkpoint integration.
-
-Install ``arcjet[langchain]`` to use this module. Core Guard clients do not
-import LangChain.
+"""The guarded tool itself: :func:`guard_tool` and the checkpoint it installs.
 
 A guarded tool is an instance of the wrapped tool's own class — a generated
 subclass — that evaluates policy and then hands the call to the tool it wraps.
 Everything the framework derives from a tool — its schema, its arguments — is
 asked of the wrapped tool rather than recomputed here, so a guarded tool
 advertises and executes exactly what the unguarded one did.
+
+Imported through :mod:`arcjet.guard.langchain`, which is the public name.
 """
 
 from __future__ import annotations
@@ -48,11 +47,11 @@ from pydantic.v1 import ValidationError as ValidationErrorV1
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
-from ._client import GuardClient
-from ._policy_input import PolicyInputMap
-from ._registry import _awaitable, _blocking, registered_client
-from ._rules import RuleWithInput
-from ._types import Decision
+from .._client import GuardClient
+from .._policy_input import PolicyInputMap
+from .._registry import _awaitable, _blocking, registered_client
+from .._rules import RuleWithInput
+from .._types import Decision
 
 OnGuardError = Literal["allow", "deny"]
 ActorResolver = str | Callable[[RunnableConfig], str]
