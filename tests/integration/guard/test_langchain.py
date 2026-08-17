@@ -2053,11 +2053,10 @@ def test_a_resolver_receives_plain_data_for_nested_models() -> None:
 
 
 def test_a_dict_schema_tool_still_advertises_the_tools_own_derivation() -> None:
-    """Who owns the schema is decided by whether the handle still holds the
-    tool's own, so rebuilding it made every dict-schema tool look reassigned.
+    """A dict args_schema advertises what the tool itself derives from it.
 
-    The handle then answered from the base class's derivation instead of the
-    tool's, which for a tool class that derives its own is a different answer.
+    The handle answers every schema question from the wrapped tool, so a tool
+    class that derives its own schema keeps that derivation.
     """
     original = StructuredTool.from_function(
         lambda **kwargs: "ok",
@@ -2067,18 +2066,17 @@ def test_a_dict_schema_tool_still_advertises_the_tools_own_derivation() -> None:
     )
     wrapped = guard_tool(guard=_guard(_Transport()), tool=original, action="js.called")
 
-    assert not cast(Any, wrapped)._arcjet_owns_schema()
     assert wrapped.get_input_schema() is original.get_input_schema()
 
 
-def test_a_narrowed_args_schema_changes_only_what_the_model_is_told() -> None:
-    """Narrowing the guarded copy hides a field from the model, and no more.
+def test_narrowing_the_handles_schema_does_not_change_what_the_model_is_told() -> None:
+    """A schema assigned to the handle after guarding has no effect.
 
-    The wrapped tool parses and executes against its own schema, so a field the
-    narrowed one omits still reaches the tool if something sends it anyway.
-    That boundary is asserted here rather than implied, because "narrows what a
-    model may send" reads like enforcement and is not: to stop the argument,
-    narrow the wrapped tool or bind a rule to it.
+    It never stopped the argument — the wrapped tool parses and executes
+    against its own schema — so honouring it advertised a narrowing that was
+    not enforced. The handle forwards every schema question to the tool, and
+    the way to narrow is to narrow the tool before guarding it, which is
+    asserted here to actually stop the argument.
     """
 
     class Full(BaseModel):
@@ -2088,26 +2086,40 @@ def test_a_narrowed_args_schema_changes_only_what_the_model_is_told() -> None:
     class Public(BaseModel):
         to: str
 
-    wrapped = guard_tool(
-        guard=_guard(_Transport()),
-        tool=StructuredTool.from_function(
-            lambda to, admin_override=False: f"sent override={admin_override}",
-            name="send",
-            description="d",
-            args_schema=Full,
-        ),
-        action="email.sent",
-    )
-    wrapped.args_schema = Public
+    def send(to: str, admin_override: bool = False) -> str:
+        return f"sent override={admin_override}"
 
-    properties = convert_to_openai_tool(wrapped)["function"]["parameters"]["properties"]
-    assert set(properties) == {"to"}
-    assert set(wrapped.args) == {"to"}
+    def tool() -> BaseTool:
+        return StructuredTool.from_function(
+            send, name="send", description="d", args_schema=Full
+        )
 
-    # The limit of it: the hidden field is not advertised, but is not refused.
+    def advertised(candidate: BaseTool) -> set[str]:
+        schema = convert_to_openai_tool(candidate)["function"]["parameters"]
+        return set(schema["properties"])
+
+    # Narrowed after guarding: the handle keeps advertising the tool's schema,
+    # and the field still reaches the tool.
+    late = guard_tool(guard=_guard(_Transport()), tool=tool(), action="email.sent")
+    late.args_schema = Public
+
+    assert advertised(late) == {"to", "admin_override"}
+    assert set(late.args) == {"to", "admin_override"}
     assert (
-        wrapped.invoke(cast(Any, {"to": "a@b.c", "admin_override": True}))
+        late.invoke(cast(Any, {"to": "a@b.c", "admin_override": True}))
         == "sent override=True"
+    )
+
+    # Narrowed before guarding: the field is hidden *and* stopped, because the
+    # wrapped tool parses against the narrow schema. This is the way to do it.
+    original = tool()
+    original.args_schema = Public
+    early = guard_tool(guard=_guard(_Transport()), tool=original, action="email.sent")
+
+    assert advertised(early) == {"to"}
+    assert (
+        early.invoke(cast(Any, {"to": "a@b.c", "admin_override": True}))
+        == "sent override=False"
     )
 
 

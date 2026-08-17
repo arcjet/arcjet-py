@@ -431,30 +431,22 @@ class _GuardMixin:
     _arcjet_state: _Guarded
 
     def get_input_schema(self, config: RunnableConfig | None = None) -> Any:
-        # The one schema override: everything else that reports a schema —
-        # `tool_call_schema`, `args`, the provider conversions — derives from
-        # this on the base class, so forwarding here forwards them all.
-        if self._arcjet_owns_schema():
-            return BaseTool.get_input_schema(cast(BaseTool, self), config)
-        return self._arcjet_state.delegate.get_input_schema(config)
+        """The wrapped tool's schema, always.
 
-    def _arcjet_owns_schema(self) -> bool:
-        """Whether this wrapper's own ``args_schema`` should be believed.
+        The one schema override: everything else that reports a schema —
+        ``tool_call_schema``, ``args``, the provider conversions — derives from
+        this on the base class, so forwarding here forwards them all. It is
+        also the only way a tool declaring no schema gets one, since that is
+        derived from a ``_run`` this wrapper does not have.
 
-        The wrapper is handed a copy of the wrapped tool's ``args_schema`` and
-        normally has nothing to add, so the derivation is forwarded to the tool
-        that owns it — which is the only way a tool declaring no schema gets
-        one, since it is derived from a ``_run`` this wrapper does not have.
-        Reassigning it is how an application changes what the *model is told*,
-        so a schema that is no longer the wrapped tool's wins instead. It
-        changes only that: the wrapped tool still parses and executes against
-        its own schema. To stop an argument rather than stop advertising it,
-        narrow the wrapped tool or bind a rule to it.
+        Forwarded unconditionally, so a schema assigned to the handle after
+        ``guard_tool`` does not change what the model is told. It never changed
+        what the tool *accepted* — the wrapped tool parses and executes against
+        its own schema either way — so honouring it advertised a narrowing that
+        was not enforced. Narrow the wrapped tool before guarding it instead,
+        which both hides the argument and stops it.
         """
-        return (
-            cast(BaseTool, self).args_schema
-            is not self._arcjet_state.delegate.args_schema
-        )
+        return self._arcjet_state.delegate.get_input_schema(config)
 
     def invoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
@@ -1254,14 +1246,6 @@ def _refuse_colliding_state(tool: BaseTool) -> None:
             )
 
 
-#: Fields shared with the handle rather than copied. `args_schema` is a
-#: definition rather than per-tool state, and whether the handle still holds
-#: *the tool's* schema by identity is what `_arcjet_owns_schema` reads to
-#: decide who answers a question about it — so a dict schema has to be shared
-#: too, not rebuilt.
-_SHARED_FIELDS = frozenset({"args_schema"})
-
-
 def _copied_container(value: Any) -> Any:
     """One level of copy, so a tag or a callback cannot show up on both tools."""
     if isinstance(value, list):
@@ -1281,13 +1265,11 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
     construct a class whose ``__init__`` requires something that is not a field.
 
     Containers are copied one level down, so a tag or a callback attached to
-    either tool cannot show up on the other. A schema is not that kind of
-    container — see ``_SHARED_FIELDS``.
+    either tool cannot show up on the other.
     """
     guarded = wrapper.__new__(wrapper)
     fields = {
-        name: _copied_container(value) if name not in _SHARED_FIELDS else value
-        for name, value in (tool.__dict__ or {}).items()
+        name: _copied_container(value) for name, value in (tool.__dict__ or {}).items()
     }
     object.__setattr__(guarded, "__dict__", fields)
     object.__setattr__(

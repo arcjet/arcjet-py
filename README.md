@@ -1018,10 +1018,22 @@ that input rather than not made at all — and `on_guard_error` decides whether
 the call may run.
 
 Fields reassigned on the guarded tool after `guard_tool()` returns — callbacks,
-tags, `handle_tool_error` — do not reach the call. The wrapped tool executes
-with what it had, and a blocked call is reported from the wrapped tool too, so
-allowed and blocked calls agree with each other. Configure the tool before
-guarding it.
+tags, `handle_tool_error`, `args_schema` — do not reach the call. The wrapped
+tool executes with what it had, and a blocked call is reported from the wrapped
+tool too, so allowed and blocked calls agree with each other. Configure the tool
+before guarding it.
+
+`args_schema` follows that same rule, which matters if you want to hide an
+argument from the model. Narrow the tool **before** you guard it: the wrapped
+tool then parses against the narrow schema, so the argument is both hidden and
+refused. Narrowing the guarded handle instead would change only what the model
+is told while the tool still accepted and ran the hidden argument, so the
+handle no longer honors it.
+
+```python
+send_email.args_schema = PublicEmailArgs  # narrow first
+guarded = guard_tool(guard=aj, tool=send_email, action="email.sent")
+```
 
 A guarded tool can be pickled if the tool it wraps can and its resolvers can,
 which is what sending tools to a worker process needs. Fields set on the
