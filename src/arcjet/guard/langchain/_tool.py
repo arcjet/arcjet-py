@@ -24,7 +24,7 @@ from collections.abc import (
 )
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal, cast
 from weakref import WeakKeyDictionary
@@ -264,7 +264,11 @@ class _Report:
     tool_call_id: str | None
     verbose: bool = False
     start_color: str | None = "green"
-    extra: Mapping[str, Any] = MappingProxyType({})
+    # A default_factory rather than a bare default: Python 3.11's dataclasses
+    # rejects any default whose type defines `__hash__ = None`, and mappingproxy
+    # only gained `__hash__` in 3.12. A literal default makes this module
+    # unimportable on 3.11, which is inside the supported range.
+    extra: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
     @classmethod
     def of(cls, config: RunnableConfig, tool_call_id: str | None) -> "_Report":
