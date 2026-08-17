@@ -2123,6 +2123,52 @@ def test_narrowing_the_handles_schema_does_not_change_what_the_model_is_told() -
     )
 
 
+@pytest.mark.parametrize("derivation", ["openai_tool", "args", "tool_call_schema"])
+def test_a_dict_schemas_narrowing_is_ignored_on_every_derivation(
+    derivation: str,
+) -> None:
+    """A JSON schema reaches the model through three different properties.
+
+    `BaseTool.tool_call_schema` reads `args_schema` directly when it is a dict,
+    and `BaseTool.args` bypasses even that — so forwarding `get_input_schema`
+    alone left a dict-schema tool still advertising a narrowing it did not
+    enforce, which is the one case the rule was written for.
+    """
+    wide = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}, "admin": {"type": "boolean"}},
+    }
+    narrow = {"type": "object", "properties": {"value": {"type": "string"}}}
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda **kwargs: f"ok {sorted(kwargs)}",
+            name="js",
+            description="d",
+            args_schema=cast(Any, wide),
+        ),
+        action="js.called",
+    )
+    wrapped.args_schema = cast(Any, narrow)
+
+    if derivation == "openai_tool":
+        schema = convert_to_openai_tool(wrapped)["function"]["parameters"]
+        assert set(schema["properties"]) == {"value", "admin"}
+    elif derivation == "args":
+        assert set(wrapped.args) == {"value", "admin"}
+    else:
+        assert set(cast(Any, wrapped.tool_call_schema)["properties"]) == {
+            "value",
+            "admin",
+        }
+
+    # And it was never enforced, which is why it is not advertised.
+    assert (
+        wrapped.invoke(cast(Any, {"value": "v", "admin": True}))
+        == "ok ['admin', 'value']"
+    )
+
+
 def test_no_wrapper_exposes_an_unguarded_execution_path() -> None:
     """`_run`/`_arun` are private but public enough to be reached.
 

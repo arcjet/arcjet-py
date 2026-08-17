@@ -451,6 +451,32 @@ class _GuardMixin:
         """
         return self._arcjet_state.delegate.get_input_schema(config)
 
+    @property
+    def tool_call_schema(self) -> Any:
+        """The wrapped tool's tool-call schema, always.
+
+        Forwarded as well as :meth:`get_input_schema`, because for a JSON
+        schema — an ``args_schema`` that is a ``dict`` — ``BaseTool`` reads
+        ``self.args_schema`` here directly and never reaches the derivation
+        above. This is what the provider conversions read, so without it a
+        schema assigned to the handle after ``guard_tool`` still changed what
+        the model was told, for exactly the tools the forwarding was meant to
+        cover.
+        """
+        return self._arcjet_state.delegate.tool_call_schema
+
+    @property
+    def args(self) -> dict[str, Any]:
+        """The wrapped tool's arguments, always.
+
+        The third derivation, and the last one that can disagree: for a JSON
+        schema ``BaseTool.args`` reads ``self.args_schema`` directly, bypassing
+        even ``tool_call_schema``. Forwarding all three is what makes the rule
+        hold without exception — the handle advertises what the wrapped tool
+        advertises, whichever kind of schema it has.
+        """
+        return self._arcjet_state.delegate.args
+
     def invoke(
         self, input: Any, config: RunnableConfig | None = None, **kwargs: Any
     ) -> Any:
