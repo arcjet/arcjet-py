@@ -24,6 +24,7 @@ from collections.abc import (
     Sequence,
 )
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal, cast
@@ -114,6 +115,55 @@ _DERIVED_FIELDS = frozenset({"func", "coroutine"})
 # `BaseTool.run` catches both before running `handle_validation_error`; seeing
 # only one of them turns a routine, model-recoverable mistake into an outage.
 _SCHEMA_REJECTED = (ValidationError, ValidationErrorV1)
+
+
+#: Actions an enclosing checkpoint has already evaluated for the call it is
+#: about to make. Read and cleared by the next checkpoint down.
+#:
+#: A ContextVar rather than a module global because the scope is one tool call
+#: on one task: a global would leak into every later call, and a worker thread
+#: starts with a fresh context either way.
+_evaluated: ContextVar[frozenset[str]] = ContextVar(
+    "arcjet_langchain_evaluated", default=frozenset()
+)
+
+
+@contextmanager
+def _checkpoint_evaluated(action: str) -> Iterator[None]:
+    """Announce that this checkpoint evaluated *action* for the call it now makes.
+
+    A checkpoint in front of a tool that may itself be guarded — LangGraph
+    middleware around a ``ToolNode``, say — wraps its call to the tool in this,
+    so the guarded tool does not charge the same policy a second time: two
+    Guard calls, two decrements of one rate limit, and two capture events for
+    one tool call, none of which an operator can tell from real traffic.
+
+    Keyed by action, because the action *is* the policy. A checkpoint with a
+    different action is a different policy and still evaluates, which is what
+    guarding an already-guarded tool means.
+    """
+    active = _evaluated.get()
+    token = _evaluated.set(active | {action})
+    try:
+        yield
+    finally:
+        _evaluated.reset(token)
+
+
+def _already_evaluated(action: str) -> bool:
+    """Take the marker for *action*, if an enclosing checkpoint left one.
+
+    One-shot: the marker is cleared as it is read, so it suppresses only the
+    checkpoint immediately below the one that set it. Everything the tool's
+    body then does — including a tool that re-enters itself through its own
+    guarded handle — evaluates normally, because a re-entry is a second
+    execution and must not amortise one decision over many runs.
+    """
+    active = _evaluated.get()
+    if action not in active:
+        return False
+    _evaluated.set(active - {action})
+    return True
 
 
 @contextmanager
@@ -622,6 +672,8 @@ class _GuardMixin:
 
     def _arcjet_evaluate(self, call: _Call) -> None:
         policy = self._arcjet_state
+        if _already_evaluated(policy.action):
+            return
         guard = policy.blocking
         if guard is None:
             raise TypeError(
@@ -638,6 +690,8 @@ class _GuardMixin:
 
     async def _arcjet_evaluate_async(self, call: _Call) -> None:
         policy = self._arcjet_state
+        if _already_evaluated(policy.action):
+            return
         guard = policy.awaitable
         if guard is None:
             raise TypeError(
