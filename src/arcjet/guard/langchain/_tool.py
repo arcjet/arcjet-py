@@ -46,7 +46,7 @@ from pydantic.v1 import ValidationError as ValidationErrorV1
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
-from .._client import GuardClient
+from .._client import _GuardClient
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable, _blocking, registered_client
 from .._rules import RuleWithInput
@@ -1322,7 +1322,7 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
 
 def guard_tool(
     *,
-    guard: GuardClient,
+    guard: _GuardClient,
     tool: BaseTool,
     action: str,
     actor: ActorResolver | AsyncActorResolver | None = None,

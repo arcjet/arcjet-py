@@ -59,7 +59,6 @@ from arcjet._metadata import Metadata, MetadataValue
 from ._client import (
     ArcjetGuard,
     ArcjetGuardSync,
-    GuardClient,
     launch_arcjet,
     launch_arcjet_sync,
 )
@@ -173,7 +172,6 @@ __all__ = [
     # Client factories
     "ArcjetGuard",
     "ArcjetGuardSync",
-    "GuardClient",
     "launch_arcjet",
     "launch_arcjet_sync",
     "local_input",

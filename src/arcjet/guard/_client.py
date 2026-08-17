@@ -321,8 +321,17 @@ def _prepare_guard(
     )
 
 
-class GuardClient(Protocol):
+class _GuardClient(Protocol):
     """What a checkpoint needs of a client, by shape rather than by class.
+
+    Private, because it cannot yet describe the clients honestly: ``guard`` is
+    a coroutine function on one client and a blocking one on the other, so the
+    return has to stay ``Any``; the blocking spelling is ``guard_sync`` on the
+    recorder but ``guard`` on ``ArcjetGuardSync``; and a *registered* client
+    additionally needs ``capture`` and ``flush``, which a client passed to
+    ``guard_tool`` does not. Publishing this shape would commit to a contract
+    that has to widen, so it stays internal until the flavour question is
+    settled.
 
     The clients are dispatched on structurally — whether ``guard`` is a
     coroutine function decides the flavour, and a double offering both spells
