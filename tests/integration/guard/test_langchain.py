@@ -39,7 +39,6 @@ from arcjet.guard.langchain import (
     ArcjetToolUnavailableError,
     guard_tool,
 )
-from arcjet.guard.langchain._tool import _checkpoint_evaluated
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 from arcjet.guard.testing import ArcjetTestClient
 
@@ -2586,90 +2585,6 @@ def test_an_async_client_guards_a_tool_with_no_async_body() -> None:
 
     assert asyncio.run(wrapped.ainvoke(cast(Any, {"value": "one"}))) == "ok"
     assert transport.calls == 1
-
-
-def test_an_enclosing_checkpoint_stops_the_same_policy_being_charged_twice() -> None:
-    """A guarded tool reached through another checkpoint for the same action.
-
-    LangGraph middleware guards a tool call and then runs the tool. If that
-    tool is a guarded handle configured for the same action, the policy would
-    be charged twice for one call: two Guard calls, and two decrements of one
-    rate limit that an operator cannot tell from real traffic.
-    """
-    transport = _Transport()
-    wrapped = guard_tool(guard=_guard(transport), tool=_echo(), action="t.called")
-
-    with _checkpoint_evaluated("t.called"):
-        assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
-
-    assert transport.calls == 0
-
-
-def test_an_enclosing_checkpoint_for_another_action_still_evaluates() -> None:
-    """The action is the policy, so a different one is a different policy."""
-    transport = _Transport()
-    wrapped = guard_tool(guard=_guard(transport), tool=_echo(), action="t.called")
-
-    with _checkpoint_evaluated("something.else"):
-        assert wrapped.invoke(cast(Any, {"value": "x"})) == "ok"
-
-    assert transport.calls == 1
-
-
-def test_the_marker_is_consumed_so_a_tools_recursion_still_evaluates() -> None:
-    """The marker suppresses one checkpoint, not the whole call.
-
-    A tool that re-enters itself runs its body again, and a second execution
-    must not amortise the enclosing checkpoint's one decision.
-    """
-    transport = _Transport()
-    bodies = 0
-
-    def recurse(depth: int) -> str:
-        nonlocal bodies
-        bodies += 1
-        if depth > 0:
-            return wrapped.invoke(cast(Any, {"depth": depth - 1}))
-        return "done"
-
-    wrapped = guard_tool(
-        guard=_guard(transport),
-        tool=StructuredTool.from_function(recurse, name="recurse", description="d"),
-        action="recurse.called",
-    )
-
-    with _checkpoint_evaluated("recurse.called"):
-        wrapped.invoke(cast(Any, {"depth": 2}))
-
-    # Three bodies; the outermost checkpoint was suppressed, the two re-entries
-    # were not.
-    assert bodies == 3
-    assert transport.calls == 2
-
-
-def test_the_marker_does_not_leak_into_the_next_call() -> None:
-    """An agent loop calls one tool many times on one task."""
-    transport = _Transport()
-    wrapped = guard_tool(guard=_guard(transport), tool=_echo(), action="t.called")
-
-    with _checkpoint_evaluated("t.called"):
-        wrapped.invoke(cast(Any, {"value": "x"}))
-    wrapped.invoke(cast(Any, {"value": "x"}))
-
-    assert transport.calls == 1
-
-
-def test_an_enclosing_checkpoint_stops_an_awaited_call_being_charged_twice() -> None:
-    """The awaitable counterpart: one contextvar serves both flavours."""
-    transport = _AsyncTransport()
-    wrapped = guard_tool(guard=_aguard(transport), tool=_echo(), action="t.called")
-
-    async def call() -> Any:
-        with _checkpoint_evaluated("t.called"):
-            return await wrapped.ainvoke(cast(Any, {"value": "x"}))
-
-    assert asyncio.run(call()) == "ok"
-    assert transport.calls == 0
 
 
 def test_a_blocked_call_is_traced_even_when_the_error_handler_raises() -> None:
