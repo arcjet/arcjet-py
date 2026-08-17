@@ -48,15 +48,26 @@ jobs:
 
 
   test:
-    name: Run tests
+    name: Run tests (py${{ matrix.python-version }})
     strategy:
+      # Every version reports; one failure must not hide the others, because
+      # the interesting failures here are version-specific.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        # The supported range, per `requires-python` in pyproject.toml. The
+        # repo pins 3.10 in `.python-version`, so without this axis only the
+        # floor is ever exercised.
+        python-version: ["3.10", "3.11", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Tests
-        run: uv run pytest
+        # `--python` rather than the environment alone, so the run cannot fall
+        # back to `.python-version` and silently retest the floor three times.
+        run: uv run --python ${{ matrix.python-version }} pytest
