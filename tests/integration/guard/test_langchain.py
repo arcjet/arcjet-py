@@ -2670,3 +2670,31 @@ def test_an_enclosing_checkpoint_stops_an_awaited_call_being_charged_twice() -> 
 
     assert asyncio.run(call()) == "ok"
     assert transport.calls == 0
+
+
+def test_a_blocked_call_is_traced_even_when_the_error_handler_raises() -> None:
+    """The run opens before the tool author's handler runs.
+
+    `BaseTool.run` opens the run and only then calls `_handle_tool_error`, so a
+    handler that raises still leaves a started run behind. Computing the
+    outcome first ran the handler first, which lost the whole trace of the
+    blocked call — the gap this reporting exists to close, missing exactly when
+    something else went wrong too.
+    """
+
+    def explode(error: BaseException) -> str:
+        raise RuntimeError("handler exploded")
+
+    original = _echo("dangerous")
+    original.handle_tool_error = explode
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=original,
+        action="dangerous.called",
+    )
+
+    recorder = _Recorder()
+    with pytest.raises(RuntimeError, match="handler exploded"):
+        wrapped.invoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
+
+    assert recorder.events == [("start", "dangerous")]

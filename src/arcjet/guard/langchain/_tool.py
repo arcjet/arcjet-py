@@ -833,8 +833,13 @@ class _GuardMixin:
         so both paths land on the same handlers, under the same run id, with
         the same labels and the same error handling.
         """
-        event, kwargs, content = self._arcjet_blocked_outcome(error, report)
+        # The run is opened first, as `BaseTool.run` opens it before it calls
+        # `_handle_tool_error`. Computing the outcome first runs the tool
+        # author's handler first, and a handler that raises then left the
+        # blocked call with no trace at all — the gap this method exists to
+        # close, missing exactly when something went wrong.
         run_manager = self._arcjet_open_run(raw, report)
+        event, kwargs, content = self._arcjet_blocked_outcome(error, report)
         if run_manager is not None:
             with _reporting(self._arcjet_state.action):
                 getattr(run_manager, event)(**kwargs)
@@ -846,8 +851,8 @@ class _GuardMixin:
         self, error: ToolException, raw: Any, report: _Report
     ) -> Any:
         """The awaitable counterpart of :meth:`_arcjet_blocked`."""
-        event, kwargs, content = self._arcjet_blocked_outcome(error, report)
         run_manager = await self._arcjet_open_run_async(raw, report)
+        event, kwargs, content = self._arcjet_blocked_outcome(error, report)
         if run_manager is not None:
             with _reporting(self._arcjet_state.action):
                 await getattr(run_manager, event)(**kwargs)
