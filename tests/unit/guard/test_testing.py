@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
@@ -33,6 +34,13 @@ def _clear_registration():
         yield
     finally:
         unregister_arcjet()
+
+
+def _call_guard(arcjet: ArcjetTestClient, flavor: str, **kwargs: Any) -> Any:
+    """Drive whichever spelling of ``guard`` *flavor* names."""
+    if flavor == "sync":
+        return arcjet.guard_sync(**kwargs)
+    return asyncio.run(arcjet.guard(**kwargs))
 
 
 class TestRegisterTestClient:
@@ -178,23 +186,16 @@ class TestRecordingGuards:
             asyncio.run(flush())
             flush_sync()
 
-    def test_records_actor_and_inputs_with_guard_sync(self) -> None:
+    @pytest.mark.parametrize("flavor", ["sync", "async"])
+    def test_records_actor_and_inputs(self, flavor: str) -> None:
         arcjet = ArcjetTestClient()
         inputs = {"prompt": local_input.string("hi")}
-        arcjet.guard_sync(label="t", actor="u1", inputs=inputs)
+        _call_guard(arcjet, flavor, label="t", actor="u1", inputs=inputs)
 
         recorded = arcjet.guards[0]
         assert recorded.actor == "u1"
-        assert recorded.inputs is inputs
-        assert recorded.rules == ()
-
-    def test_records_actor_and_inputs_with_async_guard(self) -> None:
-        arcjet = ArcjetTestClient()
-        inputs = {"prompt": local_input.string("hi")}
-        asyncio.run(arcjet.guard(label="t", actor="u1", inputs=inputs))
-
-        recorded = arcjet.guards[0]
-        assert recorded.actor == "u1"
+        # By identity, so a caller can assert a checkpoint passed its inputs
+        # through without altering them.
         assert recorded.inputs is inputs
         assert recorded.rules == ()
 
@@ -206,17 +207,10 @@ class TestRecordingGuards:
         with pytest.raises(FrozenInstanceError):
             recorded.actor = "u2"  # type: ignore[misc]
 
-    def test_actor_and_inputs_default_to_none(self) -> None:
+    @pytest.mark.parametrize("flavor", ["sync", "async"])
+    def test_actor_and_inputs_default_to_none(self, flavor: str) -> None:
         arcjet = ArcjetTestClient()
-        arcjet.guard_sync(label="x")
-
-        recorded = arcjet.guards[0]
-        assert recorded.actor is None
-        assert recorded.inputs is None
-
-    def test_actor_and_inputs_default_to_none_on_the_async_guard(self) -> None:
-        arcjet = ArcjetTestClient()
-        asyncio.run(arcjet.guard(label="x"))
+        _call_guard(arcjet, flavor, label="x")
 
         recorded = arcjet.guards[0]
         assert recorded.actor is None
@@ -228,14 +222,6 @@ class TestRecordingGuards:
 
         assert recorded.actor is None
         assert recorded.inputs is None
-
-    def test_inputs_is_recorded_by_identity(self) -> None:
-        arcjet = ArcjetTestClient()
-        inputs = {"prompt": local_input.string("hi")}
-        arcjet.guard_sync(label="x", inputs=inputs)
-
-        recorded = arcjet.guards[0]
-        assert recorded.inputs is inputs
 
 
 class TestFixturePattern:

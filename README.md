@@ -1001,7 +1001,7 @@ for it. A trace still shows the tool's own `name`; it is `repr()` and the class
 name that show `ArcjetGuarded<ClassName>`.
 
 A tool that keeps its own state under one of the names the guard uses for its
-own — `_arcjet_policy`, `_arcjet_delegate` — is refused by `guard_tool()`,
+own — `_arcjet_state` — is refused by `guard_tool()`,
 because a guarded tool is an instance of the tool's class and there is nowhere
 else for either to live. Rename the tool's attribute.
 

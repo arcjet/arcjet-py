@@ -43,7 +43,14 @@ from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
 from arcjet.guard.testing import ArcjetTestClient
 
 
-class _Transport:
+class _Recording:
+    """What both transport flavours record, and the answer they both give.
+
+    Held apart from ``guard`` itself because the two flavours cannot share
+    that method: one returns a response and the other a coroutine, which is
+    not a valid override either way round.
+    """
+
     def __init__(
         self, conclusion: pb.GuardConclusion = pb.GUARD_CONCLUSION_ALLOW
     ) -> None:
@@ -51,7 +58,7 @@ class _Transport:
         self.request: pb.GuardRequest | None = None
         self.calls = 0
 
-    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+    def _record(self, request: pb.GuardRequest) -> pb.GuardResponse:
         self.request = request
         self.calls += 1
         return pb.GuardResponse(
@@ -66,6 +73,11 @@ class _Transport:
             )
         )
 
+
+class _Transport(_Recording):
+    def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
+        return self._record(request)
+
     def capture(
         self, _request: pb.CaptureRequest, **_kwargs: Any
     ) -> pb.CaptureResponse:
@@ -74,6 +86,44 @@ class _Transport:
 
 def _guard(transport: _Transport) -> ArcjetGuardSync:
     return ArcjetGuardSync("key", transport, 1000, "test-agent")  # type: ignore[arg-type]
+
+
+def _aguard(transport: _AsyncTransport) -> ArcjetGuard:
+    """The awaitable counterpart of :func:`_guard`."""
+    return ArcjetGuard("key", transport, 1000, "test-agent")  # type: ignore[arg-type]
+
+
+def _echo(name: str = "t") -> BaseTool:
+    """A one-argument tool that answers ``"ok"``, for tests about the guard."""
+    return StructuredTool.from_function(lambda value: "ok", name=name, description="d")
+
+
+async def _echo_body(value: str) -> str:
+    return "ok"
+
+
+def _flavoured_echo(flavour: str, name: str = "t") -> BaseTool:
+    """:func:`_echo`, with a native async body when *flavour* asks for one."""
+    if flavour == "sync":
+        return _echo(name)
+    return StructuredTool.from_function(
+        coroutine=_echo_body, name=name, description="d"
+    )
+
+
+def _denying_client(flavour: str) -> Any:
+    """A client of *flavour* whose transport denies every call."""
+    denied = pb.GUARD_CONCLUSION_DENY
+    if flavour == "sync":
+        return _guard(_Transport(denied))
+    return _aguard(_AsyncTransport(denied))
+
+
+def _call(wrapped: Any, payload: dict[str, Any], flavour: str, **kwargs: Any) -> Any:
+    """Invoke *wrapped* through the entrypoint *flavour* names."""
+    if flavour == "sync":
+        return wrapped.invoke(cast(Any, payload), **kwargs)
+    return asyncio.run(wrapped.ainvoke(cast(Any, payload), **kwargs))
 
 
 def test_guard_tool_maps_parsed_arguments_and_trusted_config_before_delegating() -> (
@@ -225,28 +275,11 @@ def test_guard_tool_uses_wrapped_tool_error_handler_after_denial() -> None:
     assert calls == 0
 
 
-class _AsyncTransport:
-    def __init__(
-        self, conclusion: pb.GuardConclusion = pb.GUARD_CONCLUSION_ALLOW
-    ) -> None:
-        self.conclusion = conclusion
-        self.request: pb.GuardRequest | None = None
-        self.calls = 0
+class _AsyncTransport(_Recording):
+    """The same recording transport, answering awaitably."""
 
     async def guard(self, request: pb.GuardRequest, **_kwargs: Any) -> pb.GuardResponse:
-        self.request = request
-        self.calls += 1
-        return pb.GuardResponse(
-            decision=pb.GuardDecision(
-                id="gdec_async",
-                conclusion=self.conclusion,
-                reason=(
-                    pb.GUARD_REASON_INPUT_CONSTRAINT
-                    if self.conclusion == pb.GUARD_CONCLUSION_DENY
-                    else pb.GUARD_REASON_UNSPECIFIED
-                ),
-            )
-        )
+        return self._record(request)
 
     async def capture(
         self, _request: pb.CaptureRequest, **_kwargs: Any
@@ -269,7 +302,7 @@ def test_guard_tool_uses_native_async_guard_and_tool_paths() -> None:
     tool = StructuredTool.from_function(
         coroutine=lookup, name="lookup", description="Lookup value"
     )
-    guard = ArcjetGuard("key", transport, 1000, "test-agent")  # type: ignore[arg-type]
+    guard = _aguard(transport)
     wrapped = guard_tool(
         guard=guard,
         tool=tool,
@@ -552,7 +585,7 @@ def test_arun_is_a_guarded_entrypoint() -> None:
         return value
 
     wrapped = guard_tool(
-        guard=ArcjetGuard("key", transport, 1000, "test-agent"),  # type: ignore[arg-type]
+        guard=_aguard(transport),
         tool=StructuredTool.from_function(
             coroutine=dangerous, name="dangerous", description="d"
         ),
@@ -617,9 +650,7 @@ def test_a_resolver_reads_the_config_the_tool_runs_with() -> None:
     transport = _Transport()
     wrapped = guard_tool(
         guard=_guard(transport),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="echo", description="d"
-        ),
+        tool=_echo("echo"),
         action="echo.called",
         actor=lambda config: str((config.get("configurable") or {})["user_id"]),
     )
@@ -693,12 +724,12 @@ def test_a_tool_colliding_with_the_guards_own_state_is_refused() -> None:
 
         def __init__(self, **kwargs: Any) -> None:
             super().__init__(**kwargs)
-            object.__setattr__(self, "_arcjet_policy", "not a policy")
+            object.__setattr__(self, "_arcjet_state", "not arcjet state")
 
         def _run(self, query: str) -> str:
             return "ran"
 
-    with pytest.raises(ArcjetMisconfiguration, match="_arcjet_policy"):
+    with pytest.raises(ArcjetMisconfiguration, match="_arcjet_state"):
         guard_tool(
             guard=_guard(_Transport()), tool=Colliding(), action="colliding.called"
         )
@@ -1023,9 +1054,7 @@ def test_a_resolver_sees_the_ambient_config() -> None:
     seen: list[dict[str, Any]] = []
     wrapped = guard_tool(
         guard=_guard(_Transport()),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         actor=lambda config: seen.append(dict(config)) or "u",
     )
@@ -1043,9 +1072,7 @@ def test_a_blocked_call_reaches_an_ambient_tracer() -> None:
     recorder = _Recorder()
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -1060,13 +1087,11 @@ def test_a_blocked_call_reaches_an_ambient_tracer() -> None:
 
 def test_a_blocked_call_is_reported_under_the_callers_run_id() -> None:
     """A caller that assigned a run id must be able to find the blocked run."""
-    recorder = _RunIdRecorder()
+    recorder = _Recorder()
     run_id = uuid.uuid4()
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -1088,9 +1113,7 @@ def test_callbacks_passed_positionally_to_run_are_accepted() -> None:
     recorder = _Recorder()
     wrapped = guard_tool(
         guard=_guard(_Transport()),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -1107,9 +1130,7 @@ def test_a_denial_reaches_callbacks_passed_as_run_keywords() -> None:
     recorder = _Recorder()
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -1175,12 +1196,7 @@ def test_a_guarded_tool_pickles_and_still_guards() -> None:
     guard = _guard(_Transport(pb.GUARD_CONCLUSION_DENY))
     wrapped = guard_tool(guard=guard, tool=_SubclassTool(), action="search.called")
 
-    blob = pickle.dumps(wrapped)
-    register_arcjet(guard)
-    try:
-        restored = pickle.loads(blob)
-    finally:
-        unregister_arcjet()
+    restored = _round_trip(wrapped, guard)
 
     assert isinstance(restored, _SubclassTool)
     with pytest.raises(ArcjetToolDeniedError):
@@ -1198,13 +1214,11 @@ def test_a_guarded_tool_never_renders_the_site_key() -> None:
     guard = ArcjetGuardSync(secret, cast(Any, _Transport()), 1000, "ua")
     wrapped = guard_tool(
         guard=guard,
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
-    policy = cast(Any, wrapped)._arcjet_policy
+    policy = cast(Any, wrapped)._arcjet_state
     assert secret not in repr(guard)
     assert secret not in repr(policy)
     assert secret not in repr(policy.blocking)
@@ -1235,12 +1249,7 @@ def test_pickling_preserves_fields_set_on_the_guarded_handle() -> None:
     wrapped = guard_tool(guard=guard, tool=original, action="search.called")
     wrapped.tags = ["team-a"]
 
-    blob = pickle.dumps(wrapped)
-    register_arcjet(guard)
-    try:
-        restored = pickle.loads(blob)
-    finally:
-        unregister_arcjet()
+    restored = _round_trip(wrapped, guard)
 
     assert restored.handle_tool_error == "policy said no"
     assert restored.tags == ["team-a"]
@@ -1289,22 +1298,35 @@ def test_unpickling_without_a_registered_client_says_so() -> None:
 
 
 class _Recorder(BaseCallbackHandler):
+    """Records every tool callback: its event, its content, and its keywords."""
+
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
         self.starts: list[tuple[str, Any]] = []
         """Each start's ``input_str`` and ``inputs``, for asserting on content."""
+        self.start_kwargs: list[dict[str, Any]] = []
+        self.end_kwargs: list[dict[str, Any]] = []
+        self.error_kwargs: list[dict[str, Any]] = []
+
+    @property
+    def run_ids(self) -> list[Any]:
+        """The run id each tool run was opened under."""
+        return [kwargs.get("run_id") for kwargs in self.start_kwargs]
 
     def on_tool_start(
         self, serialized: dict[str, Any], input_str: str, **kwargs: Any
     ) -> None:
         self.events.append(("start", serialized.get("name", "")))
         self.starts.append((input_str, kwargs.get("inputs")))
+        self.start_kwargs.append(kwargs)
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         self.events.append(("end", str(output)))
+        self.end_kwargs.append(kwargs)
 
     def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
         self.events.append(("error", type(error).__name__))
+        self.error_kwargs.append(kwargs)
 
     # Recorded so a handler that has been promoted to inheritable — and so
     # follows the tool's body into whatever it invokes — is visible as extra
@@ -1318,32 +1340,18 @@ class _Recorder(BaseCallbackHandler):
         self.events.append(("chain_end", ""))
 
 
-class _RunIdRecorder(BaseCallbackHandler):
-    """Records the run id each tool run was opened under."""
-
-    def __init__(self) -> None:
-        self.run_ids: list[Any] = []
-
-    def on_tool_start(
-        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
-    ) -> None:
-        self.run_ids.append(kwargs.get("run_id"))
-
-
-def test_a_denied_call_is_reported_to_the_callbacks() -> None:
+@pytest.mark.parametrize("flavour", ["sync", "async"])
+def test_a_denied_call_is_reported_to_the_callbacks(flavour: str) -> None:
     """A trace with no record of a blocked call hides the interesting ones."""
     recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="dangerous", description="d"
-    )
     wrapped = guard_tool(
-        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=original,
+        guard=_denying_client(flavour),
+        tool=_flavoured_echo(flavour, "dangerous"),
         action="dangerous.called",
     )
 
     with pytest.raises(ArcjetToolDeniedError):
-        wrapped.invoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
+        _call(wrapped, {"value": "no"}, flavour, config={"callbacks": [recorder]})
 
     assert recorder.events == [
         ("start", "dangerous"),
@@ -1358,9 +1366,7 @@ def test_an_unavailable_policy_is_reported_to_the_callbacks() -> None:
     def explode(_config: Any) -> str:
         raise RuntimeError("resolver down")
 
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="dangerous", description="d"
-    )
+    original = _echo("dangerous")
     wrapped = guard_tool(
         guard=_guard(_Transport()),
         tool=original,
@@ -1380,9 +1386,7 @@ def test_an_unavailable_policy_is_reported_to_the_callbacks() -> None:
 def test_an_allowed_call_is_reported_once() -> None:
     """The tool opens its own run, so the checkpoint must not open a second."""
     recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="safe", description="d"
-    )
+    original = _echo("safe")
     wrapped = guard_tool(
         guard=_guard(_Transport()), tool=original, action="safe.called"
     )
@@ -1396,56 +1400,6 @@ def test_an_allowed_call_is_reported_once() -> None:
     assert [kind for kind, _ in recorder.events] == ["start", "end"]
 
 
-def test_a_denied_async_call_is_reported_to_the_callbacks() -> None:
-    recorder = _Recorder()
-
-    async def lookup(value: str) -> str:
-        return "ok"
-
-    original = StructuredTool.from_function(
-        coroutine=lookup, name="dangerous", description="d"
-    )
-    wrapped = guard_tool(
-        guard=ArcjetGuard(
-            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
-        ),
-        tool=original,
-        action="dangerous.called",
-    )
-
-    with pytest.raises(ArcjetToolDeniedError):
-        asyncio.run(
-            wrapped.ainvoke(
-                cast(Any, {"value": "no"}), config={"callbacks": [recorder]}
-            )
-        )
-
-    assert recorder.events == [
-        ("start", "dangerous"),
-        ("error", "ArcjetToolDeniedError"),
-    ]
-
-
-class _KwargRecorder(BaseCallbackHandler):
-    """Records the keyword arguments each callback was given."""
-
-    def __init__(self) -> None:
-        self.starts: list[dict[str, Any]] = []
-        self.ends: list[dict[str, Any]] = []
-        self.errors: list[dict[str, Any]] = []
-
-    def on_tool_start(
-        self, serialized: dict[str, Any], input_str: str, **kwargs: Any
-    ) -> None:
-        self.starts.append(kwargs)
-
-    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
-        self.ends.append(kwargs)
-
-    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
-        self.errors.append(kwargs)
-
-
 def test_a_blocked_call_is_reported_with_what_an_allowed_one_carries() -> None:
     """The report claims to read what an allowed call's own run reads.
 
@@ -1454,12 +1408,10 @@ def test_a_blocked_call_is_reported_with_what_an_allowed_one_carries() -> None:
     made a handler reading `kwargs['tool_call_id']` on an error — the natural
     way to correlate one to a tool call — raise only for Arcjet-blocked calls.
     """
-    recorder = _KwargRecorder()
+    recorder = _Recorder()
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -1471,61 +1423,29 @@ def test_a_blocked_call_is_reported_with_what_an_allowed_one_carries() -> None:
             trace_marker="mine",
         )
 
-    assert recorder.starts[0]["tool_call_id"] == "c1"
-    assert recorder.starts[0]["color"] == "green"
-    assert recorder.starts[0]["trace_marker"] == "mine"
-    assert recorder.errors[0]["tool_call_id"] == "c1"
+    assert recorder.start_kwargs[0]["tool_call_id"] == "c1"
+    assert recorder.start_kwargs[0]["color"] == "green"
+    assert recorder.start_kwargs[0]["trace_marker"] == "mine"
+    assert recorder.error_kwargs[0]["tool_call_id"] == "c1"
 
 
-def test_a_handled_denial_is_a_run_that_ends() -> None:
+@pytest.mark.parametrize("flavour", ["sync", "async"])
+def test_a_handled_denial_is_a_run_that_ends(flavour: str) -> None:
     """LangChain closes a handled ToolException with on_tool_end, not error.
 
     The caller got a normal result back, so the run did not fail; reporting an
     error would mark it failed in a trace and over-count hard failures.
     """
     recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="dangerous", description="d"
-    )
+    original = _flavoured_echo(flavour, "dangerous")
     original.handle_tool_error = "policy said no"
     wrapped = guard_tool(
-        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        guard=_denying_client(flavour),
         tool=original,
         action="dangerous.called",
     )
 
-    result = wrapped.invoke(
-        cast(Any, {"value": "no"}), config={"callbacks": [recorder]}
-    )
-
-    assert result == "policy said no"
-    assert recorder.events == [
-        ("start", "dangerous"),
-        ("end", "policy said no"),
-    ]
-
-
-def test_a_handled_async_denial_is_a_run_that_ends() -> None:
-    recorder = _Recorder()
-
-    async def lookup(value: str) -> str:
-        return "ok"
-
-    original = StructuredTool.from_function(
-        coroutine=lookup, name="dangerous", description="d"
-    )
-    original.handle_tool_error = "policy said no"
-    wrapped = guard_tool(
-        guard=ArcjetGuard(
-            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
-        ),
-        tool=original,
-        action="dangerous.called",
-    )
-
-    result = asyncio.run(
-        wrapped.ainvoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
-    )
+    result = _call(wrapped, {"value": "no"}, flavour, config={"callbacks": [recorder]})
 
     assert result == "policy said no"
     assert recorder.events == [
@@ -1541,9 +1461,7 @@ def test_a_direct_function_call_is_not_a_tool_run() -> None:
     still evaluates and denies, but a trace only records tool runs.
     """
     recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="dangerous", description="d"
-    )
+    original = _echo("dangerous")
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
         tool=original,
@@ -1595,9 +1513,7 @@ def test_a_handler_on_the_call_fires_once_per_event() -> None:
     way to trace a guarded tool, and it must see one start and one end.
     """
     recorder = _Recorder()
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="tool", description="d"
-    )
+    original = _echo("tool")
     wrapped = guard_tool(
         guard=_guard(_Transport()), tool=original, action="tool.called"
     )
@@ -1699,9 +1615,7 @@ def test_allowing_a_failed_evaluation_still_reports_it(
 
     wrapped = guard_tool(
         guard=_guard(_Transport()),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         actor=broken_actor,
         on_guard_error="allow",
@@ -1735,9 +1649,7 @@ def test_a_failed_resolver_still_puts_the_call_on_the_record() -> None:
         transport = _Transport()
         wrapped = guard_tool(
             guard=_guard(transport),
-            tool=StructuredTool.from_function(
-                lambda value: "ok", name="t", description="d"
-            ),
+            tool=_echo(),
             action="t.called",
             on_guard_error="allow",
             **cast(Any, policy),
@@ -1756,9 +1668,7 @@ def test_a_failed_resolver_denies_but_still_records_under_deny() -> None:
 
     wrapped = guard_tool(
         guard=_guard(transport),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         actor=broken_actor,
     )
@@ -1822,9 +1732,7 @@ def test_a_handled_denial_is_shaped_like_a_handled_tool_error(handler: Any) -> N
     raising.handle_tool_error = handler
     unguarded = raising.run({"value": "x"}, tool_call_id="c1")
 
-    allowed = StructuredTool.from_function(
-        lambda value: "ok", name="t", description="d"
-    )
+    allowed = _echo()
     allowed.handle_tool_error = handler
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
@@ -1841,9 +1749,7 @@ def test_an_empty_error_handler_does_not_handle() -> None:
     Treating it as a handler answered a denial with an empty message and
     reported the run as having ended successfully.
     """
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="t", description="d"
-    )
+    original = _echo()
     original.handle_tool_error = ""
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
@@ -1862,9 +1768,7 @@ def test_an_error_handler_that_raises_reaches_the_caller() -> None:
     branching on the handler's error type must see it rather than the denial
     that triggered it.
     """
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="tool", description="d"
-    )
+    original = _echo("tool")
 
     def handler(error: ToolException) -> str:
         raise ToolException("quota exhausted - retry tomorrow")
@@ -1889,9 +1793,7 @@ def test_the_delegates_error_handler_governs_a_denial() -> None:
     denial following the handle and the tool's own errors following the
     delegate.
     """
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="tool", description="d"
-    )
+    original = _echo("tool")
     original.handle_tool_error = "handled by the tool"
     wrapped = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
@@ -1902,9 +1804,7 @@ def test_the_delegates_error_handler_governs_a_denial() -> None:
     assert wrapped.invoke(cast(Any, {"value": "no"})) == "handled by the tool"
 
     # Set on the handle rather than the tool, it does not govern either path.
-    plain = StructuredTool.from_function(
-        lambda value: "ok", name="tool", description="d"
-    )
+    plain = _echo("tool")
     handle_only = guard_tool(
         guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
         tool=plain,
@@ -2295,9 +2195,7 @@ def test_a_resolver_reads_the_config_a_direct_call_was_given() -> None:
     transport = _Transport()
     wrapped = guard_tool(
         guard=_guard(transport),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         actor=lambda config: str((config.get("configurable") or {})["user_id"]),
     )
@@ -2372,9 +2270,7 @@ def test_a_direct_arun_call_is_still_guarded() -> None:
         coroutine=lookup, name="lookup", description="d"
     )
     denied = guard_tool(
-        guard=ArcjetGuard(
-            "key", cast(Any, _AsyncTransport(pb.GUARD_CONCLUSION_DENY)), 1000, "ua"
-        ),
+        guard=_aguard(_AsyncTransport(pb.GUARD_CONCLUSION_DENY)),
         tool=original,
         action="lookup.called",
     )
@@ -2547,17 +2443,10 @@ def test_a_copy_shares_a_hand_rolled_client() -> None:
             self.calls += 1
             return _Transport().guard(pb.GuardRequest())
 
-        def capture(self, *args: Any, **kwargs: Any) -> Any:
-            return pb.CaptureResponse()
-
-        def get_guard_policy(self, *args: Any, **kwargs: Any) -> Any: ...
-
     client = Recorder()
     wrapped = guard_tool(
         guard=cast(Any, client),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         on_guard_error="allow",
     )
@@ -2575,9 +2464,7 @@ def test_a_copys_own_function_is_bound_to_the_copy() -> None:
     """
     wrapped = guard_tool(
         guard=_guard(_Transport()),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
     )
 
@@ -2593,9 +2480,7 @@ def test_the_test_client_records_calls_made_through_a_copy() -> None:
     client = ArcjetTestClient()
     wrapped = guard_tool(
         guard=client,
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="t", description="d"
-        ),
+        tool=_echo(),
         action="t.called",
         on_guard_error="allow",
     )
@@ -2617,11 +2502,9 @@ def test_a_client_of_the_wrong_flavour_is_still_rejected() -> None:
     no coroutine runs its sync body even under `ainvoke`, so the async half
     uses a tool that genuinely awaits.
     """
-    original = StructuredTool.from_function(
-        lambda value: "ok", name="lookup", description="d"
-    )
+    original = _echo("lookup")
     async_only = guard_tool(
-        guard=ArcjetGuard("key", cast(Any, _AsyncTransport()), 1000, "test-agent"),
+        guard=_aguard(_AsyncTransport()),
         tool=original,
         action="lookup.called",
         on_guard_error="allow",
@@ -2661,7 +2544,7 @@ def test_the_decorated_tool_shape_the_examples_use_is_guarded_when_awaited() -> 
         return f"sent:{recipient}"
 
     wrapped = guard_tool(
-        guard=ArcjetGuard("key", cast(Any, transport), 1000, "test-agent"),
+        guard=_aguard(transport),
         tool=send_email,
         action="email.sent",
     )
@@ -2683,10 +2566,8 @@ def test_an_async_client_guards_a_tool_with_no_async_body() -> None:
     """
     transport = _AsyncTransport()
     wrapped = guard_tool(
-        guard=ArcjetGuard("key", cast(Any, transport), 1000, "test-agent"),
-        tool=StructuredTool.from_function(
-            lambda value: "ok", name="lookup", description="d"
-        ),
+        guard=_aguard(transport),
+        tool=_echo("lookup"),
         action="lookup.called",
     )
 
