@@ -184,7 +184,7 @@ def _fail_closed(action: str, on_guard_error: OnGuardError) -> Iterator[None]:
     except _BLOCKED:
         raise
     except Exception as exc:
-        if on_guard_error == "deny":
+        if on_guard_error != "allow":
             raise ArcjetToolUnavailableError(action, cause=exc) from exc
         # Allowing the call is not the same as there being nothing to report: a
         # resolver that raises on every call leaves policy permanently
@@ -700,11 +700,11 @@ class _GuardMixin:
         """
         if decision.conclusion == "DENY":
             raise ArcjetToolDeniedError(policy.action, decision)
-        if decision.has_failed_open() and policy.on_guard_error == "deny":
+        if decision.has_failed_open() and policy.on_guard_error != "allow":
             raise ArcjetToolUnavailableError(policy.action)
         if degraded is None:
             return
-        if policy.on_guard_error == "deny":
+        if policy.on_guard_error != "allow":
             # The cause travels with it: without it the operator is told only
             # that policy could not be evaluated, not what stopped it.
             raise ArcjetToolUnavailableError(policy.action, cause=degraded)
@@ -1371,6 +1371,12 @@ def guard_tool(
     mistake, not a degraded evaluation, and ``on_guard_error`` deliberately
     does not govern it.
     """
+    if on_guard_error not in ("allow", "deny"):
+        raise ArcjetMisconfiguration(
+            f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "
+            f"It decides whether a call runs when policy could not be "
+            f"evaluated, so there is no safe value to guess."
+        )
     _refuse_colliding_state(tool)
     guarded = _copy_of(tool, _guarded_class(type(tool)))
     guarded._arcjet_state = _Guarded(

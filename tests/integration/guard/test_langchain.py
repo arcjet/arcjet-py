@@ -2659,3 +2659,35 @@ def test_a_blocked_call_is_traced_even_when_the_error_handler_raises() -> None:
         wrapped.invoke(cast(Any, {"value": "no"}), config={"callbacks": [recorder]})
 
     assert recorder.events == [("start", "dangerous")]
+
+
+@pytest.mark.parametrize("value", ["DENY", "Deny", "denied", "", "nonsense"])
+def test_an_unusable_on_guard_error_is_refused(value: str) -> None:
+    """There is no safe value to guess for the knob that decides fail direction.
+
+    The comparisons used to test for `"deny"` exactly, so every other value
+    silently failed OPEN — the inverse of the default — and the only trace was
+    a warning claiming the value was `'allow'`.
+    """
+    with pytest.raises(ArcjetMisconfiguration, match="on_guard_error"):
+        guard_tool(
+            guard=_guard(_Transport()),
+            tool=_echo(),
+            action="t.called",
+            on_guard_error=cast(Any, value),
+        )
+
+
+def test_a_failed_evaluation_denies_by_default() -> None:
+    """The documented default, asserted against the fail direction itself."""
+
+    class _Down:
+        def guard_sync(self, rules: Any = (), **kwargs: Any) -> Any:
+            raise RuntimeError("transport down")
+
+        guard = guard_sync
+
+    wrapped = guard_tool(guard=cast(Any, _Down()), tool=_echo(), action="t.called")
+
+    with pytest.raises(ArcjetToolUnavailableError):
+        wrapped.invoke(cast(Any, {"value": "x"}))
