@@ -1060,6 +1060,13 @@ Narrow before guarding for the same reason you configure before guarding:
 changing the wrapped tool's schema afterwards leaves the two disagreeing about
 what to advertise, for a tool built with `Tool(...)` and no schema of its own.
 
+> [!WARNING]
+> Pickle executes arbitrary code as it loads. Load a pickled tool only from a
+> source you control — your own worker queue or process pool — and never from a
+> user, a network peer, or shared storage anyone else can write to. A guarded
+> tool is not a safe transport format for untrusted input, and the checkpoint
+> does not protect the load: the code runs before any rule does.
+
 A guarded tool can be pickled if the tool it wraps can and its resolvers can,
 which is what sending tools to a worker process needs. Fields set on the
 guarded tool survive the round trip. Resolvers are pickled as you gave them, so

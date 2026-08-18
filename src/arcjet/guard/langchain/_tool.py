@@ -1601,7 +1601,10 @@ def guard_tool(
 
     A guarded tool pickles if the tool it wraps does *and* its resolvers do,
     carrying the policy but not *guard*; the receiving process supplies its own
-    with :func:`~arcjet.guard.register_arcjet` before loading the tool.
+    with :func:`~arcjet.guard.register_arcjet` before loading the tool. Pickle
+    executes arbitrary code as it loads, so load one only from a source you
+    control — the checkpoint does not protect the load, because the code runs
+    before any rule does.
 
     Fields reassigned on the guarded tool after this returns do not reach the
     call — configure the tool before guarding it.
