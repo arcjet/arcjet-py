@@ -11,7 +11,11 @@ from typing import Annotated, Any, cast
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import ToolMessage
-from langchain_core.runnables import ConfigurableField, RunnableLambda
+from langchain_core.runnables import (
+    ConfigurableField,
+    RunnableConfig,
+    RunnableLambda,
+)
 from langchain_core.runnables.config import ensure_config, set_config_context
 from langchain_core.tools import (
     BaseTool,
@@ -3090,3 +3094,48 @@ def test_a_caller_kwarg_cannot_displace_a_blocked_calls_inputs() -> None:
         wrapped.run({"value": "v"}, callbacks=[recorder], inputs="HIJACKED")
 
     assert recorder.start_kwargs[0]["inputs"] == {"value": "v"}
+
+
+def test_a_tool_with_its_own_config_argument_still_works() -> None:
+    """LangChain finds the RunnableConfig by annotation, never by name.
+
+    Matching the literal name `config` took a genuine argument away from the
+    tool and fed it to `ensure_config`, which crashed on a direct call that
+    works unguarded.
+    """
+
+    def render(config: str, body: str) -> str:
+        return f"{config}:{body}"
+
+    original = StructuredTool.from_function(render, name="render", description="d")
+    wrapped = guard_tool(
+        guard=_guard(_Transport()), tool=original, action="render.called"
+    )
+
+    assert cast(Any, original).func(config="x", body="y") == "x:y"
+    assert cast(Any, wrapped).func(config="x", body="y") == "x:y"
+
+
+def test_a_resolver_sees_a_config_parameter_by_any_name() -> None:
+    """The same annotation rule, in the other direction.
+
+    A tool whose RunnableConfig parameter is not called `config` kept it among
+    the arguments while resolvers were handed no config at all — so a resolver
+    reading it raised, and the fail-closed default denied every call.
+    """
+    transport = _Transport()
+
+    def send(to: str, cfg: RunnableConfig) -> str:
+        return f"sent {to}"
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=StructuredTool.from_function(send, name="send", description="d"),
+        action="send.called",
+        actor=lambda config: str((config.get("configurable") or {})["user_id"]),
+    )
+
+    cast(Any, wrapped).func(to="a@b.c", cfg={"configurable": {"user_id": "u1"}})
+
+    assert transport.request is not None
+    assert transport.request.actor == "u1"

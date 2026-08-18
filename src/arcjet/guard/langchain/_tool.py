@@ -38,6 +38,9 @@ from langchain_core.tools import BaseTool, ToolException
 from langchain_core.tools.base import FILTERED_ARGS
 from langchain_core.tools.base import _format_output as _lc_format_output
 from langchain_core.tools.base import (
+    _get_runnable_config_param as _lc_config_param,
+)
+from langchain_core.tools.base import (
     _handle_tool_error as _lc_handle_tool_error,
 )
 from pydantic import BaseModel, PrivateAttr, ValidationError
@@ -463,6 +466,10 @@ class _Guarded:
     # the most expensive thing on that path by some way.
     run_signature: inspect.Signature | None
     arun_signature: inspect.Signature | None
+    # Which parameter, if any, is the RunnableConfig — by annotation, as
+    # LangChain identifies it, rather than by the name `config`.
+    run_config_param: str | None
+    arun_config_param: str | None
 
 
 def _state_of(handle: Any) -> "_Guarded":
@@ -736,7 +743,10 @@ class _GuardMixin:
         """
         delegate = self._arcjet_state.delegate
         raw, config, rejected = _call_arguments(
-            self._arcjet_state.run_signature, args, kwargs
+            self._arcjet_state.run_signature,
+            args,
+            kwargs,
+            self._arcjet_state.run_config_param,
         )
         self._arcjet_evaluate(
             _Call(raw, None, _checkpoint_config(config), validated=rejected)
@@ -747,7 +757,10 @@ class _GuardMixin:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_state.delegate
         raw, config, rejected = _call_arguments(
-            self._arcjet_state.arun_signature, args, kwargs
+            self._arcjet_state.arun_signature,
+            args,
+            kwargs,
+            self._arcjet_state.arun_config_param,
         )
         await self._arcjet_evaluate_async(
             _Call(raw, None, _checkpoint_config(config), validated=rejected)
@@ -1192,6 +1205,24 @@ def _rebuild_guarded_tool(
     return guarded
 
 
+def _config_param_of(fn: Callable[..., Any]) -> str | None:
+    """The name of *fn*'s ``RunnableConfig`` parameter, or ``None``.
+
+    Asked of LangChain, which identifies this parameter by its annotation and
+    never by its name. Matching on the literal name ``config`` instead did two
+    things wrong: a tool with a genuine ``config`` argument of its own had it
+    taken away and fed to ``ensure_config``, which crashed on a call that works
+    unguarded, and a tool whose config parameter is named anything else kept it
+    among the arguments while resolvers saw no config at all.
+
+    Resolved once per guarded tool, beside the signature it belongs to.
+    """
+    try:
+        return _lc_config_param(fn)
+    except Exception:
+        return None
+
+
 def _signature_of(fn: Callable[..., Any]) -> inspect.Signature | None:
     """*fn*'s signature, or ``None`` when it does not have one to report.
 
@@ -1213,7 +1244,7 @@ _UNREADABLE: Any = object()
 
 
 def _unbound_arguments(
-    args: tuple[Any, ...], kwargs: dict[str, Any]
+    args: tuple[Any, ...], kwargs: dict[str, Any], config_param: str | None
 ) -> tuple[Any, RunnableConfig | None]:
     """A call that could not be bound to a signature, handed on as it came.
 
@@ -1227,7 +1258,7 @@ def _unbound_arguments(
     nothing. The sentinel routes it through ``on_guard_error`` instead.
     """
     if kwargs:
-        return kwargs, kwargs.get("config")
+        return kwargs, (kwargs.get(config_param) if config_param else None)
     if len(args) == 1:
         return args[0], None
     return _UNREADABLE, None
@@ -1237,6 +1268,7 @@ def _call_arguments(
     signature: inspect.Signature | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
+    config_param: str | None = None,
 ) -> tuple[Any, RunnableConfig | None, bool]:
     """A direct call's arguments, shaped the way the tool reads its input, and
     the ``config`` it was given.
@@ -1257,7 +1289,7 @@ def _call_arguments(
     that reports it.
     """
     if signature is None:
-        raw, config = _unbound_arguments(args, kwargs)
+        raw, config = _unbound_arguments(args, kwargs, config_param)
         return raw, config, False
     try:
         bound = signature.bind(*args, **kwargs)
@@ -1266,7 +1298,7 @@ def _call_arguments(
         # reject it. That makes this the validated case: whatever a resolver
         # cannot read here has no effect to protect, exactly as when a schema
         # rejects a call arriving through `invoke`.
-        raw, config = _unbound_arguments(args, kwargs)
+        raw, config = _unbound_arguments(args, kwargs, config_param)
         return raw, config, True
     bound.apply_defaults()
 
@@ -1283,7 +1315,7 @@ def _call_arguments(
 
     # What the framework supplies rather than the caller. `tool_call_schema`
     # hides these from the model, so a resolver must not be handed them either.
-    config = flattened.pop("config", None)
+    config = flattened.pop(config_param, None) if config_param else None
     for name in FILTERED_ARGS:
         flattened.pop(name, None)
 
@@ -1313,11 +1345,14 @@ def _guarded_callables(guarded: BaseTool) -> None:
     if callable(func):
         inner_func = cast(Callable[..., Any], func)
         func_signature = _signature_of(inner_func)
+        func_config_param = _config_param_of(inner_func)
 
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
-            raw, config, rejected = _call_arguments(func_signature, args, kwargs)
+            raw, config, rejected = _call_arguments(
+                func_signature, args, kwargs, func_config_param
+            )
             evaluate(_Call(raw, None, _checkpoint_config(config), validated=rejected))
             return inner_func(*args, **kwargs)
 
@@ -1327,11 +1362,14 @@ def _guarded_callables(guarded: BaseTool) -> None:
     if callable(coroutine):
         inner_coroutine = cast(Callable[..., Awaitable[Any]], coroutine)
         coroutine_signature = _signature_of(inner_coroutine)
+        coroutine_config_param = _config_param_of(inner_coroutine)
 
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
-            raw, config, rejected = _call_arguments(coroutine_signature, args, kwargs)
+            raw, config, rejected = _call_arguments(
+                coroutine_signature, args, kwargs, coroutine_config_param
+            )
             await evaluate(
                 _Call(raw, None, _checkpoint_config(config), validated=rejected)
             )
@@ -1577,6 +1615,8 @@ def guard_tool(
         awaitable=_awaitable(guard, "guard"),
         run_signature=_signature_of(tool._run),
         arun_signature=_signature_of(tool._arun),
+        run_config_param=_config_param_of(tool._run),
+        arun_config_param=_config_param_of(tool._arun),
     )
     _guarded_callables(guarded)
     return guarded
