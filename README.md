@@ -1017,11 +1017,22 @@ If a resolver fails, Guard still sees the call — the decision is made without
 that input rather than not made at all — and `on_guard_error` decides whether
 the call may run.
 
-Fields reassigned on the guarded tool after `guard_tool()` returns — callbacks,
-tags, `handle_tool_error`, `args_schema` — do not reach the call. The wrapped
-tool executes with what it had, and a blocked call is reported from the wrapped
-tool too, so allowed and blocked calls agree with each other. Configure the tool
-before guarding it.
+Configure the tool before you guard it. The guarded tool carries a copy of the
+tool's state, but the wrapped tool is what executes, so anything you change on
+the guarded tool afterwards does not reach the call — `callbacks`, `tags`,
+`handle_tool_error`, `args_schema`, `response_format`, and any other field. A
+blocked call is reported from the wrapped tool too, so allowed and blocked
+calls agree with each other.
+
+The same applies to a method: if the tool's class has a helper that configures
+it — `bind_user()`, say — calling that on the guarded tool sets the value on
+the guarded tool, and the wrapped tool still runs without it. Call it before
+guarding, or call it on the tool you still hold.
+
+`response_format` is worth calling out because ignoring it does more than
+nothing: a tool that returns `(content, artifact)` runs with the wrapped tool's
+format, so the tuple is JSON-encoded into the message content and the artifact
+is dropped.
 
 `args_schema` follows that same rule, which matters if you want to hide an
 argument from the model. Narrow the tool **before** you guard it: the wrapped

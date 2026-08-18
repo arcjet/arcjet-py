@@ -675,9 +675,14 @@ class _GuardMixin:
 
         The four entrypoints above delegate before this depth, so this is
         reached only by a direct call or by a tool-class helper built on
-        ``self._run`` — a preview or dry-run method, say. Those keep working
-        on the guarded handle, and the checkpoint still runs first, so there
-        is no unguarded path through here.
+        ``self._run`` — a preview or dry-run method, say. The checkpoint still
+        runs first, so there is no unguarded path through here.
+
+        Such a helper *reads* the handle's own copy of the tool's state, which
+        is the state the tool was guarded with. One that writes is a different
+        matter: the write lands on the handle, and the body runs on the wrapped
+        tool, so it does not reach the call. That is the same rule as a
+        reassigned field — configure the tool before guarding it.
         """
         delegate = self._arcjet_state.delegate
         raw, config = _call_arguments(self._arcjet_state.run_signature, args, kwargs)
