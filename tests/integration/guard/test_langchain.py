@@ -35,6 +35,7 @@ from arcjet.guard import (
     server_input,
     unregister_arcjet,
 )
+from arcjet.guard._client import _make_error_decision
 from arcjet.guard.langchain import (
     ArcjetToolDeniedError,
     ArcjetToolUnavailableError,
@@ -3006,3 +3007,34 @@ def test_the_handle_still_takes_every_other_field() -> None:
     outer.tags = ["outer"]
     assert outer.tags == ["outer"]
     assert outer.invoke(cast(Any, {"value": "x"})) == "ok"
+
+
+def test_a_failed_resolver_reports_its_cause_even_on_a_failed_open_decision() -> None:
+    """The two conditions co-occur during an outage, which is when it matters.
+
+    `has_failed_open()` was tested before the degraded branch and raised
+    without a cause, so a resolver failure was discarded exactly when it was
+    most likely a symptom of the same fault.
+    """
+
+    class _FailedOpen:
+        def guard_sync(self, rules: Any = (), **kwargs: Any) -> Any:
+            return _make_error_decision("upstream down")
+
+        guard = guard_sync
+
+    def explode(_config: Any) -> str:
+        raise RuntimeError("actor blew up")
+
+    wrapped = guard_tool(
+        guard=cast(Any, _FailedOpen()),
+        tool=_echo(),
+        action="t.called",
+        actor=explode,
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError) as caught:
+        wrapped.invoke(cast(Any, {"value": "x"}))
+
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "actor blew up" in str(caught.value.__cause__)

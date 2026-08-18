@@ -798,13 +798,16 @@ class _GuardMixin:
         """
         if decision.conclusion == "DENY":
             raise ArcjetToolDeniedError(policy.action, decision)
+        # The cause travels with either refusal: without it the operator is told
+        # only that policy could not be evaluated, not what stopped it. The two
+        # conditions co-occur during a transport outage, which is when a
+        # resolver failure is most likely a symptom of the same fault and most
+        # needs reporting — so *degraded* is carried here too, not only below.
         if decision.has_failed_open() and policy.on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(policy.action)
+            raise ArcjetToolUnavailableError(policy.action, cause=degraded)
         if degraded is None:
             return
         if policy.on_guard_error != "allow":
-            # The cause travels with it: without it the operator is told only
-            # that policy could not be evaluated, not what stopped it.
             raise ArcjetToolUnavailableError(policy.action, cause=degraded)
         logger.warning(
             "arcjet: could not resolve everything policy needed for a call to %r; "
