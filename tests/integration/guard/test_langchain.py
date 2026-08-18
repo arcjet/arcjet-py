@@ -2957,3 +2957,52 @@ def test_a_caller_typo_reaches_the_caller_as_the_tools_own_error() -> None:
 
     # A call that does fit is unaffected.
     assert cast(Any, wrapped).func(to="a@b.c") == "sent a@b.c"
+
+
+@pytest.mark.parametrize("kind", ["simple", "structured"])
+def test_a_schema_assigned_to_the_handle_never_reaches_the_model(kind: str) -> None:
+    """`convert_to_openai_function` reads the raw `args_schema` field.
+
+    Its `isinstance(tool, Tool) and not tool.args_schema` test bypasses all
+    three forwarded derivations, so a handle that accepted the write
+    advertised a different schema to the model than the tool it wraps — for a
+    schema-less `Tool`, the whole `RunnableConfig` including `config`.
+    """
+
+    class Narrow(BaseModel):
+        q: str
+
+    original: BaseTool = (
+        Tool(name="s", description="d", func=lambda q: q)
+        if kind == "simple"
+        else StructuredTool.from_function(
+            lambda q: q, name="s", description="d", args_schema=cast(Any, Narrow)
+        )
+    )
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=original, action="s.called")
+
+    wrapped.args_schema = cast(Any, Narrow)
+
+    def advertised(candidate: BaseTool) -> set[str]:
+        schema = convert_to_openai_tool(candidate)["function"]["parameters"]
+        return set(schema["properties"])
+
+    assert advertised(wrapped) == advertised(original)
+    assert "config" not in advertised(wrapped)
+
+
+def test_the_handle_still_takes_every_other_field() -> None:
+    """Only the schema is dropped; the handle is otherwise an ordinary tool."""
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=_echo(), action="t.called")
+
+    wrapped.tags = ["team-a"]
+    wrapped.description = "changed"
+
+    assert wrapped.tags == ["team-a"]
+    assert wrapped.description == "changed"
+
+    # And nesting does not recurse through the override.
+    outer = guard_tool(guard=_guard(_Transport()), tool=wrapped, action="t.outer")
+    outer.tags = ["outer"]
+    assert outer.tags == ["outer"]
+    assert outer.invoke(cast(Any, {"value": "x"})) == "ok"

@@ -1334,6 +1334,31 @@ _guarded_classes: MutableMapping[type[BaseTool], type[BaseTool]] = WeakKeyDictio
 _guarded_classes_lock = threading.RLock()
 
 
+def _ignore_schema_assignment(base: type[BaseTool]) -> Callable[..., None]:
+    """A ``__setattr__`` that drops a write to ``args_schema``.
+
+    Every field on the handle is already ignored in the sense that matters —
+    the wrapped tool answers every schema question — but this one has to be
+    dropped rather than merely unread. ``convert_to_openai_function`` decides
+    whether a tool is a "simple" one with ``isinstance(tool, Tool) and not
+    tool.args_schema``, reading the raw field and bypassing the three forwarded
+    derivations. A handle that accepted the write therefore advertised a
+    different schema to the model than the tool it wraps: for a schema-less
+    ``Tool`` it exposed the whole ``RunnableConfig``, ``config`` included.
+
+    Bound to *base* at class creation rather than looked up from the instance,
+    because guarding an already-guarded tool nests these classes and any
+    lookup relative to ``type(self)`` would recurse forever.
+    """
+
+    def __setattr__(self: Any, name: str, value: Any) -> None:
+        if name == "args_schema":
+            return
+        base.__setattr__(self, name, value)
+
+    return __setattr__
+
+
 def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
     """A subclass of *base* that guards before delegating, made once per class.
 
@@ -1360,6 +1385,7 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
             if member_name not in _NAMESPACE_SKIP
         }
         namespace.update(
+            __setattr__=_ignore_schema_assignment(base),
             _arcjet_state=PrivateAttr(default=None),
             # Named for this module rather than for the caller's, so a repr or
             # a traceback points at the code that made the class.

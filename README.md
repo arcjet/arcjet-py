@@ -1056,6 +1056,10 @@ default, so a caller that sends `internal_note` anyway gets a successful call
 with the field dropped, not an error. To reject it, give the narrow schema
 `model_config = ConfigDict(extra="forbid")`, or bind a rule to the argument.
 
+Narrow before guarding for the same reason you configure before guarding:
+changing the wrapped tool's schema afterwards leaves the two disagreeing about
+what to advertise, for a tool built with `Tool(...)` and no schema of its own.
+
 A guarded tool can be pickled if the tool it wraps can and its resolvers can,
 which is what sending tools to a worker process needs. Fields set on the
 guarded tool survive the round trip. Resolvers are pickled as you gave them, so
