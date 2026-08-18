@@ -704,3 +704,21 @@ class TestArcjetSyncFactoryEnvironmentKwarg:
         scope = {"type": "http", "headers": [], "client": ("127.0.0.1", 0)}
         aj.protect(scope)
         assert captured["ip"] == "127.0.0.1"
+
+
+def test_neither_client_renders_the_site_key(mock_protobuf_modules):
+    """A client reaches everything that renders objects on a failing call.
+
+    A traceback captured with frame locals — `pytest --showlocals`, an error
+    reporter, a debugger — renders whatever the frame held. Both HTTP clients
+    are dataclasses, so the generated repr printed the key that authenticates
+    as the site.
+    """
+    from arcjet import arcjet, arcjet_sync
+
+    secret = "ajkey_live_NOTAREALKEY"
+    for make in (arcjet, arcjet_sync):
+        client = make(key=secret, rules=[])
+        assert secret not in repr(client)
+        # Hidden from the repr, not removed: the client still authenticates.
+        assert client._key == secret
