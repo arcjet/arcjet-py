@@ -11,7 +11,7 @@ from typing import Annotated, Any, cast
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import ToolMessage
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import ConfigurableField, RunnableLambda
 from langchain_core.runnables.config import ensure_config, set_config_context
 from langchain_core.tools import (
     BaseTool,
@@ -2905,3 +2905,24 @@ def test_arguments_a_signature_less_callable_hides_are_unevaluated(
         assert cast(Any, wrapped).func(8, 2) == math.log(8, 2)
     # Either way the resolver was never handed a mapping it could not trust.
     assert seen == []
+
+
+def test_a_tool_rebuilt_through_its_class_says_it_lost_its_guard() -> None:
+    """`configurable_fields` reconstructs the tool as `self.default.__class__(...)`.
+
+    Only declared fields survive that, and the guard's state is a private
+    attribute, so the rebuilt handle has none. It used to surface as a bare
+    `AttributeError` naming an internal attribute — the opaque failure the
+    collision check and the subclass check both exist to avoid.
+    """
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=_echo("q"), action="q.called")
+    configurable = wrapped.configurable_fields(description=ConfigurableField(id="desc"))
+
+    # Untouched until a configurable value is actually supplied.
+    assert configurable.invoke(cast(Any, {"value": "x"})) == "ok"
+
+    with pytest.raises(ArcjetMisconfiguration, match="configurable_fields"):
+        configurable.invoke(
+            cast(Any, {"value": "x"}),
+            cast(Any, {"configurable": {"desc": "other"}}),
+        )

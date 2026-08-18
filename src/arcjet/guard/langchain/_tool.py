@@ -460,6 +460,32 @@ class _Guarded:
     arun_signature: inspect.Signature | None
 
 
+def _state_of(handle: Any) -> "_Guarded":
+    """The guard's state on *handle*, or a diagnosis of how it went missing.
+
+    LangChain rebuilds a runnable through its own class in a few places:
+    ``configurable_fields`` and ``configurable_alternatives`` construct
+    ``self.default.__class__(**init_params)`` once a configurable value is
+    actually supplied. Only declared fields survive that, and the guard's state
+    is a private attribute, so the rebuilt handle has none.
+
+    A module-level function rather than another attribute on the handle,
+    because every name the guard puts there is a name the tool may not use and
+    ``_arcjet_state`` is the one this reserves.
+    """
+    state = handle._arcjet_state
+    if state is None:
+        raise ArcjetMisconfiguration(
+            "This guarded tool has no Arcjet state, which happens when "
+            "LangChain rebuilds a tool through its own class — "
+            "configurable_fields() and configurable_alternatives() do that "
+            "once a configurable value is supplied, and the rebuilt tool keeps "
+            "only its declared fields. Apply those to the tool before guarding "
+            "it."
+        )
+    return state
+
+
 class _UnreadableArguments(Exception):
     """The call's arguments could not be read, and the tool may still run.
 
@@ -718,7 +744,7 @@ class _GuardMixin:
         return await delegate._arun(*args, **kwargs)
 
     def _arcjet_evaluate(self, call: _Call) -> None:
-        policy = self._arcjet_state
+        policy = _state_of(self)
         guard = policy.blocking
         if guard is None:
             raise TypeError(
@@ -734,7 +760,7 @@ class _GuardMixin:
             self._arcjet_after_decision(policy, decision, degraded)
 
     async def _arcjet_evaluate_async(self, call: _Call) -> None:
-        policy = self._arcjet_state
+        policy = _state_of(self)
         guard = policy.awaitable
         if guard is None:
             raise TypeError(
@@ -1324,7 +1350,7 @@ def _guarded_class(base: type[BaseTool]) -> type[BaseTool]:
             if member_name not in _NAMESPACE_SKIP
         }
         namespace.update(
-            _arcjet_state=PrivateAttr(),
+            _arcjet_state=PrivateAttr(default=None),
             # Named for this module rather than for the caller's, so a repr or
             # a traceback points at the code that made the class.
             __module__=__name__,
