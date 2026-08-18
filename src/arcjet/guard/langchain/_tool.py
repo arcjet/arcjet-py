@@ -215,6 +215,9 @@ class _Report:
     tool_call_id: str | None
     verbose: bool = False
     start_color: str | None = "green"
+    #: What `BaseTool.run` hands `on_tool_end`, as distinct from `start_color`
+    #: which it hands `on_tool_start`.
+    color: str | None = "green"
     # A default_factory rather than a bare default: Python 3.11's dataclasses
     # rejects any default whose type defines `__hash__ = None`, and mappingproxy
     # only gained `__hash__` in 3.12. A literal default makes this module
@@ -244,6 +247,7 @@ class _Report:
         tool_call_id: str | None,
         verbose: bool | None,
         start_color: str | None,
+        color: str | None,
         extra: Mapping[str, Any],
     ) -> "_Report":
         """The values a caller handed ``run`` or ``arun`` directly."""
@@ -256,6 +260,7 @@ class _Report:
             tool_call_id,
             bool(verbose),
             start_color,
+            color,
             MappingProxyType(dict(extra)),
         )
 
@@ -642,6 +647,7 @@ class _GuardMixin:
                     tool_call_id,
                     verbose,
                     start_color,
+                    color,
                     kwargs,
                 ),
             )
@@ -695,6 +701,7 @@ class _GuardMixin:
                     tool_call_id,
                     verbose,
                     start_color,
+                    color,
                     kwargs,
                 ),
             )
@@ -956,7 +963,19 @@ class _GuardMixin:
             content = _handle_tool_exception(
                 self._arcjet_state.delegate, error, report.tool_call_id
             )
-            return "on_tool_end", {"output": content}, content
+            # `BaseTool.run` closes a handled ToolException with
+            # `on_tool_end(output, color=color, name=self.name, **kwargs)`, so
+            # a handler reading `kwargs["name"]` to attribute a span finds it.
+            return (
+                "on_tool_end",
+                {
+                    **report.extra,
+                    "output": content,
+                    "color": report.color,
+                    "name": self._arcjet_state.delegate.name,
+                },
+                content,
+            )
         return (
             "on_tool_error",
             {"error": error, "tool_call_id": report.tool_call_id},
@@ -1024,12 +1043,17 @@ class _GuardMixin:
             {"name": tool.name, "description": tool.description},
             input_str,
             {
+                # The caller's extras go first, so a stray `inputs=` cannot
+                # displace the filtered arguments and corrupt the trace.
+                # Unguarded, LangChain splats these at a call site and such a
+                # collision raises; here it would be swallowed by `_reporting`
+                # and cost the blocked call its trace, so it is dropped.
+                **report.extra,
                 "inputs": filtered,
                 "tool_call_id": report.tool_call_id,
                 "name": report.run_name,
                 "run_id": report.run_id,
                 "color": report.start_color,
-                **report.extra,
             },
         )
 

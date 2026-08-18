@@ -3038,3 +3038,55 @@ def test_a_failed_resolver_reports_its_cause_even_on_a_failed_open_decision() ->
 
     assert isinstance(caught.value.__cause__, RuntimeError)
     assert "actor blew up" in str(caught.value.__cause__)
+
+
+def test_a_handled_denial_closes_its_run_like_a_handled_tool_error() -> None:
+    """`BaseTool.run` closes one with color, name and the caller's kwargs.
+
+    A blocked call closed its run with `output` alone, so a handler
+    attributing or rendering a span from `kwargs["name"]` saw a denial as a
+    differently-shaped event than the tool's own handled error.
+    """
+
+    def raises(value: str) -> str:
+        raise ToolException("boom")
+
+    allowed = _echo("b")
+    allowed = StructuredTool.from_function(raises, name="b", description="d")
+    allowed.handle_tool_error = "handled"
+    allowed_guarded = guard_tool(
+        guard=_guard(_Transport()), tool=allowed, action="b.called"
+    )
+    denied_tool = _echo("b")
+    denied_tool.handle_tool_error = "handled"
+    denied = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=denied_tool,
+        action="b.called",
+    )
+
+    allowed_recorder, denied_recorder = _Recorder(), _Recorder()
+    allowed_guarded.run({"value": "v"}, callbacks=[allowed_recorder])
+    denied.run({"value": "v"}, callbacks=[denied_recorder])
+
+    assert denied_recorder.end_kwargs[0].keys() == allowed_recorder.end_kwargs[0].keys()
+    assert denied_recorder.end_kwargs[0]["name"] == "b"
+
+
+def test_a_caller_kwarg_cannot_displace_a_blocked_calls_inputs() -> None:
+    """The report is derived, so a stray `run()` keyword must not overwrite it.
+
+    Splatting the caller's extras last let `inputs="HIJACKED"` replace the
+    filtered arguments, corrupting the one trace record a blocked call leaves.
+    """
+    wrapped = guard_tool(
+        guard=_guard(_Transport(pb.GUARD_CONCLUSION_DENY)),
+        tool=_echo(),
+        action="t.called",
+    )
+
+    recorder = _Recorder()
+    with pytest.raises(ArcjetToolDeniedError):
+        wrapped.run({"value": "v"}, callbacks=[recorder], inputs="HIJACKED")
+
+    assert recorder.start_kwargs[0]["inputs"] == {"value": "v"}
