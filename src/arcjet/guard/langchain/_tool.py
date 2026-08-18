@@ -727,10 +727,18 @@ class _GuardMixin:
         The guarded callables close over the handle they were made for, and a
         copy of a function is that same function, so without rebinding them the
         copy would evaluate the original's policy and call the original's tool.
+
+        The client is pinned through the two bound methods that hold it, rather
+        than by pinning the whole policy. Pinning the policy shared the wrapped
+        tool as well, so a copy delegated to the very object the caller deep
+        copied it to stop sharing — and a tool that caches, or holds a
+        per-request handle, then crossed between them.
         """
         memo = {} if memo is None else memo
         policy = self._arcjet_state
-        memo[id(policy)] = policy
+        for bound in (policy.blocking, policy.awaitable):
+            if bound is not None:
+                memo[id(bound)] = bound
         copied = BaseModel.__deepcopy__(cast(BaseModel, self), memo)
         _guarded_callables(cast(BaseTool, copied))
         return copied

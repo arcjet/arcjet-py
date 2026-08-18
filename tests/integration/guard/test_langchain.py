@@ -2691,3 +2691,39 @@ def test_a_failed_evaluation_denies_by_default() -> None:
 
     with pytest.raises(ArcjetToolUnavailableError):
         wrapped.invoke(cast(Any, {"value": "x"}))
+
+
+def test_a_copy_gets_its_own_wrapped_tool() -> None:
+    """A caller deep-copies a tool to stop sharing the object that executes.
+
+    Pinning the whole policy in the memo shared the wrapped tool along with the
+    client, so both handles delegated to one instance and a tool holding
+    per-copy state crossed between them.
+    """
+
+    class Stateful(BaseTool):
+        name: str = "stateful"
+        description: str = "d"
+        _seen: list[str] = PrivateAttr(default_factory=list)
+
+        def _run(self, value: str) -> str:
+            self._seen.append(value)
+            return "ok"
+
+    client = ArcjetTestClient()
+    wrapped = guard_tool(
+        guard=client, tool=Stateful(), action="s.called", on_guard_error="allow"
+    )
+    copied = copy.deepcopy(wrapped)
+
+    wrapped.invoke(cast(Any, {"value": "a"}))
+    copied.invoke(cast(Any, {"value": "b"}))
+
+    original_delegate = cast(Any, wrapped)._arcjet_state.delegate
+    copied_delegate = cast(Any, copied)._arcjet_state.delegate
+    assert copied_delegate is not original_delegate
+    assert cast(Any, original_delegate)._seen == ["a"]
+    assert cast(Any, copied_delegate)._seen == ["b"]
+
+    # The client is still shared, so a recorder sees both calls.
+    assert len(client.guards) == 2
