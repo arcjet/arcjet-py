@@ -2073,11 +2073,14 @@ def test_a_dict_schema_tool_still_advertises_the_tools_own_derivation() -> None:
 def test_narrowing_the_handles_schema_does_not_change_what_the_model_is_told() -> None:
     """A schema assigned to the handle after guarding has no effect.
 
-    It never stopped the argument — the wrapped tool parses and executes
-    against its own schema — so honouring it advertised a narrowing that was
-    not enforced. The handle forwards every schema question to the tool, and
-    the way to narrow is to narrow the tool before guarding it, which is
-    asserted here to actually stop the argument.
+    It never kept the argument out — the wrapped tool parses and executes
+    against its own schema — so honouring it advertised a narrowing that had no
+    effect. The handle forwards every schema question to the tool, and the way
+    to narrow is to narrow the tool before guarding it, which is asserted here
+    to actually discard the argument.
+
+    Discarded, not rejected: pydantic ignores an unknown field by default, so
+    the call still succeeds. Rejecting one needs `extra="forbid"` or a rule.
     """
 
     class Full(BaseModel):
@@ -2111,8 +2114,9 @@ def test_narrowing_the_handles_schema_does_not_change_what_the_model_is_told() -
         == "sent override=True"
     )
 
-    # Narrowed before guarding: the field is hidden *and* stopped, because the
-    # wrapped tool parses against the narrow schema. This is the way to do it.
+    # Narrowed before guarding: the field is hidden and does not reach the
+    # body, because the wrapped tool parses against the narrow schema. It is
+    # discarded rather than rejected, so the call itself still succeeds.
     original = tool()
     original.args_schema = Public
     early = guard_tool(guard=_guard(_Transport()), tool=original, action="email.sent")

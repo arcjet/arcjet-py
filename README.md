@@ -1035,16 +1035,26 @@ format, so the tuple is JSON-encoded into the message content and the artifact
 is dropped.
 
 `args_schema` follows that same rule, which matters if you want to hide an
-argument from the model. Narrow the tool **before** you guard it: the wrapped
-tool then parses against the narrow schema, so the argument is both hidden and
-refused. Narrowing the guarded handle instead would change only what the model
-is told while the tool still accepted and ran the hidden argument, so the
-handle no longer honors it.
+argument from the model. Narrow the tool **before** you guard it, so the
+wrapped tool parses against the narrow schema and the hidden argument is
+discarded rather than reaching the tool body. Narrowing the guarded tool
+instead changes nothing at all, because every schema question is answered by
+the tool it wraps.
 
-```python
-send_email.args_schema = PublicEmailArgs  # narrow first
-guarded = guard_tool(guard=aj, tool=send_email, action="email.sent")
+```py
+class PublicEmailArgs(BaseModel):
+    to: str  # `internal_note` is deliberately absent
+
+send_email_tool.args_schema = PublicEmailArgs  # narrow first, then guard
+guarded_send_email = guard_tool(
+    guard=aj, tool=send_email_tool, action="email.sent"
+)
 ```
+
+Note that "discarded" is not "rejected": pydantic ignores an unknown field by
+default, so a caller that sends `internal_note` anyway gets a successful call
+with the field dropped, not an error. To reject it, give the narrow schema
+`model_config = ConfigDict(extra="forbid")`, or bind a rule to the argument.
 
 A guarded tool can be pickled if the tool it wraps can and its resolvers can,
 which is what sending tools to a worker process needs. Fields set on the
