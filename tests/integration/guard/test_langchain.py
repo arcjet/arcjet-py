@@ -3199,3 +3199,37 @@ def test_a_guarded_callable_still_evaluates_detached_from_its_handle() -> None:
 
     assert detached("hello") == "hello"
     assert transport.calls == 1
+
+
+def test_guarding_does_not_share_a_tools_mutable_state() -> None:
+    """The one-level copy has to reach private attributes and extras too.
+
+    Copying only the private *dict* left its values shared, so a tool holding a
+    mutable `PrivateAttr` — a cache, a counter, a recorded list — wrote through
+    the handle into the tool and back. The same held for whatever an
+    `extra="allow"` tool keeps outside its declared fields.
+    """
+
+    class Stateful(BaseTool):
+        model_config = ConfigDict(extra="allow")
+        name: str = "stateful"
+        description: str = "d"
+        listed: list[str] = []
+        _seen: list[str] = PrivateAttr(default_factory=list)
+
+        def _run(self, value: str) -> str:
+            self._seen.append(value)
+            return "ok"
+
+    original = Stateful(**cast(Any, {"undeclared": ["a"]}))
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=original, action="s.called")
+
+    assert cast(Any, wrapped).listed is not original.listed
+    assert cast(Any, wrapped)._seen is not cast(Any, original)._seen
+    assert cast(Any, wrapped).undeclared is not cast(Any, original).undeclared
+
+    cast(Any, wrapped)._seen.append("via-handle")
+    cast(Any, wrapped).undeclared.append("via-handle")
+
+    assert cast(Any, original)._seen == []
+    assert cast(Any, original).undeclared == ["a"]

@@ -1511,6 +1511,11 @@ def _refuse_colliding_state(tool: BaseTool) -> None:
             )
 
 
+def _copied_state(values: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A state mapping with each value copied one level down."""
+    return {name: _copied_container(value) for name, value in (values or {}).items()}
+
+
 def _copied_container(value: Any) -> Any:
     """One level of copy, so a tag or a callback cannot show up on both tools."""
     if isinstance(value, list):
@@ -1530,7 +1535,13 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
     construct a class whose ``__init__`` requires something that is not a field.
 
     Containers are copied one level down, so a tag or a callback attached to
-    either tool cannot show up on the other.
+    either tool cannot show up on the other. That covers what a tool holds in
+    a private attribute as well as in a declared field: copying only the
+    private *dict* left its values shared, so a tool with a mutable
+    ``PrivateAttr`` wrote through the handle into the tool and back.
+
+    ``__pydantic_extra__`` is the same case, for whatever an ``extra="allow"``
+    tool holds outside its declared fields.
     """
     guarded = wrapper.__new__(wrapper)
     fields = {
@@ -1542,11 +1553,12 @@ def _copy_of(tool: BaseTool, wrapper: type[BaseTool]) -> BaseTool:
     )
     extra = tool.__pydantic_extra__
     object.__setattr__(
-        guarded, "__pydantic_extra__", dict(extra) if extra is not None else None
+        guarded,
+        "__pydantic_extra__",
+        _copied_state(extra) if extra is not None else None,
     )
-    private = tool.__pydantic_private__
     object.__setattr__(
-        guarded, "__pydantic_private__", dict(private) if private else {}
+        guarded, "__pydantic_private__", _copied_state(tool.__pydantic_private__)
     )
     return guarded
 
