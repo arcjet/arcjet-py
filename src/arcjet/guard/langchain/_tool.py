@@ -754,10 +754,10 @@ class _GuardMixin:
         allows, without the value arriving twice — and what puts the values a
         blocked call is reported from in named parameters.
 
-        The config is resolved for the same reason it is in :meth:`invoke`: a
-        resolver should read what the tool runs with.
+        The config a resolver reads is derived by ``_checkpoint_config``, for
+        the same reason it is in :meth:`invoke`. What the delegate runs with is
+        the caller's own config, forwarded untouched.
         """
-        resolved = ensure_config(config)
         try:
             self._arcjet_evaluate(
                 _Call(tool_input, tool_call_id, _checkpoint_config(config))
@@ -811,7 +811,6 @@ class _GuardMixin:
         **kwargs: Any,
     ) -> Any:
         """The awaitable counterpart of :meth:`run`."""
-        resolved = ensure_config(config)
         try:
             await self._arcjet_evaluate_async(
                 _Call(tool_input, tool_call_id, _checkpoint_config(config))
