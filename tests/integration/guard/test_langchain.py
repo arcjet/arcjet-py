@@ -2727,3 +2727,33 @@ def test_a_copy_gets_its_own_wrapped_tool() -> None:
 
     # The client is still shared, so a recorder sees both calls.
     assert len(client.guards) == 2
+
+
+@pytest.mark.parametrize(
+    ("read", "expected"),
+    [
+        (lambda config: str(cast(Any, config)["user_id"]), "user-1"),
+        (lambda config: str((config.get("configurable") or {})["user_id"]), "user-1"),
+    ],
+    ids=["top-level", "configurable"],
+)
+def test_a_resolver_can_read_a_config_key_either_way(read: Any, expected: str) -> None:
+    """`Callable[[RunnableConfig], str]` permits reading the config as passed.
+
+    `ensure_config` normalizes the config so a resolver sees one a chain passed
+    down, but it also relocates unrecognized top-level keys into
+    `configurable`. A resolver reading the key where the caller put it then
+    raised, and under the fail-closed default that denied every call.
+    """
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=_echo("echo"),
+        action="echo.called",
+        actor=read,
+    )
+
+    wrapped.invoke(cast(Any, {"value": "x"}), cast(Any, {"user_id": "user-1"}))
+
+    assert transport.request is not None
+    assert transport.request.actor == expected

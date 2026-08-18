@@ -259,6 +259,30 @@ class _Report:
         )
 
 
+def _checkpoint_config(given: RunnableConfig | None) -> RunnableConfig:
+    """The config a policy resolver reads.
+
+    ``ensure_config`` is what lets a resolver see a config a chain passed down
+    without the caller re-threading it, and it normalizes the known keys. But
+    it also *relocates* every unrecognized top-level key into ``configurable``,
+    so a resolver written as ``lambda config: config["user_id"]`` — reading the
+    config exactly as it was handed to ``invoke`` — stopped finding it and
+    raised. Under the fail-closed default that denied every call to the tool.
+
+    The caller's own keys are restored on top, without displacing anything
+    ``ensure_config`` derived, so both readings work: the key is at the top
+    level where the caller put it, and inside ``configurable`` where the
+    framework moved it.
+    """
+    resolved = ensure_config(given)
+    if not given:
+        return resolved
+    merged: dict[str, Any] = dict(resolved)
+    for key, value in given.items():
+        merged.setdefault(key, value)
+    return cast(RunnableConfig, merged)
+
+
 def _unwrap_tool_call(value: Any) -> tuple[Any, str | None]:
     """A ToolCall-shaped input split into its arguments and its id.
 
@@ -496,7 +520,7 @@ class _GuardMixin:
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
-            self._arcjet_evaluate(_Call(raw, tool_call_id, resolved))
+            self._arcjet_evaluate(_Call(raw, tool_call_id, _checkpoint_config(config)))
         except _BLOCKED as exc:
             return self._arcjet_blocked(exc, raw, _Report.of(resolved, tool_call_id))
         return self._arcjet_state.delegate.invoke(input, resolved, **kwargs)
@@ -508,7 +532,9 @@ class _GuardMixin:
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
         try:
-            await self._arcjet_evaluate_async(_Call(raw, tool_call_id, resolved))
+            await self._arcjet_evaluate_async(
+                _Call(raw, tool_call_id, _checkpoint_config(config))
+            )
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(
                 exc, raw, _Report.of(resolved, tool_call_id)
@@ -543,7 +569,9 @@ class _GuardMixin:
         """
         resolved = ensure_config(config)
         try:
-            self._arcjet_evaluate(_Call(tool_input, tool_call_id, resolved))
+            self._arcjet_evaluate(
+                _Call(tool_input, tool_call_id, _checkpoint_config(config))
+            )
         except _BLOCKED as exc:
             return self._arcjet_blocked(
                 exc,
@@ -594,7 +622,9 @@ class _GuardMixin:
         """The awaitable counterpart of :meth:`run`."""
         resolved = ensure_config(config)
         try:
-            await self._arcjet_evaluate_async(_Call(tool_input, tool_call_id, resolved))
+            await self._arcjet_evaluate_async(
+                _Call(tool_input, tool_call_id, _checkpoint_config(config))
+            )
         except _BLOCKED as exc:
             return await self._arcjet_blocked_async(
                 exc,
@@ -637,7 +667,9 @@ class _GuardMixin:
         """
         delegate = self._arcjet_state.delegate
         raw, config = _call_arguments(self._arcjet_state.run_signature, args, kwargs)
-        self._arcjet_evaluate(_Call(raw, None, ensure_config(config), validated=False))
+        self._arcjet_evaluate(
+            _Call(raw, None, _checkpoint_config(config), validated=False)
+        )
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
@@ -645,7 +677,7 @@ class _GuardMixin:
         delegate = self._arcjet_state.delegate
         raw, config = _call_arguments(self._arcjet_state.arun_signature, args, kwargs)
         await self._arcjet_evaluate_async(
-            _Call(raw, None, ensure_config(config), validated=False)
+            _Call(raw, None, _checkpoint_config(config), validated=False)
         )
         return await delegate._arun(*args, **kwargs)
 
@@ -1167,7 +1199,7 @@ def _guarded_callables(guarded: BaseTool) -> None:
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
             raw, config = _call_arguments(func_signature, args, kwargs)
-            evaluate(_Call(raw, None, ensure_config(config), validated=False))
+            evaluate(_Call(raw, None, _checkpoint_config(config), validated=False))
             return inner_func(*args, **kwargs)
 
         object.__setattr__(guarded, "func", guarded_func)
@@ -1181,7 +1213,9 @@ def _guarded_callables(guarded: BaseTool) -> None:
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
             raw, config = _call_arguments(coroutine_signature, args, kwargs)
-            await evaluate(_Call(raw, None, ensure_config(config), validated=False))
+            await evaluate(
+                _Call(raw, None, _checkpoint_config(config), validated=False)
+            )
             return await inner_coroutine(*args, **kwargs)
 
         object.__setattr__(guarded, "coroutine", guarded_coroutine)
