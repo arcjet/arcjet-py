@@ -2926,3 +2926,34 @@ def test_a_tool_rebuilt_through_its_class_says_it_lost_its_guard() -> None:
             cast(Any, {"value": "x"}),
             cast(Any, {"configurable": {"desc": "other"}}),
         )
+
+
+def test_a_caller_typo_reaches_the_caller_as_the_tools_own_error() -> None:
+    """A misspelled keyword is a caller bug, not a failure to evaluate policy.
+
+    The direct-call surfaces hardcoded `validated=False`, which escalates
+    unreadable arguments to an unevaluated policy — so a call the callable was
+    about to reject with `TypeError` came back as `ArcjetToolUnavailableError`
+    instead. A developer debugging a typo was told Arcjet was down, and an
+    operator alerting on that error was paged for someone else's mistake.
+    """
+
+    def send(to: str) -> str:
+        return f"sent {to}"
+
+    transport = _Transport()
+    original = StructuredTool.from_function(send, name="send", description="d")
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=original,
+        action="mail.send",
+        inputs=lambda arguments, _config: {},
+    )
+
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        cast(Any, original).func(nonexistent="x")
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        cast(Any, wrapped).func(nonexistent="x")
+
+    # A call that does fit is unaffected.
+    assert cast(Any, wrapped).func(to="a@b.c") == "sent a@b.c"

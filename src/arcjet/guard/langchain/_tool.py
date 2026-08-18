@@ -728,18 +728,22 @@ class _GuardMixin:
         reassigned field — configure the tool before guarding it.
         """
         delegate = self._arcjet_state.delegate
-        raw, config = _call_arguments(self._arcjet_state.run_signature, args, kwargs)
+        raw, config, rejected = _call_arguments(
+            self._arcjet_state.run_signature, args, kwargs
+        )
         self._arcjet_evaluate(
-            _Call(raw, None, _checkpoint_config(config), validated=False)
+            _Call(raw, None, _checkpoint_config(config), validated=rejected)
         )
         return delegate._run(*args, **kwargs)
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """The awaitable counterpart of :meth:`_run`."""
         delegate = self._arcjet_state.delegate
-        raw, config = _call_arguments(self._arcjet_state.arun_signature, args, kwargs)
+        raw, config, rejected = _call_arguments(
+            self._arcjet_state.arun_signature, args, kwargs
+        )
         await self._arcjet_evaluate_async(
-            _Call(raw, None, _checkpoint_config(config), validated=False)
+            _Call(raw, None, _checkpoint_config(config), validated=rejected)
         )
         return await delegate._arun(*args, **kwargs)
 
@@ -1206,7 +1210,7 @@ def _call_arguments(
     signature: inspect.Signature | None,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-) -> tuple[Any, RunnableConfig | None]:
+) -> tuple[Any, RunnableConfig | None, bool]:
     """A direct call's arguments, shaped the way the tool reads its input, and
     the ``config`` it was given.
 
@@ -1226,11 +1230,17 @@ def _call_arguments(
     that reports it.
     """
     if signature is None:
-        return _unbound_arguments(args, kwargs)
+        raw, config = _unbound_arguments(args, kwargs)
+        return raw, config, False
     try:
         bound = signature.bind(*args, **kwargs)
     except TypeError:
-        return _unbound_arguments(args, kwargs)
+        # The call does not fit the callable, so the callable is about to
+        # reject it. That makes this the validated case: whatever a resolver
+        # cannot read here has no effect to protect, exactly as when a schema
+        # rejects a call arriving through `invoke`.
+        raw, config = _unbound_arguments(args, kwargs)
+        return raw, config, True
     bound.apply_defaults()
 
     positional: list[Any] = []
@@ -1251,8 +1261,8 @@ def _call_arguments(
         flattened.pop(name, None)
 
     if not flattened and len(positional) == 1:
-        return positional[0], config
-    return flattened, config
+        return positional[0], config, False
+    return flattened, config, False
 
 
 def _guarded_callables(guarded: BaseTool) -> None:
@@ -1280,8 +1290,8 @@ def _guarded_callables(guarded: BaseTool) -> None:
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate
-            raw, config = _call_arguments(func_signature, args, kwargs)
-            evaluate(_Call(raw, None, _checkpoint_config(config), validated=False))
+            raw, config, rejected = _call_arguments(func_signature, args, kwargs)
+            evaluate(_Call(raw, None, _checkpoint_config(config), validated=rejected))
             return inner_func(*args, **kwargs)
 
         object.__setattr__(guarded, "func", guarded_func)
@@ -1294,9 +1304,9 @@ def _guarded_callables(guarded: BaseTool) -> None:
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
             evaluate = cast(Any, guarded)._arcjet_evaluate_async
-            raw, config = _call_arguments(coroutine_signature, args, kwargs)
+            raw, config, rejected = _call_arguments(coroutine_signature, args, kwargs)
             await evaluate(
-                _Call(raw, None, _checkpoint_config(config), validated=False)
+                _Call(raw, None, _checkpoint_config(config), validated=rejected)
             )
             return await inner_coroutine(*args, **kwargs)
 
