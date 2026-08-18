@@ -6,6 +6,7 @@ import gc
 import pickle
 import threading
 import uuid
+import weakref
 from typing import Annotated, Any, cast
 
 import pytest
@@ -3139,3 +3140,62 @@ def test_a_resolver_sees_a_config_parameter_by_any_name() -> None:
 
     assert transport.request is not None
     assert transport.request.actor == "u1"
+
+
+@pytest.mark.parametrize("kind", ["tool", "structured", "no-callable"])
+def test_a_guarded_tool_is_reclaimed_without_the_cycle_collector(kind: str) -> None:
+    """The guarded callables are stored on the handle they used to close over.
+
+    That made handle and closure refer to each other, so every guarded tool
+    carrying a `func` or `coroutine` — a `@tool` function or a StructuredTool,
+    the common case — survived until a generational pass, pinning the wrapped
+    tool and both cached signatures with it. A tool with neither callable had
+    no cycle, which is what identified the closures as the cause.
+    """
+
+    class Plain(BaseTool):
+        name: str = "plain"
+        description: str = "d"
+
+        def _run(self, value: str) -> str:
+            return "ok"
+
+    tool: BaseTool
+    if kind == "tool":
+        tool = Tool(name="t", description="d", func=lambda q: q)
+    elif kind == "structured":
+        tool = _echo()
+    else:
+        tool = Plain()
+
+    wrapped = guard_tool(guard=_guard(_Transport()), tool=tool, action="t.called")
+    ref = weakref.ref(wrapped)
+
+    gc.collect()
+    gc.disable()
+    try:
+        del wrapped
+        assert ref() is None, "handle survived reference counting"
+    finally:
+        gc.enable()
+
+
+def test_a_guarded_callable_still_evaluates_detached_from_its_handle() -> None:
+    """The closures hold the guard's state, not the handle.
+
+    Capturing a weakref to the handle would break the cycle too, but a caller
+    that keeps only `tool.func` would then lose the checkpoint.
+    """
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=Tool(name="t", description="d", func=lambda q: q),
+        action="t.called",
+    )
+
+    detached = cast(Any, wrapped).func
+    del wrapped
+    gc.collect()
+
+    assert detached("hello") == "hello"
+    assert transport.calls == 1

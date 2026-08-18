@@ -471,6 +471,127 @@ class _Guarded:
     run_config_param: str | None
     arun_config_param: str | None
 
+    # The checkpoint itself lives here rather than on the handle. It reads
+    # nothing else off one, and the guarded `func`/`coroutine` are stored *on*
+    # the handle — so a closure over the handle would make the two refer to
+    # each other, and no guarded tool carrying a callable could be reclaimed by
+    # reference counting. Closing over this state leaves no cycle, and a
+    # callable detached from its handle still evaluates.
+
+    def evaluate(self, call: _Call) -> None:
+        guard = self.blocking
+        if guard is None:
+            raise TypeError(
+                "A synchronous LangChain invocation requires a guard client with a "
+                "blocking guard(), such as ArcjetGuardSync"
+            )
+        with _fail_closed(self.action, self.on_guard_error):
+            actor, degraded = _resolved(self._actor, call.config)
+            inputs, degraded = _resolved(self._inputs, call, so_far=degraded)
+            decision = guard(self.rules, label=self.action, actor=actor, inputs=inputs)
+            self._after_decision(decision, degraded)
+
+    async def evaluate_async(self, call: _Call) -> None:
+        guard = self.awaitable
+        if guard is None:
+            raise TypeError(
+                "An asynchronous LangChain invocation requires a guard client with an "
+                "awaitable guard(), such as ArcjetGuard"
+            )
+        with _fail_closed(self.action, self.on_guard_error):
+            actor, degraded = await _resolved_async(self._actor_async, call.config)
+            inputs, degraded = await _resolved_async(
+                self._inputs_async, call, so_far=degraded
+            )
+            decision = await guard(
+                self.rules, label=self.action, actor=actor, inputs=inputs
+            )
+            self._after_decision(decision, degraded)
+
+    def _after_decision(
+        self, decision: Decision, degraded: BaseException | None
+    ) -> None:
+        """The fail-closed rules, applied once for both flavours.
+
+        *degraded* is whatever stopped one of the decision's inputs being
+        resolved, or ``None``. Guard has seen the call either way, so the
+        decision is on the record; what ``on_guard_error`` governs is whether a
+        call the policy could not fully judge is allowed to run.
+
+        Pure sync code: it raises or returns, so the async evaluator calls it
+        without crossing the boundary.
+        """
+        if decision.conclusion == "DENY":
+            raise ArcjetToolDeniedError(self.action, decision)
+        # The cause travels with either refusal: without it the operator is
+        # told only that policy could not be evaluated, not what stopped it.
+        # The two conditions co-occur during a transport outage, which is when
+        # a resolver failure is most likely a symptom of the same fault.
+        if decision.has_failed_open() and self.on_guard_error != "allow":
+            raise ArcjetToolUnavailableError(self.action, cause=degraded)
+        if degraded is None:
+            return
+        if self.on_guard_error != "allow":
+            raise ArcjetToolUnavailableError(self.action, cause=degraded)
+        logger.warning(
+            "arcjet: could not resolve everything policy needed for a call to %r; "
+            "it was evaluated without that, and the call proceeds because "
+            "on_guard_error is 'allow'",
+            self.action,
+            exc_info=degraded,
+        )
+
+    def _resolve_actor(
+        self, config: RunnableConfig
+    ) -> str | None | Awaitable[str | None]:
+        actor = self.actor
+        if not callable(actor):
+            return actor
+        return cast(_ActorFn, actor)(config)
+
+    def _resolve_inputs(
+        self, call: _Call
+    ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
+        resolver = self.inputs
+        if not callable(resolver):
+            return resolver
+        # Parsed only here, because a resolver is the only thing that reads the
+        # arguments: a tool with no resolver configured is never parsed at all.
+        try:
+            arguments = _resolver_view(self.delegate, call)
+        except _SCHEMA_REJECTED as exc:
+            if not call.validated:
+                # This surface runs the tool's body with the arguments as
+                # given, so nothing downstream will reject them. The rule was
+                # configured, could not see the effect it protects, and the
+                # call would otherwise proceed — an unevaluated policy.
+                raise _UnreadableArguments from exc
+            # The tool's own schema rejected these arguments, so the tool
+            # rejects the call too and its body never runs. Policy still gets a
+            # decision, without inputs — there is no effect for an input rule
+            # to protect, and the tool keeps its own `handle_validation_error`.
+            logger.warning(
+                "arcjet: the arguments of a call to %r did not validate; "
+                "evaluating policy without them",
+                self.action,
+            )
+            return None
+        except Exception as exc:
+            raise _UnreadableArguments from exc
+        return cast(_InputsFn, resolver)(arguments, call.config)
+
+    def _actor(self, config: RunnableConfig) -> str | None:
+        return _not_awaited(self._resolve_actor(config), "actor")
+
+    def _inputs(self, call: _Call) -> PolicyInputMap | None:
+        return _not_awaited(self._resolve_inputs(call), "input")
+
+    async def _actor_async(self, config: RunnableConfig) -> str | None:
+        return await _awaited(self._resolve_actor(config))
+
+    async def _inputs_async(self, call: _Call) -> PolicyInputMap | None:
+        return await _awaited(self._resolve_inputs(call))
+
 
 def _state_of(handle: Any) -> "_Guarded":
     """The guard's state on *handle*, or a diagnosis of how it went missing.
@@ -768,74 +889,10 @@ class _GuardMixin:
         return await delegate._arun(*args, **kwargs)
 
     def _arcjet_evaluate(self, call: _Call) -> None:
-        policy = _state_of(self)
-        guard = policy.blocking
-        if guard is None:
-            raise TypeError(
-                "A synchronous LangChain invocation requires a guard client with a "
-                "blocking guard(), such as ArcjetGuardSync"
-            )
-        with _fail_closed(policy.action, policy.on_guard_error):
-            actor, degraded = _resolved(self._arcjet_actor, call.config)
-            inputs, degraded = _resolved(self._arcjet_inputs, call, so_far=degraded)
-            decision = guard(
-                policy.rules, label=policy.action, actor=actor, inputs=inputs
-            )
-            self._arcjet_after_decision(policy, decision, degraded)
+        _state_of(self).evaluate(call)
 
     async def _arcjet_evaluate_async(self, call: _Call) -> None:
-        policy = _state_of(self)
-        guard = policy.awaitable
-        if guard is None:
-            raise TypeError(
-                "An asynchronous LangChain invocation requires a guard client with an "
-                "awaitable guard(), such as ArcjetGuard"
-            )
-        with _fail_closed(policy.action, policy.on_guard_error):
-            actor, degraded = await _resolved_async(
-                self._arcjet_actor_async, call.config
-            )
-            inputs, degraded = await _resolved_async(
-                self._arcjet_inputs_async, call, so_far=degraded
-            )
-            decision = await guard(
-                policy.rules, label=policy.action, actor=actor, inputs=inputs
-            )
-            self._arcjet_after_decision(policy, decision, degraded)
-
-    def _arcjet_after_decision(
-        self, policy: _Guarded, decision: Decision, degraded: BaseException | None
-    ) -> None:
-        """The fail-closed rules, applied once for both flavours.
-
-        *degraded* is whatever stopped one of the decision's inputs being
-        resolved, or ``None``. Guard has seen the call either way, so the
-        decision is on the record; what ``on_guard_error`` governs is whether a
-        call the policy could not fully judge is allowed to run.
-
-        Pure sync code: it raises or returns, so the async evaluator calls it
-        without crossing the boundary.
-        """
-        if decision.conclusion == "DENY":
-            raise ArcjetToolDeniedError(policy.action, decision)
-        # The cause travels with either refusal: without it the operator is told
-        # only that policy could not be evaluated, not what stopped it. The two
-        # conditions co-occur during a transport outage, which is when a
-        # resolver failure is most likely a symptom of the same fault and most
-        # needs reporting — so *degraded* is carried here too, not only below.
-        if decision.has_failed_open() and policy.on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(policy.action, cause=degraded)
-        if degraded is None:
-            return
-        if policy.on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(policy.action, cause=degraded)
-        logger.warning(
-            "arcjet: could not resolve everything policy needed for a call to %r; "
-            "it was evaluated without that, and the call proceeds because "
-            "on_guard_error is 'allow'",
-            policy.action,
-            exc_info=degraded,
-        )
+        await _state_of(self).evaluate_async(call)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Any:
         """Copy the handle, sharing the client and rebinding the callables.
@@ -1070,57 +1127,6 @@ class _GuardMixin:
             },
         )
 
-    def _arcjet_resolve_actor(
-        self, config: RunnableConfig
-    ) -> str | None | Awaitable[str | None]:
-        actor = self._arcjet_state.actor
-        if not callable(actor):
-            return actor
-        return cast(_ActorFn, actor)(config)
-
-    def _arcjet_resolve_inputs(
-        self, call: _Call
-    ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
-        resolver = self._arcjet_state.inputs
-        if not callable(resolver):
-            return resolver
-        # Parsed only here, because a resolver is the only thing that reads the
-        # arguments: a tool with no resolver configured is never parsed at all.
-        try:
-            arguments = _resolver_view(self._arcjet_state.delegate, call)
-        except _SCHEMA_REJECTED as exc:
-            if not call.validated:
-                # This surface runs the tool's body with the arguments as
-                # given, so nothing downstream will reject them. The rule was
-                # configured, could not see the effect it protects, and the
-                # call would otherwise proceed — an unevaluated policy.
-                raise _UnreadableArguments from exc
-            # The tool's own schema rejected these arguments, so the tool
-            # rejects the call too and its body never runs. Policy still gets a
-            # decision, without inputs — there is no effect for an input rule
-            # to protect, and the tool keeps its own `handle_validation_error`.
-            logger.warning(
-                "arcjet: the arguments of a call to %r did not validate; "
-                "evaluating policy without them",
-                self._arcjet_state.action,
-            )
-            return None
-        except Exception as exc:
-            raise _UnreadableArguments from exc
-        return cast(_InputsFn, resolver)(arguments, call.config)
-
-    def _arcjet_actor(self, config: RunnableConfig) -> str | None:
-        return _not_awaited(self._arcjet_resolve_actor(config), "actor")
-
-    def _arcjet_inputs(self, call: _Call) -> PolicyInputMap | None:
-        return _not_awaited(self._arcjet_resolve_inputs(call), "input")
-
-    async def _arcjet_actor_async(self, config: RunnableConfig) -> str | None:
-        return await _awaited(self._arcjet_resolve_actor(config))
-
-    async def _arcjet_inputs_async(self, call: _Call) -> PolicyInputMap | None:
-        return await _awaited(self._arcjet_resolve_inputs(call))
-
 
 def _not_awaited(value: Any, kind: str) -> Any:
     """*value*, refusing an awaitable a blocking checkpoint cannot wait on.
@@ -1340,7 +1346,8 @@ def _guarded_callables(guarded: BaseTool) -> None:
     again on a copy derives a fresh pair from the same original instead of
     wrapping the wrapper.
     """
-    delegate = cast(Any, guarded)._arcjet_state.delegate
+    state = _state_of(guarded)
+    delegate = state.delegate
     func = getattr(delegate, "func", None)
     if callable(func):
         inner_func = cast(Callable[..., Any], func)
@@ -1349,11 +1356,12 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
         @functools.wraps(inner_func)
         def guarded_func(*args: Any, **kwargs: Any) -> Any:
-            evaluate = cast(Any, guarded)._arcjet_evaluate
             raw, config, rejected = _call_arguments(
                 func_signature, args, kwargs, func_config_param
             )
-            evaluate(_Call(raw, None, _checkpoint_config(config), validated=rejected))
+            state.evaluate(
+                _Call(raw, None, _checkpoint_config(config), validated=rejected)
+            )
             return inner_func(*args, **kwargs)
 
         object.__setattr__(guarded, "func", guarded_func)
@@ -1366,11 +1374,10 @@ def _guarded_callables(guarded: BaseTool) -> None:
 
         @functools.wraps(inner_coroutine)
         async def guarded_coroutine(*args: Any, **kwargs: Any) -> Any:
-            evaluate = cast(Any, guarded)._arcjet_evaluate_async
             raw, config, rejected = _call_arguments(
                 coroutine_signature, args, kwargs, coroutine_config_param
             )
-            await evaluate(
+            await state.evaluate_async(
                 _Call(raw, None, _checkpoint_config(config), validated=rejected)
             )
             return await inner_coroutine(*args, **kwargs)
