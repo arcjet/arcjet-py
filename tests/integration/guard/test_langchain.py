@@ -2819,3 +2819,47 @@ def test_a_resolver_receives_plain_data_for_either_pydantic_flavour(
 
     assert seen["addr"] == {"city": "SF"}
     assert isinstance(seen["addr"], dict)
+
+
+@pytest.mark.parametrize("shape", ["list", "dict"])
+def test_a_resolver_receives_plain_data_through_containers(shape: str) -> None:
+    """A model one level down is as unreadable to a resolver as one at the top.
+
+    `list[Model]` and `dict[str, Model]` are ordinary schema shapes —
+    recipients, batch items, chat messages — and unwrapping only the top level
+    left those as live models, so a resolver reading `arguments["stops"][0]
+    ["city"]` raised and the fail-closed default denied every call.
+    """
+
+    class Stop(BaseModel):
+        city: str
+
+    class ListArgs(BaseModel):
+        stops: list[Stop]
+
+    class DictArgs(BaseModel):
+        stops: dict[str, Stop]
+
+    seen: dict[str, Any] = {}
+    payload: Any = (
+        {"stops": [{"city": "NYC"}]}
+        if shape == "list"
+        else {"stops": {"first": {"city": "NYC"}}}
+    )
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda stops: "ok",
+            name="route",
+            description="d",
+            args_schema=cast(Any, ListArgs if shape == "list" else DictArgs),
+        ),
+        action="route.called",
+        inputs=lambda arguments, _config: seen.update(arguments) or {},
+    )
+
+    wrapped.invoke(cast(Any, payload))
+
+    inner = seen["stops"][0] if shape == "list" else seen["stops"]["first"]
+    assert inner == {"city": "NYC"}
+    assert isinstance(inner, dict)

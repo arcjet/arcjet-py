@@ -345,6 +345,13 @@ def _as_data(value: Any) -> Any:
         return value.model_dump()
     if isinstance(value, BaseModelV1):
         return value.dict()
+    # Through containers as well: `list[Model]` and `dict[str, Model]` are
+    # ordinary schema shapes — recipients, batch items, chat messages — and a
+    # model one level down is as unreadable to a resolver as one at the top.
+    if isinstance(value, Mapping):
+        return {key: _as_data(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return type(value)(_as_data(item) for item in value)
     return value
 
 
