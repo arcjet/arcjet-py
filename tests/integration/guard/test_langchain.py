@@ -2863,3 +2863,41 @@ def test_a_resolver_receives_plain_data_through_containers(shape: str) -> None:
     inner = seen["stops"][0] if shape == "list" else seen["stops"]["first"]
     assert inner == {"city": "NYC"}
     assert isinstance(inner, dict)
+
+
+@pytest.mark.parametrize("on_guard_error", ["deny", "allow"])
+def test_arguments_a_signature_less_callable_hides_are_unevaluated(
+    on_guard_error: str,
+) -> None:
+    """An input rule must not conclude ALLOW from arguments it could not read.
+
+    A C or extension callable reports no signature, so a call passing more than
+    one positional argument cannot be matched to parameter names. Handing the
+    resolver an empty mapping told the rule the call had no arguments rather
+    than that it could not see them: the rule inspected nothing, concluded
+    ALLOW, and the body ran — the only path here that reported a clean
+    evaluation while evaluating nothing.
+    """
+    import math
+
+    seen: list[dict[str, Any]] = []
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=Tool(name="log", description="log", func=math.log),
+        action="log.called",
+        on_guard_error=cast(Any, on_guard_error),
+        inputs=lambda arguments, _config: seen.append(dict(arguments)) or {},
+    )
+
+    # One argument still binds: it is the single input the tool takes.
+    assert cast(Any, wrapped).func(8) == math.log(8)
+    assert seen == [{"tool_input": 8}]
+
+    seen.clear()
+    if on_guard_error == "deny":
+        with pytest.raises(ArcjetToolUnavailableError):
+            cast(Any, wrapped).func(8, 2)
+    else:
+        assert cast(Any, wrapped).func(8, 2) == math.log(8, 2)
+    # Either way the resolver was never handed a mapping it could not trust.
+    assert seen == []

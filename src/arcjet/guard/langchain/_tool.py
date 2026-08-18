@@ -373,6 +373,11 @@ def _resolver_view(tool: BaseTool, call: _Call) -> Mapping[str, Any]:
     Raises whatever the tool's own validation raises. Callers treat resolving
     arguments as best-effort and evaluate policy regardless.
     """
+    if call.raw is _UNREADABLE:
+        raise _UnreadableArguments(
+            "the call's arguments could not be matched to the tool's callable, "
+            "which reports no signature to bind them to"
+        )
     raw = dict(call.raw) if isinstance(call.raw, Mapping) else call.raw
 
     parsed = tool._parse_input(raw, call.tool_call_id)
@@ -1144,11 +1149,31 @@ def _signature_of(fn: Callable[..., Any]) -> inspect.Signature | None:
         return None
 
 
+#: Stands in for a call whose arguments the checkpoint could not reconstruct.
+#: A sentinel rather than an empty mapping, because the two mean opposite
+#: things to a rule: no arguments, or arguments it could not see.
+_UNREADABLE: Any = object()
+
+
 def _unbound_arguments(
     args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> tuple[Any, RunnableConfig | None]:
-    """A call that could not be bound to a signature, handed on as it came."""
-    return (kwargs or (args[0] if len(args) == 1 else {})), kwargs.get("config")
+    """A call that could not be bound to a signature, handed on as it came.
+
+    Keyword arguments describe themselves, and a single positional one is what
+    a tool taking one input receives, so both are handed on. Anything else —
+    several positional arguments to a callable with no signature to bind them
+    to — cannot be named, and an empty mapping would tell an input rule the
+    call had no arguments rather than that it could not read them. A rule
+    would inspect nothing, conclude ALLOW, and the body would run: the one
+    place in this module that reported a clean evaluation while evaluating
+    nothing. The sentinel routes it through ``on_guard_error`` instead.
+    """
+    if kwargs:
+        return kwargs, kwargs.get("config")
+    if len(args) == 1:
+        return args[0], None
+    return _UNREADABLE, None
 
 
 def _call_arguments(
