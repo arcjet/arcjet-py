@@ -2738,13 +2738,20 @@ def test_a_copy_gets_its_own_wrapped_tool() -> None:
     ],
     ids=["top-level", "configurable"],
 )
-def test_a_resolver_can_read_a_config_key_either_way(read: Any, expected: str) -> None:
+@pytest.mark.parametrize("placement", ["direct", "in-a-chain"])
+def test_a_resolver_can_read_a_config_key_either_way(
+    read: Any, expected: str, placement: str
+) -> None:
     """`Callable[[RunnableConfig], str]` permits reading the config as passed.
 
     `ensure_config` normalizes the config so a resolver sees one a chain passed
     down, but it also relocates unrecognized top-level keys into
     `configurable`. A resolver reading the key where the caller put it then
     raised, and under the fail-closed default that denied every call.
+
+    Covered from inside a chain as well, because there the sequence's own
+    `ensure_config` has already relocated the key before the tool is reached —
+    the case a developer only meets after the tool leaves their direct test.
     """
     transport = _Transport()
     wrapped = guard_tool(
@@ -2753,8 +2760,11 @@ def test_a_resolver_can_read_a_config_key_either_way(read: Any, expected: str) -
         action="echo.called",
         actor=read,
     )
+    runnable: Any = wrapped
+    if placement == "in-a-chain":
+        runnable = RunnableLambda(lambda value: value) | wrapped
 
-    wrapped.invoke(cast(Any, {"value": "x"}), cast(Any, {"user_id": "user-1"}))
+    runnable.invoke(cast(Any, {"value": "x"}), cast(Any, {"user_id": "user-1"}))
 
     assert transport.request is not None
     assert transport.request.actor == expected

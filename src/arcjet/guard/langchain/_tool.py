@@ -270,16 +270,21 @@ def _checkpoint_config(given: RunnableConfig | None) -> RunnableConfig:
     config exactly as it was handed to ``invoke`` — stopped finding it and
     raised. Under the fail-closed default that denied every call to the tool.
 
-    The caller's own keys are restored on top, without displacing anything
-    ``ensure_config`` derived, so both readings work: the key is at the top
-    level where the caller put it, and inside ``configurable`` where the
-    framework moved it.
+    Both readings are made to work, from both directions. ``configurable`` is
+    surfaced at the top level, because by the time a tool inside a chain is
+    reached the *chain's* own ``ensure_config`` has already relocated the key
+    and there is nothing left for this to restore — a resolver reading the top
+    level then worked on a direct call and denied every call once the tool was
+    placed in a chain. The caller's own keys go on last for the direct case.
+
+    Nothing already present is displaced, so a genuine ``RunnableConfig`` key
+    always wins over a same-named ``configurable`` entry.
     """
     resolved = ensure_config(given)
-    if not given:
-        return resolved
     merged: dict[str, Any] = {**cast("dict[str, Any]", resolved)}
-    for key, value in given.items():
+    for key, value in (resolved.get("configurable") or {}).items():
+        merged.setdefault(key, value)
+    for key, value in (given or {}).items():
         merged.setdefault(key, value)
     return cast(RunnableConfig, merged)
 
