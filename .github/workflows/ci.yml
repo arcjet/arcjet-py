@@ -55,10 +55,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # The supported range, per `requires-python` in pyproject.toml. The
-        # repo pins 3.10 in `.python-version`, so without this axis only the
-        # floor is ever exercised.
-        python-version: ["3.10", "3.11", "3.12"]
+        # `requires-python` is `>=3.10` with no upper bound, so these are the
+        # released versions the package installs on. The repo pins 3.10 in
+        # `.python-version`, so without this axis only the floor is exercised.
+        # Add each new Python here as it is released.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
