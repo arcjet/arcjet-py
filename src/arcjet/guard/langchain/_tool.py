@@ -41,6 +41,7 @@ from langchain_core.tools.base import (
     _handle_tool_error as _lc_handle_tool_error,
 )
 from pydantic import BaseModel, PrivateAttr, ValidationError
+from pydantic.v1 import BaseModel as BaseModelV1
 from pydantic.v1 import ValidationError as ValidationErrorV1
 
 from arcjet._errors import ArcjetMisconfiguration
@@ -277,7 +278,7 @@ def _checkpoint_config(given: RunnableConfig | None) -> RunnableConfig:
     resolved = ensure_config(given)
     if not given:
         return resolved
-    merged: dict[str, Any] = dict(resolved)
+    merged: dict[str, Any] = {**cast("dict[str, Any]", resolved)}
     for key, value in given.items():
         merged.setdefault(key, value)
     return cast(RunnableConfig, merged)
@@ -326,6 +327,22 @@ class _Call:
     validated: bool = True
 
 
+def _as_data(value: Any) -> Any:
+    """A nested model as plain data, in whichever pydantic flavour it is.
+
+    Both, because langchain-core accepts a pydantic v1 ``args_schema`` and this
+    module already recognizes both flavours when one rejects a call. Handling
+    only v2 handed a v1 tool's resolver a live model where the documented type
+    is a ``Mapping``, so a resolver reading ``arguments["addr"]["city"]``
+    raised — and under the fail-closed default denied every call to that tool.
+    """
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, BaseModelV1):
+        return value.dict()
+    return value
+
+
 def _resolver_view(tool: BaseTool, call: _Call) -> Mapping[str, Any]:
     """The arguments the tool is about to receive, as the tool itself reads them.
 
@@ -363,10 +380,7 @@ def _resolver_view(tool: BaseTool, call: _Call) -> Mapping[str, Any]:
 
     # Nested models come back as instances. Resolvers are documented to take a
     # `Mapping[str, Any]`, so hand them data rather than model objects.
-    return {
-        key: value.model_dump() if isinstance(value, BaseModel) else value
-        for key, value in parsed.items()
-    }
+    return {key: _as_data(value) for key, value in parsed.items()}
 
 
 def _handles_tool_errors(tool: BaseTool) -> bool:

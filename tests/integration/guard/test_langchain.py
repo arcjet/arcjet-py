@@ -24,6 +24,7 @@ from langchain_core.tools import (
 from langchain_core.tools.render import render_text_description
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic.v1 import BaseModel as BaseModelV1
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import (
@@ -2757,3 +2758,54 @@ def test_a_resolver_can_read_a_config_key_either_way(read: Any, expected: str) -
 
     assert transport.request is not None
     assert transport.request.actor == expected
+
+
+class _AddrV2(BaseModel):
+    city: str
+
+
+class _NestedArgsV2(BaseModel):
+    to: str
+    addr: _AddrV2
+
+
+class _AddrV1(BaseModelV1):
+    city: str
+
+
+class _NestedArgsV1(BaseModelV1):
+    # Module level, not nested in the test: a pydantic v1 model declared inside
+    # a function keeps its annotations as ForwardRefs until update_forward_refs.
+    to: str
+    addr: _AddrV1
+
+
+@pytest.mark.parametrize("flavour", ["v2", "v1"])
+def test_a_resolver_receives_plain_data_for_either_pydantic_flavour(
+    flavour: str,
+) -> None:
+    """langchain-core accepts a v1 args_schema, so a resolver can meet one.
+
+    The unwrap recognized only v2, so a v1 tool handed the resolver a live
+    model where the documented type is a `Mapping`. A resolver reading
+    `arguments["addr"]["city"]` raised, and the fail-closed default turned that
+    into a denial of every call to the tool.
+    """
+
+    seen: dict[str, Any] = {}
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=StructuredTool.from_function(
+            lambda to, addr: "ok",
+            name="send",
+            description="d",
+            args_schema=cast(Any, _NestedArgsV2 if flavour == "v2" else _NestedArgsV1),
+        ),
+        action="send.called",
+        inputs=lambda arguments, _config: seen.update(arguments) or {},
+    )
+
+    wrapped.invoke(cast(Any, {"to": "a@b.c", "addr": {"city": "SF"}}))
+
+    assert seen["addr"] == {"city": "SF"}
+    assert isinstance(seen["addr"], dict)
