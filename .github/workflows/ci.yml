@@ -16,6 +16,19 @@ on:
 permissions:
   contents: read
 
+# One in-flight run per pull request. The `labeled` and `unlabeled` triggers
+# above are needed, because the griffe step reads the `breaking` label off the
+# event, but they also mean anything that touches a label re-runs the whole
+# matrix — and a bot that toggles one produces a run per toggle, none of which
+# supersede each other without this.
+#
+# Only pull request runs are cancelled. A merge queue run that loses its
+# checks would fall out of the queue, and every commit on `main` is worth
+# testing on its own.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
