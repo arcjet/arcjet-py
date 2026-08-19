@@ -204,6 +204,9 @@ class BotCategory(str, Enum):
     AMAZON = "CATEGORY:AMAZON"
     """Amazon-operated bots (e.g. Alexa)."""
 
+    APPLE = "CATEGORY:APPLE"
+    """Apple-operated bots (e.g. Applebot, iMessage link previews)."""
+
     ARCHIVE = "CATEGORY:ARCHIVE"
     """Web archiving bots (e.g. Internet Archive / Wayback Machine)."""
 
@@ -251,6 +254,9 @@ class BotCategory(str, Enum):
 
     VERCEL = "CATEGORY:VERCEL"
     """Vercel-operated bots."""
+
+    WEBHOOK = "CATEGORY:WEBHOOK"
+    """Webhook delivery agents (e.g. Stripe, Adyen)."""
 
     YAHOO = "CATEGORY:YAHOO"
     """Yahoo-operated bots."""
