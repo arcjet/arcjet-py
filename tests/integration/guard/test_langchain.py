@@ -2733,8 +2733,8 @@ def test_a_copy_gets_its_own_wrapped_tool() -> None:
     original_delegate = cast(Any, wrapped)._arcjet_state.delegate
     copied_delegate = cast(Any, copied)._arcjet_state.delegate
     assert copied_delegate is not original_delegate
-    assert cast(Any, original_delegate)._seen == ["a"]
-    assert cast(Any, copied_delegate)._seen == ["b"]
+    assert original_delegate._seen == ["a"]
+    assert copied_delegate._seen == ["b"]
 
     # The client is still shared, so a recorder sees both calls.
     assert len(client.guards) == 2

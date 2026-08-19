@@ -153,7 +153,7 @@ async def chat(body: ChatRequest, background: BackgroundTasks) -> Any:
         #
         # ArcjetMiddleware is for create_agent applications: it sees a tool
         # call's parsed, validated arguments immediately before execution. To
-        # guard a bare BaseTool or an LCEL chain instead, wrap it:
+        # guard a bare BaseTool instead, wrap it:
         #     from arcjet.guard.langchain import guard_tool
         #     guarded = guard_tool(
         #         guard=arcjet_client, tool=get_weather, action="weather.fetched"
