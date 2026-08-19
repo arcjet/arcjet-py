@@ -23,24 +23,32 @@ FastAPI, and other Python web frameworks.
    ```bash
    pip install uv
    ```
-3. **Install dependencies**:
+3. **Install [just](https://just.systems)** (the command runner), if not
+   already installed:
    ```bash
-   uv sync
+   uv tool install rust-just
+   ```
+4. **Install dependencies**:
+   ```bash
+   just install
    ```
    This creates a virtual environment in `.venv` and installs all dependencies
    from `uv.lock`.
 
 ### Development workflow
 
-Always prefix commands with `uv run`. Common tasks are wrapped in the
-`Makefile`:
+Common tasks are wrapped in the `justfile`. Run `just --list` to see every
+recipe:
 
 ```bash
-make check       # All lint + type + API-break checks (single command)
-make format      # Auto-fix imports and format code
-make test        # All tests (unit + integration + analyze, with coverage)
-make bench       # Run benchmarks
+just pre-commit  # Format, run all checks, then the full test suite
+just check       # All lint + type + API-break checks
+just format      # Auto-fix imports and format code
+just test        # All tests (unit + integration + analyze, with coverage)
+just bench       # Run benchmarks
 ```
+
+Anything not covered by a recipe should be prefixed with `uv run`.
 
 ## Build, test, and lint commands
 
@@ -270,9 +278,8 @@ The `.protect()` method returns a `Decision` object with:
 ## Summary checklist for new changes
 
 Before submitting a PR:
-- [ ] Run `make format` to fix imports and format code
-- [ ] Run `make check` to run all lint, type, and API-break checks
-- [ ] Run `make test` to run all tests
+- [ ] Run `just pre-commit`, which formats the code, runs all lint, type, and
+      API-break checks, then runs all tests
 - [ ] Add `breaking` label if introducing intentional API breaking changes
 - [ ] Ensure all new code is fully type-annotated and follows coding conventions
 - [ ] Add new tests to aim for 80%+ coverage (current threshold)

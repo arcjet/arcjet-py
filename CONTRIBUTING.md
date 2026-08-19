@@ -6,27 +6,54 @@ We recommend using the provided [Dev
 Container](https://code.visualstudio.com/docs/devcontainers/containers). It
 gives you a consistent toolchain and avoids “works on my machine” issues.
 
-## Static analysis
+Routine tasks are wrapped as [`just`](https://just.systems) recipes. Run
+`just --list` to see them all.
+
+The Dev Container installs `just` for you. Outside it, install `just` alongside
+`uv`:
 
 ```sh
-# Formatting with ruff
-# See https://docs.astral.sh/ruff/formatter/#sorting-imports for double command
-uv run ruff check --select I --fix # Sort imports
-uv run ruff format
-# Linting with ruff
-uv run ruff check
-# Type checking with ty
-uv run ty check
-# Type checking with pyright
-uv run pyright
+uv tool install rust-just
 ```
+
+Then install the project dependencies:
+
+```sh
+just install
+```
+
+## Static analysis
+
+Run every check CI runs — ruff lint, ruff format check, `ty`, `pyright`, and
+the Griffe API breaking-change check:
+
+```sh
+just check
+```
+
+Sort imports and format the code with ruff (this mutates files):
+
+```sh
+just format
+```
+
+The individual steps are available too: `just lint` (ruff), `just typecheck`
+(`ty`, then `pyright`), and `just api-check` (Griffe, see [Breaking
+changes](#breaking-changes) below).
 
 ## Tests
 
-Run the unit tests locally with uv and pytest:
+Run the full test suite locally:
 
 ```sh
-uv run pytest
+just test
+```
+
+Extra arguments are forwarded to pytest. Pass `--no-cov` when running a subset,
+since the 80% coverage gate is measured across the whole suite:
+
+```sh
+just test tests/unit -k cache --no-cov
 ```
 
 - Set `ARCJET_LOG_LEVEL=debug` to see detailed debug logs during development.
@@ -52,7 +79,7 @@ during normal test runs (benchmark files use `bench_*.py` naming).
 
 ```sh
 # Run all benchmarks
-make bench
+just bench
 
 # Or directly with options
 uv run pytest tests/benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v
@@ -71,14 +98,11 @@ After placing an updated WASM binary at
 `src/arcjet/_analyze/wasm/arcjet_analyze_js_req.component.wasm`:
 
 ```sh
-# Regenerate bindings
-uv run python -m tools.witgen
-
-# Format and lint
-uv run ruff check --select I --fix && uv run ruff format
+# Regenerate the bindings and format them
+just codegen
 
 # Verify
-make test
+just test
 ```
 
 Configuration is in `witgen.toml`. Hand-maintained files in the `_analyze`
@@ -89,10 +113,14 @@ subpackage are `_import_defaults.py`, `_overrides.py`, and `_singleton.py`.
 Check if there are any breaking changes in the public API using Griffe:
 
 ```sh
-# Check against the most recent tag (default)
-uv run griffe check arcjet -s src
-# Check against `main` branch (or use `origin/main` instead)
-uv run griffe check arcjet -s src --against main
+# Check against origin/main (default). Run `git fetch origin main` first if
+# your copy of the branch is stale.
+just api-check
+# Check against another ref, e.g. your local `main` branch
+just api-check main
+# Check against the most recent tag
+uv run griffe check arcjet -s src \
+  -e tools/griffe_extensions.py:IgnoreProtobufDescriptors
 ```
 
 Pull requests that introduce breaking changes must be labeled with the
@@ -133,7 +161,7 @@ version or pin is out of lockstep.
    - `sensitive-info-rampart/pyproject.toml` → `"arcjet==<version>"`
    - `pyproject.toml` → `sensitive-info-rampart = ["arcjet-sensitive-info-rampart==<version>"]`
 
-4. Run `uv lock`, then `make check` and `make test`.
+4. Run `uv lock`, then `just check` and `just test`.
 
 5. Commit and push the changes to GitHub, then open a PR.
 

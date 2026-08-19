@@ -170,7 +170,7 @@ files use `bench_*.py` naming, and `python_files = ["test_*.py"]` in config).
 
 ```bash
 # Run all benchmarks (table output)
-make bench
+just bench
 
 # Or directly with options
 uv run pytest tests/benchmarks/ --benchmark-only --benchmark-warmup=on --no-cov -v
