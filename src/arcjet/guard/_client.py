@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from typing import Protocol, Sequence, Union
+from typing import Any, Protocol, Sequence, Union
 
 import pyqwest
 
@@ -321,6 +321,66 @@ def _prepare_guard(
     )
 
 
+class _GuardClient(Protocol):
+    """What a checkpoint needs of a client, by shape rather than by class.
+
+    Private, because it cannot yet describe the clients honestly: ``guard`` is
+    a coroutine function on one client and a blocking one on the other, so the
+    return has to stay ``Any``; the blocking spelling is ``guard_sync`` on the
+    recorder but ``guard`` on ``ArcjetGuardSync``; and a *registered* client
+    additionally needs ``capture`` and ``flush``, which a client passed to
+    ``guard_tool`` does not. Publishing this shape would commit to a contract
+    that has to widen, so it stays internal until the flavour question is
+    settled.
+
+    The clients are dispatched on structurally — whether ``guard`` is a
+    coroutine function decides the flavour, and a double offering both spells
+    the blocking one ``guard_sync`` — so the type that describes them has to be
+    structural too. Naming the two concrete classes instead would make the
+    in-memory recorder, and any hand-rolled double, a type error at every
+    wiring site the documentation recommends.
+
+    Describes the call a checkpoint makes, not the flavour it is made in:
+    ``guard`` returns a decision or something awaitable that produces one, and
+    which is which is decided per call site, because the recorder answers both.
+    """
+
+    def guard(
+        self,
+        rules: Sequence[RuleWithInput] = ...,
+        *,
+        label: str,
+        actor: str | None = ...,
+        inputs: PolicyInputMap | None = ...,
+    ) -> Any: ...
+
+
+def _shared_with_copies(self: Any, memo: dict[int, Any]) -> Any:
+    """A ``__deepcopy__`` that shares the client rather than duplicating it.
+
+    A client owns a transport holding a connection pool and a lock, which
+    ``copy.deepcopy`` cannot copy at all, and duplicating one would not be
+    meaningful if it could. Answering on the client rather than only where a
+    client happens to be held makes the sharing independent of traversal
+    order: a structure that reaches the client before whatever else refers to
+    it copies as readily as one that reaches it after.
+    """
+    memo[id(self)] = self
+    return self
+
+
+def _redacted_repr(self: Any) -> str:
+    """Render a client without the site key.
+
+    The key authenticates as this site, and a client reaches a great many
+    places that render objects: a traceback captured with frame locals, a log
+    line, an error reporter, a debugger. Redacting it here covers every one of
+    them, where each holder redacting its own copy covers only the holders
+    anyone thought of.
+    """
+    return f"{type(self).__name__}(key=<redacted>, timeout_ms={self._timeout_ms})"
+
+
 class _AsyncGuardTransport(Protocol):
     async def guard(
         self,
@@ -405,6 +465,9 @@ class ArcjetGuard:
         self._remote_policy = AsyncRemotePolicyRuntime(
             fetch, self._sensitive_info_backend
         )
+
+    __repr__ = _redacted_repr
+    __deepcopy__ = _shared_with_copies
 
     def capture(
         self,
@@ -642,6 +705,9 @@ class ArcjetGuardSync:
         self._remote_policy = SyncRemotePolicyRuntime(
             fetch, self._sensitive_info_backend
         )
+
+    __repr__ = _redacted_repr
+    __deepcopy__ = _shared_with_copies
 
     def capture(
         self,

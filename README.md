@@ -985,12 +985,96 @@ guarded_send_email = guard_tool(
 
 The guarded tool advertises the same schema as the tool it wraps and delegates
 to it, so the model is told what it would have been told without the guard.
-`invoke()`, `ainvoke()`, `run()` and `arun()` are all checkpoints.
+Every way of calling the tool is a checkpoint — `invoke()`, `ainvoke()`,
+`run()`, `arun()`, streaming and batching, and the tool's own `func` — and each
+call is evaluated exactly once. LangChain normalizes a call before the
+checkpoint reads it, so a policy resolver sees the config the tool runs with,
+including one a chain passed down without the caller re-threading it.
 
-The guarded tool is a wrapper, not an instance of the wrapped tool's class, so
-application code that branches on a tool's concrete type sees the wrapper. The
-one exception is a `Tool` built from a bare function, which is wrapped by a
-`Tool` subclass because LangChain advertises that shape by concrete class.
+The guarded tool is an instance of the wrapped tool's class, so application code
+and LangChain itself keep taking the same branch when they check a tool's
+concrete type. It is a generated subclass, created once per tool class and kept
+for the life of the process: a tool class that hooks `__init_subclass__` to
+register or validate its subclasses sees that subclass once, at the first
+`guard_tool()` call for it, and a registry keyed by class name gains an entry
+for it. A trace still shows the tool's own `name`; it is `repr()` and the class
+name that show `ArcjetGuarded<ClassName>`.
+
+A tool that keeps its own state under one of the names the guard uses for its
+own — `_arcjet_state` — is refused by `guard_tool()`,
+because a guarded tool is an instance of the tool's class and there is nowhere
+else for either to live. Rename the tool's attribute.
+
+A blocked call is reported to the tool's callbacks the way LangChain reports the
+outcome: a denial the tool's `handle_tool_error` converts is a run that ends
+with the handled content, and anything else is a start followed by an error. So
+a blocked call appears on a trace rather than leaving a gap, and a handled
+denial is not counted as a failure. What the handler returns is formatted by
+LangChain's own code, so a denial reaches the model shaped exactly as the tool's
+own error would have been.
+
+If a resolver fails, Guard still sees the call — the decision is made without
+that input rather than not made at all — and `on_guard_error` decides whether
+the call may run.
+
+Configure the tool before you guard it. The guarded tool carries a copy of the
+tool's state, but the wrapped tool is what executes, so anything you change on
+the guarded tool afterwards does not reach the call — `callbacks`, `tags`,
+`handle_tool_error`, `args_schema`, `response_format`, and any other field. A
+blocked call is reported from the wrapped tool too, so allowed and blocked
+calls agree with each other.
+
+The same applies to a method: if the tool's class has a helper that configures
+it — `bind_user()`, say — calling that on the guarded tool sets the value on
+the guarded tool, and the wrapped tool still runs without it. Call it before
+guarding, or call it on the tool you still hold.
+
+`response_format` is worth calling out because ignoring it does more than
+nothing: a tool that returns `(content, artifact)` runs with the wrapped tool's
+format, so the tuple is JSON-encoded into the message content and the artifact
+is dropped.
+
+`args_schema` follows that same rule, which matters if you want to hide an
+argument from the model. Narrow the tool **before** you guard it, so the
+wrapped tool parses against the narrow schema and the hidden argument is
+discarded rather than reaching the tool body. Narrowing the guarded tool
+instead changes nothing at all, because every schema question is answered by
+the tool it wraps.
+
+```py
+class PublicEmailArgs(BaseModel):
+    to: str  # `internal_note` is deliberately absent
+
+send_email_tool.args_schema = PublicEmailArgs  # narrow first, then guard
+guarded_send_email = guard_tool(
+    guard=aj, tool=send_email_tool, action="email.sent"
+)
+```
+
+Note that "discarded" is not "rejected": pydantic ignores an unknown field by
+default, so a caller that sends `internal_note` anyway gets a successful call
+with the field dropped, not an error. To reject it, give the narrow schema
+`model_config = ConfigDict(extra="forbid")`, or bind a rule to the argument.
+
+Narrow before guarding for the same reason you configure before guarding:
+changing the wrapped tool's schema afterwards leaves the two disagreeing about
+what to advertise, for a tool built with `Tool(...)` and no schema of its own.
+
+> [!WARNING]
+> Pickle executes arbitrary code as it loads. Load a pickled tool only from a
+> source you control — your own worker queue or process pool — and never from a
+> user, a network peer, or shared storage anyone else can write to. A guarded
+> tool is not a safe transport format for untrusted input, and the checkpoint
+> does not protect the load: the code runs before any rule does.
+
+A guarded tool can be pickled if the tool it wraps can and its resolvers can,
+which is what sending tools to a worker process needs. Fields set on the
+guarded tool survive the round trip. Resolvers are pickled as you gave them, so
+a lambda or a closure makes the tool unpicklable — use a module-level function
+if the tool has to cross a process boundary. The client is not pickled with it
+— it cannot cross a process boundary, and pickling it would write your site key
+into whatever the pickle is stored in — so call `register_arcjet()` in the
+receiving process before loading the tool.
 
 The core `guard()` API and the LangChain helper have intentionally different
 defaults when evaluation is unavailable:
@@ -1557,6 +1641,10 @@ The test client answers both `guard()` and `guard_sync()`, so it does not care
 which flavor your application uses. It records the call and returns a fail-open
 `ALLOW`, because no rule actually ran. It is not a mock server and does not let
 you stub per-rule verdicts.
+
+`guard_tool()` accepts it too — it identifies a client by the shape of its
+`guard()`, not by its class. Because the recorder answers a fail-open decision,
+pass `on_guard_error="allow"` unless the test is asserting the denial.
 
 ## Best practices
 

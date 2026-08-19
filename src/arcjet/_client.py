@@ -461,7 +461,10 @@ class Arcjet:
             return JSONResponse({"error": "Forbidden"}, status_code=403)
     """
 
-    _key: str
+    # Kept out of the generated repr. The key authenticates as this site, and a
+    # client reaches a great many places that render objects: a traceback
+    # captured with frame locals, a log line, an error reporter, a debugger.
+    _key: str = field(repr=False)
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClient
     _sdk_stack: str | None
@@ -1028,7 +1031,10 @@ class ArcjetSync:
             return jsonify(error="Forbidden"), 403
     """
 
-    _key: str
+    # Kept out of the generated repr. The key authenticates as this site, and a
+    # client reaches a great many places that render objects: a traceback
+    # captured with frame locals, a log line, an error reporter, a debugger.
+    _key: str = field(repr=False)
     _rules: tuple[RuleSpec, ...]
     _client: DecideServiceClientSync
     _sdk_stack: str | None

@@ -7,10 +7,13 @@ a fixture wrapping one.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
+from arcjet.guard import local_input
 from arcjet.guard._registry import (
     capture,
     flush,
@@ -21,7 +24,7 @@ from arcjet.guard._registry import (
     registered_client,
     unregister_arcjet,
 )
-from arcjet.guard.testing import ArcjetTestClient, register_test_client
+from arcjet.guard.testing import ArcjetTestClient, RecordedGuard, register_test_client
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +34,13 @@ def _clear_registration():
         yield
     finally:
         unregister_arcjet()
+
+
+def _call_guard(arcjet: ArcjetTestClient, flavor: str, **kwargs: Any) -> Any:
+    """Drive whichever spelling of ``guard`` *flavor* names."""
+    if flavor == "sync":
+        return arcjet.guard_sync(**kwargs)
+    return asyncio.run(arcjet.guard(**kwargs))
 
 
 class TestRegisterTestClient:
@@ -175,6 +185,43 @@ class TestRecordingGuards:
         with register_test_client():
             asyncio.run(flush())
             flush_sync()
+
+    @pytest.mark.parametrize("flavor", ["sync", "async"])
+    def test_records_actor_and_inputs(self, flavor: str) -> None:
+        arcjet = ArcjetTestClient()
+        inputs = {"prompt": local_input.string("hi")}
+        _call_guard(arcjet, flavor, label="t", actor="u1", inputs=inputs)
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor == "u1"
+        # By identity, so a caller can assert a checkpoint passed its inputs
+        # through without altering them.
+        assert recorded.inputs is inputs
+        assert recorded.rules == ()
+
+    def test_recorded_guard_is_frozen(self) -> None:
+        arcjet = ArcjetTestClient()
+        arcjet.guard_sync(label="x", actor="u1")
+        recorded = arcjet.guards[0]
+
+        with pytest.raises(FrozenInstanceError):
+            recorded.actor = "u2"  # type: ignore[misc]
+
+    @pytest.mark.parametrize("flavor", ["sync", "async"])
+    def test_actor_and_inputs_default_to_none(self, flavor: str) -> None:
+        arcjet = ArcjetTestClient()
+        _call_guard(arcjet, flavor, label="x")
+
+        recorded = arcjet.guards[0]
+        assert recorded.actor is None
+        assert recorded.inputs is None
+
+    def test_recorded_guard_defaults_actor_and_inputs_to_none(self) -> None:
+        """The public record's own defaults, for callers who construct one."""
+        recorded = RecordedGuard(label="x", rules=())
+
+        assert recorded.actor is None
+        assert recorded.inputs is None
 
 
 class TestFixturePattern:

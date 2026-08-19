@@ -61,15 +61,52 @@ jobs:
 
 
   test:
-    name: Run tests
+    name: Run tests (py${{ matrix.python-version }})
     strategy:
+      # Every version reports; one failure must not hide the others, because
+      # the interesting failures here are version-specific.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        # `requires-python` is `>=3.10` with no upper bound, so these are the
+        # released versions the package installs on. The repo pins 3.10 in
+        # `.python-version`, so without this axis only the floor is exercised.
+        # Add each new Python here as it is released.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Tests
-        run: uv run pytest
+        # `--python` rather than the environment alone, so the run cannot fall
+        # back to `.python-version` and silently retest the floor three times.
+        run: uv run --python ${{ matrix.python-version }} pytest
+
+  # One check that stands for the whole matrix, so branch protection names a
+  # single context rather than one per interpreter. Adding a Python version
+  # above therefore needs no change to the ruleset, which cannot be edited from
+  # a pull request and so would otherwise drift behind the matrix.
+  #
+  # The name is the context `main` already requires. It predates the matrix,
+  # when the only axis was `os`.
+  test-matrix:
+    name: Run tests (ubuntu-latest)
+    # Runs whether the matrix passed or failed, so the context always reports.
+    # `!cancelled()` rather than `always()`: a cancelled run is one the
+    # concurrency group superseded, and the run that replaced it reports
+    # instead.
+    if: ${{ !cancelled() }}
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the matrix result
+        # `needs.test.result` is `success` only when every leg succeeded, so
+        # this fails for a failed, cancelled or skipped leg alike.
+        if: needs.test.result != 'success'
+        run: |
+          echo "::error::Test matrix result: ${{ needs.test.result }}"
+          exit 1
