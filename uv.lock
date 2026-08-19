@@ -65,6 +65,8 @@ langchain = [
 ]
 langchain-agents = [
     { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
 ]
 sensitive-info-rampart = [
     { name = "arcjet-sensitive-info-rampart" },
@@ -94,8 +96,10 @@ dev = [
 requires-dist = [
     { name = "arcjet-sensitive-info-rampart", marker = "extra == 'sensitive-info-rampart'", editable = "sensitive-info-rampart" },
     { name = "connect-python", specifier = ">=0.8.1" },
-    { name = "langchain", marker = "extra == 'langchain-agents'", specifier = ">=1,<2" },
+    { name = "langchain", marker = "extra == 'langchain-agents'", specifier = ">=1.3,<2" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1.2.5,<2" },
+    { name = "langchain-core", marker = "extra == 'langchain-agents'", specifier = ">=1.2.5,<2" },
+    { name = "langgraph", marker = "extra == 'langchain-agents'", specifier = ">=1.2,<2" },
     { name = "pyqwest", specifier = ">=0.8.0,<0.9.0" },
     { name = "wasmtime", specifier = ">=47.0.1,<47.1.0" },
 ]

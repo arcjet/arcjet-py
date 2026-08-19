@@ -13,7 +13,6 @@ unused, per the no-mutation rule in the checkpoint ADR.
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast
@@ -29,6 +28,8 @@ from arcjet.guard._client import ArcjetGuard, ArcjetGuardSync
 from arcjet.guard._errors import OnGuardError
 from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._rules import RuleWithInput
+
+from ._tool import _awaited, _not_awaited, _resolved, _resolved_async
 
 # Type aliases for policy resolvers. Middleware resolvers take parsed arguments,
 # unlike _tool.py resolvers which take RunnableConfig.
@@ -64,6 +65,20 @@ class ToolPolicy:
     actor: Optional[ActorResolver | AsyncActorResolver] = None
     inputs: Optional[InputResolver | AsyncInputResolver] = None
     metadata: Optional[Metadata] = None
+
+
+def _policy_actor(policy: "ToolPolicy", args: Mapping[str, Any]) -> Any:
+    """The actor this policy names, or the value its resolver returns."""
+    if policy.actor is None or isinstance(policy.actor, str):
+        return policy.actor
+    return cast(Callable[[Mapping[str, Any]], Any], policy.actor)(args)
+
+
+def _policy_inputs(policy: "ToolPolicy", args: Mapping[str, Any]) -> Any:
+    """The inputs this policy names, or the value its resolver returns."""
+    if policy.inputs is None or not callable(policy.inputs):
+        return policy.inputs
+    return cast(Callable[[Mapping[str, Any]], Any], policy.inputs)(args)
 
 
 class ArcjetMiddleware(AgentMiddleware):
@@ -126,39 +141,18 @@ class ArcjetMiddleware(AgentMiddleware):
         args = request.tool_call["args"]
 
         def prepare() -> ResolvedInputs:
-            actor: Optional[str] = None
-            if policy.actor is not None:
-                if isinstance(policy.actor, str):
-                    actor = policy.actor
-                else:
-                    resolved_actor = policy.actor
-                    actor_value = resolved_actor(args)
-                    if inspect.isawaitable(actor_value):
-                        raise TypeError(
-                            "A synchronous actor resolver must not return an awaitable"
-                        )
-                    actor = actor_value
-
-            inputs: Optional[PolicyInputMap] = None
-            if policy.inputs is not None:
-                if callable(policy.inputs):
-                    resolved_inputs = cast(
-                        Callable[
-                            [Mapping[str, Any]],
-                            PolicyInputMap | Awaitable[PolicyInputMap],
-                        ],
-                        policy.inputs,
-                    )
-                    inputs_value = resolved_inputs(args)
-                    if inspect.isawaitable(inputs_value):
-                        raise TypeError(
-                            "A synchronous input resolver must not return an awaitable"
-                        )
-                    inputs = inputs_value
-                else:
-                    inputs = cast(PolicyInputMap, policy.inputs)
-
-            return ResolvedInputs(actor=actor, inputs=inputs)
+            # Reported, not raised: raising skips the guard call, so the tool
+            # would run with Guard holding no record that it happened and a
+            # rate limit on the action would stop counting exactly the calls
+            # whose actor could not be resolved.
+            actor, degraded = _resolved(
+                lambda: _not_awaited(_policy_actor(policy, args), "actor")
+            )
+            inputs, degraded = _resolved(
+                lambda: _not_awaited(_policy_inputs(policy, args), "input"),
+                so_far=degraded,
+            )
+            return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
 
         return run_checkpoint_sync(
             lambda: handler(request),
@@ -202,40 +196,15 @@ class ArcjetMiddleware(AgentMiddleware):
         args = request.tool_call["args"]
 
         async def prepare() -> ResolvedInputs:
-            actor: Optional[str] = None
-            if policy.actor is not None:
-                if isinstance(policy.actor, str):
-                    actor = policy.actor
-                else:
-                    resolved_actor = cast(
-                        Callable[[Mapping[str, Any]], Union[str, Awaitable[str]]],
-                        policy.actor,
-                    )
-                    resolved = resolved_actor(args)
-                    if isinstance(resolved, Awaitable):
-                        actor = await cast(Awaitable[str], resolved)
-                    else:
-                        actor = cast(str, resolved)
-
-            inputs: Optional[PolicyInputMap] = None
-            if policy.inputs is not None:
-                if callable(policy.inputs):
-                    resolved_inputs = cast(
-                        Callable[
-                            [Mapping[str, Any]],
-                            Union[PolicyInputMap, Awaitable[PolicyInputMap]],
-                        ],
-                        policy.inputs,
-                    )
-                    resolved = resolved_inputs(args)
-                    if isinstance(resolved, Awaitable):
-                        inputs = await cast(Awaitable[PolicyInputMap], resolved)
-                    else:
-                        inputs = cast(PolicyInputMap, resolved)
-                else:
-                    inputs = cast(PolicyInputMap, policy.inputs)
-
-            return ResolvedInputs(actor=actor, inputs=inputs)
+            """The awaitable counterpart of the sync ``prepare``."""
+            actor, degraded = await _resolved_async(
+                lambda: _awaited(_policy_actor(policy, args))
+            )
+            inputs, degraded = await _resolved_async(
+                lambda: _awaited(_policy_inputs(policy, args)),
+                so_far=degraded,
+            )
+            return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
 
         return await run_checkpoint(
             lambda: handler(request),

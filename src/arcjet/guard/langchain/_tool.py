@@ -135,7 +135,11 @@ def _correlation_from_config(config: RunnableConfig) -> str | None:
 
     for section_name in ("configurable", "metadata"):
         section = config.get(section_name)
-        if not section or _CORRELATION_KEY not in section:
+        # `in` answers for a str (substring) and a list (membership) too, so the
+        # shape is checked before the key. Indexing one of those raised a bare
+        # TypeError out of the whole guarded call — neither fail-closed nor
+        # fail-open, and the opposite of what this function promises below.
+        if not isinstance(section, Mapping) or _CORRELATION_KEY not in section:
             continue
 
         value = section[_CORRELATION_KEY]
