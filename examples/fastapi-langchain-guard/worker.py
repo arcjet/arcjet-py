@@ -22,6 +22,7 @@ from typing import Any, Mapping
 
 from arcjet.guard import (
     ArcjetDeniedError,
+    ArcjetGuardSync,
     ArcjetUnavailableError,
     arcjet_sequence,
     capture_action,
@@ -32,8 +33,18 @@ from arcjet.guard import (
 
 logger = logging.getLogger(__name__)
 
-# One client per worker process, as a broker would have.
-_client = launch_arcjet_sync(key=os.environ["ARCJET_KEY"])
+# One client per worker process, as a broker would have. Built on first use
+# rather than at import: `main` imports this module, so reading the environment
+# out here would raise before main's own configuration check reports what is
+# missing.
+_client: ArcjetGuardSync | None = None
+
+
+def _guard() -> ArcjetGuardSync:
+    global _client
+    if _client is None:
+        _client = launch_arcjet_sync(key=os.environ["ARCJET_KEY"])
+    return _client
 
 
 def send_receipt(payload: Mapping[str, Any]) -> None:
@@ -51,7 +62,7 @@ def send_receipt(payload: Mapping[str, Any]) -> None:
             guard_action_sync(
                 lambda: _deliver(payload),
                 action="receipt.sent",
-                guard=_client,
+                guard=_guard(),
                 # No rules configured locally, which is still a real call: the
                 # server selects remote policy by `action`.
                 metadata=security_metadata(
@@ -72,7 +83,7 @@ def send_receipt(payload: Mapping[str, Any]) -> None:
         finally:
             # A worker process exits between jobs, and capture queues rather
             # than blocking, so anything unflushed is lost.
-            _client.flush()
+            _guard().flush()
 
 
 def _deliver(payload: Mapping[str, Any]) -> None:

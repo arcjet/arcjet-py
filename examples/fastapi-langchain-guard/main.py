@@ -101,6 +101,11 @@ async def chat(body: ChatRequest, background: BackgroundTasks) -> Any:
     # events together, but it would build a Sequence nobody goes looking for;
     # the point is that a human investigating "what did session X do" can find
     # it. Everything below inherits this ambiently.
+    #
+    # EXAMPLE ONLY: this trusts `session_id` from the request body, so a caller
+    # could write to another session's Sequence and to its actor and metadata.
+    # In a real service take it from the authenticated session — a signed
+    # cookie, a verified token claim — never from a field the caller controls.
     with arcjet_sequence(correlation_id=body.session_id):
         policies = {
             "get_weather": ToolPolicy(
@@ -140,6 +145,10 @@ async def chat(body: ChatRequest, background: BackgroundTasks) -> Any:
         middleware = ArcjetMiddleware(
             guard=arcjet_client,
             policies=policies,
+            # The tools the agent is built with. Optional, but passing it makes
+            # a typo in a `policies` key an error at construction instead of a
+            # tool that silently runs unguarded.
+            tools=[get_weather],
             # Fail closed: if policy cannot be evaluated at all, the tool does
             # not run. This is the one place Arcjet diverges from its
             # platform-wide fail-open convention. Pass "allow" to opt out — but
