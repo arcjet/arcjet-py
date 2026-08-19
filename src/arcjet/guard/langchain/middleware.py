@@ -19,6 +19,7 @@ from typing import Any, Optional, cast
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
+from langchain_core.runnables.config import ensure_config
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
@@ -31,7 +32,13 @@ from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._registry import _awaitable, _blocking
 from arcjet.guard._rules import RuleWithInput
 
-from ._tool import _awaited, _not_awaited, _resolved, _resolved_async
+from ._tool import (
+    _awaited,
+    _correlation_from_config,
+    _not_awaited,
+    _resolved,
+    _resolved_async,
+)
 
 # Type aliases for policy resolvers. Middleware resolvers take parsed arguments,
 # unlike _tool.py resolvers which take RunnableConfig.
@@ -175,6 +182,11 @@ class ArcjetMiddleware(AgentMiddleware):
             prepare=prepare,
             rules=policy.rules,
             metadata=policy.metadata,
+            # The same ID a guarded tool reads, so an agent that mixes the two
+            # produces one Sequence rather than splitting the run between them.
+            # `ensure_config()` with no argument is the ambient config LangChain
+            # propagates to this node; `ToolCallRequest` does not carry one.
+            correlation_id=_correlation_from_config(ensure_config()),
             on_guard_error=cast(OnGuardError, self._on_guard_error),
         )
 
@@ -228,5 +240,10 @@ class ArcjetMiddleware(AgentMiddleware):
             prepare=prepare,
             rules=policy.rules,
             metadata=policy.metadata,
+            # The same ID a guarded tool reads, so an agent that mixes the two
+            # produces one Sequence rather than splitting the run between them.
+            # `ensure_config()` with no argument is the ambient config LangChain
+            # propagates to this node; `ToolCallRequest` does not carry one.
+            correlation_id=_correlation_from_config(ensure_config()),
             on_guard_error=cast(OnGuardError, self._on_guard_error),
         )

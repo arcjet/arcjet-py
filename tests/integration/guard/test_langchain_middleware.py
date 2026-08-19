@@ -1135,3 +1135,57 @@ class TestActorAndInputsResolution:
         asyncio.run(middleware.awrap_tool_call(request, handler))
 
         assert "recipient" in client.guards[0]["inputs"]
+
+
+def test_the_middleware_joins_the_sequence_the_config_names() -> None:
+    """A guarded tool and the middleware must land on one Sequence.
+
+    The middleware ignored `arcjet_correlation_id` entirely, so an agent that
+    mixed `guard_tool` with `ArcjetMiddleware` split one run across two
+    Sequences — the thing correlation exists to prevent.
+    """
+    from langchain_core.messages import ToolMessage
+    from langchain_core.runnables.config import ensure_config, set_config_context
+    from langchain_core.tools import tool as make_tool
+    from langgraph.prebuilt.tool_node import ToolCallRequest
+
+    from arcjet.guard.langchain import ArcjetMiddleware, ToolPolicy
+    from arcjet.guard.testing import ArcjetTestClient
+
+    @make_tool
+    def get_weather(city: str) -> str:
+        """Get the weather."""
+        return "sunny"
+
+    request = ToolCallRequest(
+        tool_call={
+            "name": "get_weather",
+            "args": {"city": "SF"},
+            "id": "call-1",
+            "type": "tool_call",
+        },
+        tool=get_weather,
+        state={},
+        runtime=cast(Any, None),
+    )
+    client = ArcjetTestClient()
+    middleware = ArcjetMiddleware(
+        policies={"get_weather": ToolPolicy(action="weather.read")},
+        guard=client,
+        on_guard_error="allow",
+    )
+
+    config = {"configurable": {"arcjet_correlation_id": "session-42"}}
+    with set_config_context(ensure_config(cast(Any, config))) as ctx:
+        ctx.run(
+            lambda: middleware.wrap_tool_call(
+                request,
+                cast(
+                    Any,
+                    lambda _r: ToolMessage(content="handled", tool_call_id="call-1"),
+                ),
+            )
+        )
+
+    assert [g.correlation_id for g in client.guards] == ["session-42"]
+    assert [e.correlation_id for e in client.captures] == ["session-42"]
