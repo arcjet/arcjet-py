@@ -1189,3 +1189,36 @@ def test_the_middleware_joins_the_sequence_the_config_names() -> None:
 
     assert [g.correlation_id for g in client.guards] == ["session-42"]
     assert [e.correlation_id for e in client.captures] == ["session-42"]
+
+
+def test_a_policy_naming_no_tool_is_refused_when_the_tools_are_given() -> None:
+    """A policy is matched by tool name, so a typo unguards a tool silently.
+
+    Without the tools there is nothing to check against, and the call looks
+    exactly like a healthy allow: no warning, no capture, no guard call. Given
+    them, the mistake is refused where it is made.
+    """
+    from langchain_core.tools import tool as make_tool
+
+    from arcjet._errors import ArcjetMisconfiguration
+    from arcjet.guard.langchain import ArcjetMiddleware, ToolPolicy
+
+    @make_tool
+    def get_weather(city: str) -> str:
+        """Get the weather."""
+        return "sunny"
+
+    # The name matches, so it is accepted.
+    ArcjetMiddleware(
+        policies={"get_weather": ToolPolicy(action="weather.read")},
+        tools=[get_weather],
+    )
+
+    with pytest.raises(ArcjetMisconfiguration, match="get_wether"):
+        ArcjetMiddleware(
+            policies={"get_wether": ToolPolicy(action="weather.read")},
+            tools=[get_weather],
+        )
+
+    # Optional: without the tools, nothing is claimed either way.
+    ArcjetMiddleware(policies={"get_wether": ToolPolicy(action="weather.read")})

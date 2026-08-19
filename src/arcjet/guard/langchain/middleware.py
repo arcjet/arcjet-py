@@ -104,12 +104,18 @@ class ArcjetMiddleware(AgentMiddleware):
         policies: Mapping[str, ToolPolicy],
         guard: Optional[_GuardClient] = None,
         on_guard_error: OnGuardError = "deny",
+        tools: Optional[Sequence[Any]] = None,
     ) -> None:
         """Initialize the middleware.
 
         Args:
             policies: Mapping of tool names to their checkpoint policies.
                 Tools not in this mapping pass through unguarded.
+            tools: The tools the agent was built with. Optional, but pass the
+                same sequence given to ``create_agent``: a policy is matched by
+                tool name, so a typo or a renamed ``@tool`` function otherwise
+                leaves that tool unguarded and looks exactly like a healthy
+                allow. Given them, a key naming no tool is refused here.
             guard: The Arcjet Guard client. Optional, as it is on every other
                 guard surface: without one the checkpoint uses the client
                 registered with :func:`~arcjet.guard.register_arcjet`.
@@ -125,6 +131,16 @@ class ArcjetMiddleware(AgentMiddleware):
         self._guard = guard
         self._policies = dict(policies)
         self._on_guard_error = on_guard_error
+        if tools is not None:
+            named = {getattr(tool, "name", None) for tool in tools}
+            unmatched = sorted(key for key in self._policies if key not in named)
+            if unmatched:
+                raise ArcjetMisconfiguration(
+                    f"No tool is named {unmatched!r}. A policy is matched by "
+                    f"tool name, so this one would never be applied and the "
+                    f"tool it was meant for would run unguarded. Known tools: "
+                    f"{sorted(n for n in named if n)!r}."
+                )
 
     def wrap_tool_call(
         self,
