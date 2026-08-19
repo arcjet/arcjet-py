@@ -24,6 +24,7 @@ from arcjet.guard import (
     ArcjetDeniedError,
     ArcjetUnavailableError,
     arcjet_sequence,
+    capture_action,
     guard_action,
     guard_action_sync,
 )
@@ -962,7 +963,6 @@ class TestCaptureActionSync:
 
     def test_capture_action_outside_sequence(self, reset_sequence_context):
         """capture_action works outside a sequence."""
-        from arcjet.guard import capture_action
 
         # Should not raise even with no sequence
         capture_action(action="item.created")
@@ -971,7 +971,6 @@ class TestCaptureActionSync:
         self, reset_sequence_context
     ):
         """Omitted correlation_id is inherited from sequence."""
-        from arcjet.guard import capture_action
 
         client = StubGuardClient()
         client.captures = []
@@ -995,7 +994,7 @@ class TestCaptureActionSync:
         client.capture = capture_impl  # type: ignore[assignment]
 
         # Simulate registration
-        import arcjet.guard._registry as reg
+        from arcjet.guard import _registry as reg
 
         old_registered = reg._registered
         try:
@@ -1011,8 +1010,7 @@ class TestCaptureActionSync:
 
     def test_capture_action_explicit_correlation_id_wins(self, reset_sequence_context):
         """Explicit correlation_id overrides sequence."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         client = StubGuardClient()
         client.captures = []
@@ -1049,8 +1047,7 @@ class TestCaptureActionSync:
 
     def test_capture_action_metadata_merges_with_sequence(self, reset_sequence_context):
         """Omitted metadata merges with sequence metadata."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         client = StubGuardClient()
         client.captures = []
@@ -1089,8 +1086,7 @@ class TestCaptureActionSync:
         self, reset_sequence_context
     ):
         """When both have same key, explicit value wins."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         client = StubGuardClient()
         client.captures = []
@@ -1131,8 +1127,7 @@ class TestCaptureActionSync:
 
     def test_capture_action_decision_id_passed_through(self, reset_sequence_context):
         """decision_id is passed through unchanged."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         client = StubGuardClient()
         client.captures = []
@@ -1174,8 +1169,7 @@ class TestCaptureActionAsync:
         self, reset_sequence_context
     ):
         """Async: omitted correlation_id is inherited from sequence."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         async def test():
             client = StubGuardClient()
@@ -1217,8 +1211,7 @@ class TestCaptureActionAsync:
         self, reset_sequence_context
     ):
         """Async: explicit metadata wins on collision."""
-        import arcjet.guard._registry as reg
-        from arcjet.guard import capture_action
+        from arcjet.guard import _registry as reg
 
         async def test():
             client = StubGuardClient()
