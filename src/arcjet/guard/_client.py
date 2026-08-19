@@ -340,6 +340,11 @@ class _GuardClient(Protocol):
     in-memory recorder, and any hand-rolled double, a type error at every
     wiring site the documentation recommends.
 
+    Every argument is keyword-only, which is how the checkpoint passes them and
+    what lets a double written as ``def guard(self, **kwargs)`` satisfy this.
+    ``capture`` is here because the engine records an outcome through whichever
+    client it was handed, not only through a registered one.
+
     Describes the call a checkpoint makes, not the flavour it is made in:
     ``guard`` returns a decision or something awaitable that produces one, and
     which is which is decided per call site, because the recorder answers both.
@@ -347,11 +352,22 @@ class _GuardClient(Protocol):
 
     def guard(
         self,
-        rules: Sequence[RuleWithInput] = ...,
         *,
+        rules: Sequence[RuleWithInput] = ...,
         label: str,
+        metadata: Any = ...,
+        correlation_id: str | None = ...,
         actor: str | None = ...,
         inputs: PolicyInputMap | None = ...,
+    ) -> Any: ...
+
+    def capture(
+        self,
+        *,
+        action: str,
+        correlation_id: str | None = ...,
+        decision_id: str | None = ...,
+        metadata: Any = ...,
     ) -> Any: ...
 
 

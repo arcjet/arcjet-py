@@ -34,6 +34,10 @@ Public API
     launch_arcjet, launch_arcjet_sync
     ArcjetGuard, ArcjetGuardSync
 
+**Ambient correlation context** (from ``_context``)::
+
+    arcjet_sequence, current_correlation_id, current_sequence_metadata
+
 **Optional registration** (from ``registry``)::
 
     register_arcjet, unregister_arcjet
@@ -56,11 +60,26 @@ delivered in the background in batches.
 
 from arcjet._metadata import Metadata, MetadataValue
 
+from ._action import (
+    capture_action,
+    guard_action,
+    guard_action_sync,
+)
 from ._client import (
     ArcjetGuard,
     ArcjetGuardSync,
     launch_arcjet,
     launch_arcjet_sync,
+)
+from ._context import (
+    arcjet_sequence,
+    current_correlation_id,
+    current_sequence_metadata,
+)
+from ._errors import (
+    ArcjetDeniedError,
+    ArcjetUnavailableError,
+    OnGuardError,
 )
 from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._registry import (
@@ -117,6 +136,7 @@ from ._types import (
     RuleResultUnknown,
     StringMatchOperator,
 )
+from ._vocabulary import security_metadata
 
 __all__ = [
     # Types
@@ -127,6 +147,7 @@ __all__ = [
     "Metadata",
     "MetadataValue",
     "Mode",
+    "OnGuardError",
     "PolicyInput",
     "PolicyInputMap",
     "PolicyEvaluation",
@@ -147,6 +168,9 @@ __all__ = [
     "StringMatchOperator",
     "SENSITIVE_INFO_ENTITY_TYPES",
     "ArcjetWarning",
+    # Errors
+    "ArcjetDeniedError",
+    "ArcjetUnavailableError",
     # Rule classes
     "DetectPromptInjection",
     "FixedWindow",
@@ -176,6 +200,15 @@ __all__ = [
     "launch_arcjet_sync",
     "local_input",
     "server_input",
+    # Ambient correlation context
+    "arcjet_sequence",
+    "current_correlation_id",
+    "current_sequence_metadata",
+    # Guard actions and metadata
+    "guard_action",
+    "guard_action_sync",
+    "capture_action",
+    "security_metadata",
     # Optional registration, and the free calls it enables. Nothing here takes
     # effect until an application calls register_arcjet(); launch_arcjet()
     # touches no global state.

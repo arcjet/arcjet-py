@@ -931,6 +931,140 @@ async def handle_tool_call(user_id: str, message: str):
     # Allowed by a fully evaluated policy; safe to proceed.
 ```
 
+### Guard surfaces, extras, and propagation
+
+Arcjet Guard protects code that has no HTTP request — a tool call, a worker, an
+MCP handler. Four surfaces do that, and which one you want depends on what you
+are holding when the effect happens.
+
+| You have | Use | Needs | Blocks a call? |
+| --- | --- | --- | --- |
+| Any Python callable — a worker, an MCP handler, a job | `guard_action` / `guard_action_sync` | `arcjet` | Yes |
+| A LangChain `BaseTool` you call yourself | `guard_tool` | `arcjet[langchain]` | Yes |
+| An agent built with `create_agent`, whose tool calls the model chooses | `ArcjetMiddleware` | `arcjet[langchain-agents]` | Yes |
+| A chain or agent you want to *observe* | `ArcjetCaptureHandler` | `arcjet[langchain]` | No — records only |
+
+Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
+smaller change — it returns something that *is* the tool, so nothing downstream
+changes. If the model picks the tool and you want one policy per tool name, use
+the middleware. They compose: a guarded tool called from inside a guarded agent
+evaluates once per policy, and both land on the same Sequence.
+
+`ArcjetCaptureHandler` never blocks anything. LangChain's callback dispatch
+ignores what a handler returns, so a callback *cannot* deny a call — it is the
+right home for capture and the wrong home for policy.
+
+**Installation extras** unlock specific surfaces:
+
+- **`arcjet[langchain]`** — `guard_tool` and the capture handlers
+  (`ArcjetCaptureHandler` and `ArcjetAsyncCaptureHandler`). Depends on
+  `langchain-core` only — no LangGraph.
+- **`arcjet[langchain-agents]`** — adds `ArcjetMiddleware`, and pulls in
+  LangChain and LangGraph.
+
+These are separate because LangGraph is large and optional; many applications
+use tools without agents. Importing `arcjet.guard.langchain` never loads
+LangGraph — that happens only when you reference `ArcjetMiddleware` or
+`ToolPolicy`, and without the extra installed you get an error naming it.
+
+Everything comes from one import path:
+
+```py
+from arcjet.guard.langchain import (
+    ArcjetCaptureHandler,
+    ArcjetMiddleware,
+    ToolPolicy,
+    guard_tool,
+)
+```
+
+**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `ArcjetMiddleware`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
+
+- **`on_guard_error="deny"`** (default) — If Guard is unavailable or evaluation fails, the guarded action blocks with `ArcjetUnavailableError`.
+- **`on_guard_error="allow"`** — Opt out: if Guard is unavailable, the action runs anyway. Use this only where availability matters more than enforcement.
+
+A `DENY` conclusion always blocks, with `ArcjetDeniedError`, regardless of
+`on_guard_error`. The two errors are deliberately distinct: a denial means policy
+evaluated and said no, while unavailability means the check never happened.
+`on_guard_error` opts out of failing closed on an *unevaluated* policy — never
+out of an evaluated denial.
+
+**Correlation and Sequences** — Trace requests across boundaries using a correlation ID:
+
+```py
+from arcjet.guard import arcjet_sequence, current_correlation_id
+
+# Open a sequence with an explicit ID
+with arcjet_sequence(correlation_id="request-id-123"):
+    # All guard() and capture() calls inside see this ID
+    payload = {"correlation_id": current_correlation_id()}  # "request-id-123"
+    # Pass payload to a worker...
+
+# Outside the sequence, ID is None
+assert current_correlation_id() is None
+
+# Worker resumes the sequence by reopening it. Nothing is inherited across a
+# broker or a bare thread, so the ID has to arrive as data.
+def worker(payload):
+    with arcjet_sequence(correlation_id=payload["correlation_id"]):
+        # Every decision and capture in here lands on the originating
+        # request's Sequence rather than starting one of its own.
+        send_the_thing()
+```
+
+Precedence for ID selection: explicit `correlation_id` argument →
+`RunnableConfig["configurable"]["arcjet_correlation_id"]` (then its `["metadata"]`)
+→ ambient context var → none. A checkpoint outside any sequence still evaluates
+policy; it just produces decisions that join no Sequence. `arcjet_sequence()`
+called with no ID generates a sortable one, which is the right answer only for a
+genuinely new entrypoint — derive it from a session the caller already has when
+you can, or you build a Sequence nobody goes looking for.
+
+Inside an agent, pass the ID through the config instead. Both the middleware
+and any guarded tool below it read the same key, so one run produces one
+Sequence rather than splitting between them:
+
+```py
+await agent.ainvoke(
+    {"messages": [...]},
+    config={"configurable": {"arcjet_correlation_id": session.id}},
+)
+```
+
+The config wins over an enclosing `arcjet_sequence`, and `configurable` is
+checked before `metadata`. LangChain's own `run_id` is deliberately not used: a
+Sequence should be joinable from the session a human would go looking for, not
+from an ID the framework mints per run.
+
+**Propagation across boundaries** — Context variables do not cross process or executor boundaries. To carry a correlation ID:
+
+| Boundary | Propagates? | Solution |
+| --- | --- | --- |
+| `asyncio.create_task()` | Yes | No action needed |
+| `asyncio.to_thread()` | Yes | No action needed |
+| `ThreadPoolExecutor.submit()` | **No** | Use `copy_context()` |
+| `loop.run_in_executor()` | **No** | Use `copy_context()` |
+| `ProcessPoolExecutor` | **Not reliably** | A `fork` start method happens to inherit; `spawn` and `forkserver` do not. Never depend on it — serialize the ID as data |
+| Generators, async generators | **Only while consumed inside** | A generator does not carry the context it was created in, so one consumed after the block exits sees nothing. Read the ID before yielding |
+| Celery / RQ / Dramatiq | **No** | Carry the ID in the job payload |
+
+For `ThreadPoolExecutor` and `loop.run_in_executor`, use the `copy_context()` idiom:
+
+```py
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+
+# Inside a sequence context
+ctx = copy_context()
+with ThreadPoolExecutor(max_workers=1) as executor:
+    # The worker runs with the same correlation context
+    result = executor.submit(ctx.run, worker_function).result()
+```
+
+Note: A single `Context` object cannot be entered twice concurrently. Create a fresh `copy_context()` for each submission.
+
+**Redaction is a named future phase** — Sensitive information currently **denies** rather than redacting. No SDK surface mutates content; a value that fails the sensitive-info check is not rewritten and passed through. Redaction would require an explicit carve-out from the checkpoint ADR's no-mutation rule. Do not assume redaction is coming for free.
+
 ### Remotely configured policy inputs
 
 Map application values explicitly as server-visible or local. Server inputs are
@@ -1098,6 +1232,40 @@ that decision. Handle an unavailable evaluation as an operational failure that
 may warrant alerting or retrying; do not treat it as a policy denial. Set
 `on_guard_error="allow"` only at call sites where availability matters more
 than enforcement, such as a read-only lookup.
+
+### Guarding an agent's tool calls
+
+When the model chooses the tool, guard the agent instead of each tool. Install
+`arcjet[langchain-agents]`, then give `create_agent` the middleware:
+
+```py
+from langchain.agents import create_agent
+
+from arcjet.guard.langchain import ArcjetMiddleware, ToolPolicy
+
+agent = create_agent(
+    model="openai:gpt-4o",
+    tools=[send_email, search_orders],
+    middleware=[
+        ArcjetMiddleware(
+            policies={"send_email": ToolPolicy(action="email.sent")},
+            tools=[send_email, search_orders],
+        )
+    ],
+)
+```
+
+Tools without a policy pass through unguarded, so you protect the ones that do
+something consequential and leave the rest alone.
+
+Pass `tools=` the same sequence you gave `create_agent`. A policy is matched by
+tool name, so without it a typo — or a renamed `@tool` function — leaves that
+tool unguarded and looks exactly like a healthy allow. Given the tools, a key
+naming none of them is refused where you wrote it.
+
+The client is optional. Without `guard=`, the checkpoint uses whatever you
+registered with `register_arcjet()`, which is what you want in an application
+that registers once at startup.
 
 ### Sync usage
 
@@ -1607,6 +1775,32 @@ async def test_refund_captures_an_event():
 
         assert arcjet.captures[0].action == "refund.issued"
 ```
+
+It drives every guard surface — the free calls, `guard_tool`, the middleware
+and the capture handlers alike — because each identifies a client by the shape
+of its `guard()` rather than by its class:
+
+```python
+from arcjet.guard.langchain import guard_tool
+from arcjet.guard.testing import register_test_client
+
+
+def test_sending_an_email_is_guarded():
+    with register_test_client() as arcjet:
+        guarded = guard_tool(
+            guard=arcjet,
+            tool=send_email,
+            action="email.sent",
+            on_guard_error="allow",
+        )
+        guarded.invoke({"to": "a@b.c", "subject": "hi"})
+
+        assert [call.label for call in arcjet.guards] == ["email.sent"]
+```
+
+Pass `on_guard_error="allow"` unless the test is asserting a denial: the
+recorder answers a fail-open decision, which the default treats as an
+unevaluated policy and refuses.
 
 The `with` block unregisters the client on the way out, including when the test
 fails part-way through. Note the `await`: the capture happens wherever the code
