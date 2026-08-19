@@ -15,18 +15,20 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, cast
 
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from arcjet._errors import ArcjetMisconfiguration
 from arcjet._metadata import Metadata
 from arcjet.guard._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
-from arcjet.guard._client import ArcjetGuard, ArcjetGuardSync
+from arcjet.guard._client import _GuardClient
 from arcjet.guard._errors import OnGuardError
 from arcjet.guard._policy_input import PolicyInputMap
+from arcjet.guard._registry import _awaitable, _blocking
 from arcjet.guard._rules import RuleWithInput
 
 from ._tool import _awaited, _not_awaited, _resolved, _resolved_async
@@ -92,19 +94,27 @@ class ArcjetMiddleware(AgentMiddleware):
     def __init__(
         self,
         *,
-        guard: Union[ArcjetGuard, ArcjetGuardSync],
         policies: Mapping[str, ToolPolicy],
+        guard: Optional[_GuardClient] = None,
         on_guard_error: OnGuardError = "deny",
     ) -> None:
         """Initialize the middleware.
 
         Args:
-            guard: The Arcjet Guard client (sync or async).
             policies: Mapping of tool names to their checkpoint policies.
                 Tools not in this mapping pass through unguarded.
+            guard: The Arcjet Guard client. Optional, as it is on every other
+                guard surface: without one the checkpoint uses the client
+                registered with :func:`~arcjet.guard.register_arcjet`.
             on_guard_error: How to handle policy evaluation errors.
                 ``"deny"`` is the default; ``"allow"`` permits degraded calls.
         """
+        if on_guard_error not in ("allow", "deny"):
+            raise ArcjetMisconfiguration(
+                f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "
+                f"It decides whether a tool call runs when policy could not be "
+                f"evaluated, so there is no safe value to guess."
+            )
         self._guard = guard
         self._policies = dict(policies)
         self._on_guard_error = on_guard_error
@@ -133,9 +143,13 @@ class ArcjetMiddleware(AgentMiddleware):
         if policy is None:
             return handler(request)
 
-        if not isinstance(self._guard, ArcjetGuardSync):
+        if (
+            self._guard is not None
+            and _blocking(self._guard, "guard_sync", "guard") is None
+        ):
             raise TypeError(
-                "A synchronous middleware invocation requires ArcjetGuardSync"
+                "A synchronous middleware invocation requires a guard client with "
+                "a blocking guard(), such as ArcjetGuardSync"
             )
 
         args = request.tool_call["args"]
@@ -188,9 +202,10 @@ class ArcjetMiddleware(AgentMiddleware):
         if policy is None:
             return await handler(request)
 
-        if not isinstance(self._guard, ArcjetGuard):
+        if self._guard is not None and _awaitable(self._guard, "guard") is None:
             raise TypeError(
-                "An asynchronous middleware invocation requires ArcjetGuard"
+                "An asynchronous middleware invocation requires a guard client "
+                "with an awaitable guard(), such as ArcjetGuard"
             )
 
         args = request.tool_call["args"]
