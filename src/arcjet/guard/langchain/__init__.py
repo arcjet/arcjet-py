@@ -22,6 +22,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+# Needs only `langchain-core`, the same dependency `guard_tool` already has,
+# so it costs a user of this package nothing to import eagerly.
+from ._callbacks import ArcjetAsyncCaptureHandler, ArcjetCaptureHandler
 from ._tool import (
     ActorResolver,
     ArcjetToolDeniedError,
@@ -33,14 +36,10 @@ from ._tool import (
     guard_tool,
 )
 
-# Needs only `langchain-core`, the same dependency `guard_tool` already has,
-# so it costs a user of this package nothing to import eagerly.
-from .callbacks import ArcjetAsyncCaptureHandler, ArcjetCaptureHandler
-
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
-    from .middleware import ArcjetMiddleware, ToolPolicy
+    from ._middleware import ArcjetMiddleware, ToolPolicy
 
-#: Names served from :mod:`arcjet.guard.langchain.middleware`, which needs
+#: Names served from :mod:`arcjet.guard.langchain._middleware`, which needs
 #: LangGraph. Importing them eagerly would push LangGraph onto every
 #: ``guard_tool`` user, so they are resolved on first access instead — a
 #: reader still finds them on the package, and the cost is paid only by
@@ -51,13 +50,13 @@ _MIDDLEWARE_EXPORTS = frozenset({"ArcjetMiddleware", "ToolPolicy"})
 def __getattr__(name: str) -> Any:
     if name in _MIDDLEWARE_EXPORTS:
         try:
-            from . import middleware
+            from . import _middleware
         except ImportError as exc:  # pragma: no cover - depends on the install
             raise ImportError(
                 f"{name} needs the agent middleware dependencies. "
                 f'Install them with: pip install "arcjet[langchain-agents]"'
             ) from exc
-        return getattr(middleware, name)
+        return getattr(_middleware, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

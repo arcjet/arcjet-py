@@ -132,8 +132,8 @@ keeping the existing API surface intact with internal changes.
   belong there rather than in a per-framework wrapper.
 - `src/arcjet/guard/langchain/` — Optional LangChain integration, the only part
   of the tree that imports LangChain. `_tool.py` (`guard_tool`) and
-  `callbacks.py` (the capture handlers) need only `langchain-core`;
-  `middleware.py` needs the full `langchain` package and LangGraph, so
+  `_callbacks.py` (the capture handlers) need only `langchain-core`;
+  `_middleware.py` needs the full `langchain` package and LangGraph, so
   `__init__.py` resolves its two names lazily rather than importing it. See the
   package docstring for the correlation-ID resolution contract.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.

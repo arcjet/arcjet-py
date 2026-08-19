@@ -16,7 +16,7 @@ import pytest
 from langchain_core.outputs import Generation, LLMResult
 
 from arcjet.guard import arcjet_sequence
-from arcjet.guard.langchain.callbacks import (
+from arcjet.guard.langchain._callbacks import (
     ArcjetAsyncCaptureHandler,
     ArcjetCaptureHandler,
 )

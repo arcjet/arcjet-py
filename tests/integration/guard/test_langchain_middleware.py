@@ -23,7 +23,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest, ToolRuntime
 from arcjet.guard._client import ArcjetGuard, ArcjetGuardSync
 from arcjet.guard._context import arcjet_sequence
 from arcjet.guard._errors import ArcjetDeniedError, ArcjetUnavailableError
-from arcjet.guard.langchain.middleware import ArcjetMiddleware, ToolPolicy
+from arcjet.guard.langchain._middleware import ArcjetMiddleware, ToolPolicy
 
 
 def _runtime() -> ToolRuntime:
@@ -209,7 +209,7 @@ class ImportBlocker:
 sys.meta_path.insert(0, ImportBlocker())
 
 try:
-    import arcjet.guard.langchain.middleware
+    import arcjet.guard.langchain._middleware
     print("ERROR: middleware should not import")
     sys.exit(1)
 except ImportError as e:
