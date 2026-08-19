@@ -273,7 +273,11 @@ def run_checkpoint_sync(
         # The guard call itself, or the surface's own resolution, failed. Rare
         # on the guard side: the client turns transport failures into decisions
         # rather than raising.
-        if on_guard_error == "deny":
+        #
+        # Tested against "allow" rather than for "deny", as every other branch
+        # is: a value that is neither must fail closed, and only `guard_tool`
+        # validates the knob before it gets here.
+        if on_guard_error != "allow":
             _emit_capture(
                 client=guard,
                 action=action,
@@ -397,7 +401,11 @@ async def run_checkpoint(
         # The guard call itself, or the surface's own resolution, failed. Rare
         # on the guard side: the client turns transport failures into decisions
         # rather than raising.
-        if on_guard_error == "deny":
+        #
+        # Tested against "allow" rather than for "deny", as every other branch
+        # is: a value that is neither must fail closed, and only `guard_tool`
+        # validates the knob before it gets here.
+        if on_guard_error != "allow":
             _emit_capture(
                 client=guard,
                 action=action,

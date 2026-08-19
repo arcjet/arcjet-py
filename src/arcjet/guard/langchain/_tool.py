@@ -213,35 +213,6 @@ async def _resolved_async(
         return None, so_far or exc
 
 
-@contextmanager
-def _fail_closed(action: str, on_guard_error: OnGuardError) -> Iterator[None]:
-    """Turn a failure to evaluate policy into the outcome ``on_guard_error`` asks for.
-
-    Anything the checkpoint raises to stop a call passes through: it is the
-    evaluation's result, not a failure to reach one. Anything else means policy
-    was not evaluated, which is what ``on_guard_error`` governs.
-
-    Shared by both evaluators so the two flavours cannot raise
-    differently-shaped errors for the same failure.
-    """
-    try:
-        yield
-    except _BLOCKED:
-        raise
-    except Exception as exc:
-        if on_guard_error != "allow":
-            raise ArcjetToolUnavailableError(action, cause=exc) from exc
-        # Allowing the call is not the same as there being nothing to report: a
-        # resolver that raises on every call leaves policy permanently
-        # unevaluated, which has no other symptom.
-        logger.warning(
-            "arcjet: could not evaluate policy for a call to %r; "
-            "the call proceeds because on_guard_error is 'allow'",
-            action,
-            exc_info=exc,
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class _Report:
     """What the caller told ``run`` about the run it expected to open.
@@ -680,6 +651,26 @@ def _state_of(handle: Any) -> "_Guarded":
     return state
 
 
+class _Delegated:
+    """Whether the checkpoint reached the tool, for one call.
+
+    A guarded tool may wrap another one. The engine raises a denial *before* it
+    runs what it was given, so a blocked error that arrives after the tool
+    started belongs to something further in — reporting it here would open a
+    second run for a denial of a different action, and offer this tool's
+    ``handle_tool_error`` someone else's decision.
+    """
+
+    __slots__ = ("reached",)
+
+    def __init__(self) -> None:
+        self.reached = False
+
+    def run(self, fn: Callable[[], Any]) -> Any:
+        self.reached = True
+        return fn()
+
+
 class _UnreadableArguments(Exception):
     """The call's arguments could not be read, and the tool may still run.
 
@@ -771,12 +762,17 @@ class _GuardMixin:
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
         state = _state_of(self)
+        delegated = _Delegated()
         try:
             return state.checkpoint(
                 _Call(raw, tool_call_id, _checkpoint_config(config)),
-                lambda: state.delegate.invoke(input, resolved, **kwargs),
+                lambda: delegated.run(
+                    lambda: state.delegate.invoke(input, resolved, **kwargs)
+                ),
             )
         except _BLOCKED as exc:
+            if delegated.reached:
+                raise
             return self._arcjet_blocked(exc, raw, _Report.of(resolved, tool_call_id))
 
     async def ainvoke(
@@ -786,12 +782,17 @@ class _GuardMixin:
         resolved = ensure_config(config)
         raw, tool_call_id = _unwrap_tool_call(input)
         state = _state_of(self)
+        delegated = _Delegated()
         try:
             return await state.checkpoint_async(
                 _Call(raw, tool_call_id, _checkpoint_config(config)),
-                lambda: state.delegate.ainvoke(input, resolved, **kwargs),
+                lambda: delegated.run(
+                    lambda: state.delegate.ainvoke(input, resolved, **kwargs)
+                ),
             )
         except _BLOCKED as exc:
+            if delegated.reached:
+                raise
             return await self._arcjet_blocked_async(
                 exc, raw, _Report.of(resolved, tool_call_id)
             )
@@ -824,25 +825,30 @@ class _GuardMixin:
         the caller's own config, forwarded untouched.
         """
         state = _state_of(self)
+        delegated = _Delegated()
         try:
             return state.checkpoint(
                 _Call(tool_input, tool_call_id, _checkpoint_config(config)),
-                lambda: state.delegate.run(
-                    tool_input,
-                    verbose,
-                    start_color,
-                    color,
-                    callbacks,
-                    tags=tags,
-                    metadata=metadata,
-                    run_name=run_name,
-                    run_id=run_id,
-                    config=config,
-                    tool_call_id=tool_call_id,
-                    **kwargs,
+                lambda: delegated.run(
+                    lambda: state.delegate.run(
+                        tool_input,
+                        verbose,
+                        start_color,
+                        color,
+                        callbacks,
+                        tags=tags,
+                        metadata=metadata,
+                        run_name=run_name,
+                        run_id=run_id,
+                        config=config,
+                        tool_call_id=tool_call_id,
+                        **kwargs,
+                    )
                 ),
             )
         except _BLOCKED as exc:
+            if delegated.reached:
+                raise
             return self._arcjet_blocked(
                 exc,
                 tool_input,
@@ -878,25 +884,30 @@ class _GuardMixin:
     ) -> Any:
         """The awaitable counterpart of :meth:`run`."""
         state = _state_of(self)
+        delegated = _Delegated()
         try:
             return await state.checkpoint_async(
                 _Call(tool_input, tool_call_id, _checkpoint_config(config)),
-                lambda: state.delegate.arun(
-                    tool_input,
-                    verbose,
-                    start_color,
-                    color,
-                    callbacks,
-                    tags=tags,
-                    metadata=metadata,
-                    run_name=run_name,
-                    run_id=run_id,
-                    config=config,
-                    tool_call_id=tool_call_id,
-                    **kwargs,
+                lambda: delegated.run(
+                    lambda: state.delegate.arun(
+                        tool_input,
+                        verbose,
+                        start_color,
+                        color,
+                        callbacks,
+                        tags=tags,
+                        metadata=metadata,
+                        run_name=run_name,
+                        run_id=run_id,
+                        config=config,
+                        tool_call_id=tool_call_id,
+                        **kwargs,
+                    )
                 ),
             )
         except _BLOCKED as exc:
+            if delegated.reached:
+                raise
             return await self._arcjet_blocked_async(
                 exc,
                 tool_input,

@@ -53,4 +53,8 @@ class ArcjetUnavailableError(Exception):
     def __init__(self, action: str, *, cause: Optional[BaseException] = None) -> None:
         super().__init__(f'Arcjet policy for "{action}" could not be evaluated')
         self.action = action
-        self.__cause__ = cause
+        # Only when there is one. Assigning `None` sets `__suppress_context__`,
+        # which hides the context Python would otherwise have chained on and
+        # leaves the traceback saying nothing about why evaluation failed.
+        if cause is not None:
+            self.__cause__ = cause
