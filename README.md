@@ -396,10 +396,10 @@ detect_bot(
 )
 ```
 
-Available categories: `ACADEMIC`, `ADVERTISING`, `AI`, `AMAZON`,
+Available categories: `ACADEMIC`, `ADVERTISING`, `AI`, `AMAZON`, `APPLE`,
 `ARCHIVE`, `BOTNET`, `FEEDFETCHER`, `GOOGLE`, `META`, `MICROSOFT`,
 `MONITOR`, `OPTIMIZER`, `PREVIEW`, `PROGRAMMATIC`, `SEARCH_ENGINE`,
-`SLACK`, `SOCIAL`, `TOOL`, `UNKNOWN`, `VERCEL`, `YAHOO`. Use
+`SLACK`, `SOCIAL`, `TOOL`, `UNKNOWN`, `VERCEL`, `WEBHOOK`, `YAHOO`. Use
 `BotCategory.<NAME>` in Python or pass the string directly. You can also
 allow or deny [specific bots by name](https://arcjet.com/bot-list).
 

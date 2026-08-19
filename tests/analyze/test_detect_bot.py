@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from arcjet import BotCategory
 from arcjet._analyze import (
     AllowedBotConfig,
     AnalyzeComponent,
@@ -102,6 +103,26 @@ class TestDetectBot:
         result = component.detect_bot(CURL_REQUEST, config)
         assert isinstance(result, Ok)
         assert isinstance(result.value.allowed, list)
+
+    def test_allow_apple_category(self, component: AnalyzeComponent) -> None:
+        """BotCategory.APPLE resolves to a category the analyzer knows."""
+        config = AllowedBotConfig(
+            entities=[BotCategory.APPLE.value], skip_custom_detect=False
+        )
+        result = component.detect_bot(_request_with_ua("Applebot/0.1"), config)
+        assert isinstance(result, Ok)
+        assert result.value.allowed == ["CATEGORY:APPLE", "APPLE_CRAWLER"]
+        assert result.value.denied == []
+
+    def test_allow_webhook_category(self, component: AnalyzeComponent) -> None:
+        """BotCategory.WEBHOOK resolves to a category the analyzer knows."""
+        config = AllowedBotConfig(
+            entities=[BotCategory.WEBHOOK.value], skip_custom_detect=False
+        )
+        result = component.detect_bot(_request_with_ua("Stripe/1.0"), config)
+        assert isinstance(result, Ok)
+        assert result.value.allowed == ["CATEGORY:WEBHOOK", "STRIPE_WEBHOOK"]
+        assert result.value.denied == []
 
     def test_verified_and_spoofed_fields(self, component: AnalyzeComponent) -> None:
         config = AllowedBotConfig(entities=[], skip_custom_detect=False)
