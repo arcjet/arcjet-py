@@ -33,8 +33,7 @@ from arcjet.guard import (
     security_metadata,
     server_input,
 )
-from arcjet.guard.langchain.callbacks import ArcjetCaptureHandler
-from arcjet.guard.langchain.middleware import ArcjetMiddleware, ToolPolicy
+from arcjet.guard.langchain import ArcjetCaptureHandler, ArcjetMiddleware, ToolPolicy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
