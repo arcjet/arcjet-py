@@ -19,6 +19,6 @@
 			]
 		}
 	},
-	// Install wasm-tools and project dependencies
+	// Install wasm-tools, just, and project dependencies
 	"postCreateCommand": "bash .devcontainer/post-create.sh"
 }

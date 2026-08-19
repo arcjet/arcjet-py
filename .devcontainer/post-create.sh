@@ -12,5 +12,12 @@ curl -sL "https://github.com/bytecodealliance/wasm-tools/releases/download/${TAG
 
 echo "Installed wasm-tools ${VER} (${ARCH})"
 
+# Install just (the command runner: `just --list`). Pinned like wasm-tools above.
+JUST_VER="1.58.0"
+curl -sL "https://github.com/casey/just/releases/download/${JUST_VER}/just-${JUST_VER}-${ARCH}-unknown-linux-musl.tar.gz" \
+  | sudo tar xz -C /usr/local/bin just
+
+echo "Installed just ${JUST_VER} (${ARCH})"
+
 # Install project dependencies
-uv sync
+just install

@@ -297,7 +297,7 @@ def test_custom_detect_called(self, wasm_path: str) -> None:
 
 ```bash
 # Run all tests (includes analyze tests)
-make test
+just test
 
 # Run only analyze tests
 uv run pytest tests/analyze/ --no-cov -q
