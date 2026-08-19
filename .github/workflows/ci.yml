@@ -72,3 +72,28 @@ jobs:
         # `--python` rather than the environment alone, so the run cannot fall
         # back to `.python-version` and silently retest the floor three times.
         run: uv run --python ${{ matrix.python-version }} pytest
+
+  # One check that stands for the whole matrix, so branch protection names a
+  # single context rather than one per interpreter. Adding a Python version
+  # above therefore needs no change to the ruleset, which cannot be edited from
+  # a pull request and so would otherwise drift behind the matrix.
+  #
+  # The name is the context `main` already requires. It predates the matrix,
+  # when the only axis was `os`.
+  test-matrix:
+    name: Run tests (ubuntu-latest)
+    # Runs whether the matrix passed or failed, so the context always reports.
+    # `!cancelled()` rather than `always()`: a cancelled run is one the
+    # concurrency group superseded, and the run that replaced it reports
+    # instead.
+    if: ${{ !cancelled() }}
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the matrix result
+        # `needs.test.result` is `success` only when every leg succeeded, so
+        # this fails for a failed, cancelled or skipped leg alike.
+        if: needs.test.result != 'success'
+        run: |
+          echo "::error::Test matrix result: ${{ needs.test.result }}"
+          exit 1
