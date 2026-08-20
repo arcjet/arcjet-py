@@ -140,6 +140,17 @@ constructor that accepts initial field values. The only way to build a Record
 with data is `Record()` followed by `__dict__` mutation. The `_rec()` helper in
 `_convert.py` encapsulates this.
 
+**4. Process-global `Slab` is not reentrant.** Host functions live in a
+process-global `FUNCTIONS` slab. If a `__del__` finalizer deallocates a handle
+while `Slab.allocate` is running, `self.next` can become a function and the
+next allocation raises `TypeError: list indices must be integers or slices,
+not function`. pytest 9.1 reduced inter-test `gc.collect()` passes from 5 to 1
+on CPython, which left more of those cyclic finalizers pending and surfaced
+the race in CI (arcjet-py#154). `AnalyzeComponent` wraps construction, calls,
+and `close()` in `wasmtime_section()` (a process-global lock + GC suspend),
+and `close()` drops Engine/Linker/Component so finalizers run at a known
+point. Analyze tests also drain five GC passes after each test.
+
 ## Import callback gotchas
 
 **`sensitive_info_detect` must return `[None] * len(tokens)`, not `[]`.** The
