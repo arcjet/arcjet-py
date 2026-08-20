@@ -25,7 +25,6 @@ from contextlib import contextmanager
 
 _lock = threading.RLock()
 _depth = 0
-_restore_gc = False
 
 
 @contextmanager
@@ -43,21 +42,21 @@ def wasmtime_section() -> Iterator[None]:
     an interrupt between ``gc.disable()`` and the depth increment cannot
     leave collection permanently off.
     """
-    global _depth, _restore_gc
+    global _depth
     with _lock:
-        if _depth == 0:
-            _restore_gc = gc.isenabled()
-            gc.disable()
+        restore_gc = False
         try:
+            if _depth == 0:
+                restore_gc = gc.isenabled()
+                gc.disable()
             _depth += 1
             try:
                 yield
             finally:
                 _depth -= 1
         finally:
-            if _depth == 0 and _restore_gc:
+            if _depth == 0 and restore_gc:
                 gc.enable()
-                _restore_gc = False
 
 
 def collect_wasmtime_finalizers() -> None:
