@@ -245,7 +245,9 @@ Local WASM evaluation is wired into the main SDK at `src/arcjet/_local.py`:
 `AnalyzeComponentBase` uses a per-instance `threading.Lock` around `_call()`.
 The lock provides defensive safety at negligible cost (WASM calls are 1–5ms).
 `AnalyzeComponent` (in `_overrides.py`) extends this with per-call callback
-swapping under the same lock.
+swapping under the same lock, and wraps construction, calls, and `close()` in
+`wasmtime_section()` so wasmtime-py's process-global function slab cannot be
+re-entered by a `__del__` finalizer (arcjet-py#154).
 
 For detailed wasmtime-py reference (linker setup, type mapping, known bugs),
 see [docs/WASMTIME.md](docs/WASMTIME.md).

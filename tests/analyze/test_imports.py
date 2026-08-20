@@ -586,3 +586,25 @@ class TestCloseAndContextManager:
         ac = AnalyzeComponent(wasm_path)
         ac.close()
         ac.close()  # Should not raise
+
+    def test_close_releases_wasmtime_objects(self, wasm_path: str) -> None:
+        """close() drops Engine/Linker/Component so finalizers can run now."""
+        ac = AnalyzeComponent(wasm_path)
+        ac.close()
+        assert not hasattr(ac, "_engine")
+        assert not hasattr(ac, "_linker")
+        assert not hasattr(ac, "_component")
+
+    def test_construct_after_closed_instances(self, wasm_path: str) -> None:
+        """Creating a component after others were closed must not corrupt slabs.
+
+        This is the pytest>=9.1 failure mode in arcjet-py#154: a deferred
+        wasmtime ``__del__`` re-entering ``Slab.allocate``.
+        """
+        for _ in range(3):
+            ac = AnalyzeComponent(wasm_path)
+            ac.match_filters("{}", "{}", [], True)
+            ac.close()
+        later = AnalyzeComponent(wasm_path)
+        later.match_filters("{}", "{}", [], True)
+        later.close()
