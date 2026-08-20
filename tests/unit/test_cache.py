@@ -31,7 +31,9 @@ def test_cache_set_and_get(mock_protobuf_modules):
         decide_pb2.Decision(id="d1", conclusion=decide_pb2.CONCLUSION_DENY, ttl=10)
     )
     cache.set("k", d, ttl_seconds=10)
-    assert cache.get("k") is d
+    hit = cache.get("k")
+    assert hit is not None
+    assert hit[0] is d
 
 
 def test_cache_get_missing_key(mock_protobuf_modules):
@@ -85,7 +87,9 @@ def test_cache_set_overwrites_existing(mock_protobuf_modules):
     )
     cache.set("k", d1, ttl_seconds=10)
     cache.set("k", d2, ttl_seconds=10)
-    assert cache.get("k") is d2
+    hit = cache.get("k")
+    assert hit is not None
+    assert hit[0] is d2
 
 
 def test_cache_empty_string_key(mock_protobuf_modules):
@@ -98,7 +102,9 @@ def test_cache_empty_string_key(mock_protobuf_modules):
         decide_pb2.Decision(id="d1", conclusion=decide_pb2.CONCLUSION_DENY, ttl=10)
     )
     cache.set("", d, ttl_seconds=10)
-    assert cache.get("") is d
+    hit = cache.get("")
+    assert hit is not None
+    assert hit[0] is d
 
 
 def test_cache_expired_entry_removal_exception(mock_protobuf_modules):
