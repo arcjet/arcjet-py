@@ -15,12 +15,7 @@ from unittest.mock import MagicMock
 from arcjet._client import ArcjetSync
 from arcjet._context import RequestContext
 from arcjet._enums import Mode
-from arcjet._rules import Mode, (
-    BotDetection,
-    EmailType,
-    EmailValidation,
-    Shield,
-)
+from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
 
 
 def _make_aj(mock_client: MagicMock, *rules) -> ArcjetSync:

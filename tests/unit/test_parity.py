@@ -21,7 +21,6 @@ from arcjet._decision import (
 )
 from arcjet._decision import RuleResult as SDKRuleResult
 
-
 # ---------------------------------------------------------------------------
 # 1. Cache hits: remaining TTL, isolated copy, rate-limit reset rewrite
 # ---------------------------------------------------------------------------
@@ -34,7 +33,9 @@ class TestCacheHitMaterialization:
 
         cache = DecisionCache()
         stored = Decision(
-            decide_pb2.Decision(id="orig", conclusion=decide_pb2.CONCLUSION_DENY, ttl=60)
+            decide_pb2.Decision(
+                id="orig", conclusion=decide_pb2.CONCLUSION_DENY, ttl=60
+            )
         )
         cache.set("k", stored, ttl_seconds=2)
         hit = cache.get("k")
@@ -50,7 +51,9 @@ class TestCacheHitMaterialization:
             id="orig", conclusion=decide_pb2.CONCLUSION_DENY, ttl=60
         )
         cached = Decision(proto)
-        served = materialize_cached_decision(cached, remaining_ttl=12, request_id="lreq_x")
+        served = materialize_cached_decision(
+            cached, remaining_ttl=12, request_id="lreq_x"
+        )
 
         assert served is not cached
         assert served.id == "lreq_x"
@@ -61,7 +64,7 @@ class TestCacheHitMaterialization:
         assert cached.id == "orig"
 
     def test_materialize_rewrites_rate_limit_reset(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -72,10 +75,12 @@ class TestCacheHitMaterialization:
             id="orig",
             conclusion=decide_pb2.CONCLUSION_DENY,
             ttl=60,
-            reason=decide_pb2.Reason(rate_limit=rl),
+            reason=decide_pb2.Reason(rate_limit=rl),  # type: ignore[arg-type]
         )
         cached = Decision(proto)
-        served = materialize_cached_decision(cached, remaining_ttl=7, request_id="lreq_y")
+        served = materialize_cached_decision(
+            cached, remaining_ttl=7, request_id="lreq_y"
+        )
 
         assert served.ttl == 7
         assert served.to_proto().reason.rate_limit.reset_in_seconds == 7
@@ -190,9 +195,7 @@ class TestExplicitMode:
             inspect.signature(TokenBucket.__init__).parameters["mode"].default == "LIVE"
         )
         assert (
-            inspect.signature(DetectPromptInjection.__init__)
-            .parameters["mode"]
-            .default
+            inspect.signature(DetectPromptInjection.__init__).parameters["mode"].default
             == "LIVE"
         )
 
@@ -258,10 +261,8 @@ class TestAllowDenyExclusivity:
 
 
 class TestLocalRulePriority:
-    def test_sensitive_info_denies_before_later_bot(
-        self, mock_protobuf_modules
-    ):
-                from arcjet._client import _run_local_rules, _sort_rules_for_local
+    def test_sensitive_info_denies_before_later_bot(self, mock_protobuf_modules):
+        from arcjet._client import _run_local_rules, _sort_rules_for_local
         from arcjet._context import RequestContext
         from arcjet._rules import (
             BotDetection,
@@ -323,7 +324,9 @@ class TestLocalRulePriority:
 
         ctx = RequestContext(ip="1.2.3.4")
         with (
-            patch("arcjet._client.evaluate_sensitive_info_locally", side_effect=track_si),
+            patch(
+                "arcjet._client.evaluate_sensitive_info_locally", side_effect=track_si
+            ),
             patch("arcjet._client.evaluate_filter_locally", return_value=None),
             patch("arcjet._client.evaluate_bot_locally", side_effect=track_bot),
             patch("arcjet._client.evaluate_email_locally", return_value=None),
@@ -349,7 +352,7 @@ class TestInspectHelpers:
             rule_id="r1",
             state=state,
             conclusion=decide_pb2.CONCLUSION_DENY,
-            reason=decide_pb2.Reason(bot_v2=bot_v2),
+            reason=decide_pb2.Reason(bot_v2=bot_v2),  # type: ignore[arg-type]
         )
         return SDKRuleResult(rr)
 
@@ -471,9 +474,7 @@ class TestWithRule:
 
         base = arcjet_sync(key="ajkey_test", rules=[shield(mode=Mode.LIVE)])
         assert base._needs_email is False
-        clone = base.with_rule(
-            validate_email(mode=Mode.LIVE, deny=[EmailType.INVALID])
-        )
+        clone = base.with_rule(validate_email(mode=Mode.LIVE, deny=[EmailType.INVALID]))
         assert clone._needs_email is True
         assert base._needs_email is False
 
@@ -494,9 +495,7 @@ class TestWithRule:
         assert len(clone._rules) == 4
         assert clone._needs_email is True
 
-    def test_async_with_rule_shares_cache(
-        self, mock_protobuf_modules, dev_environment
-    ):
+    def test_async_with_rule_shares_cache(self, mock_protobuf_modules, dev_environment):
         from arcjet import arcjet
         from arcjet._rules import Mode, detect_bot, shield
 
@@ -516,7 +515,7 @@ class TestWithRule:
 
 class TestProtectSignup:
     def test_returns_three_rules(self, mock_protobuf_modules):
-        from arcjet._rules import Mode, (
+        from arcjet._rules import (
             BotDetection,
             EmailType,
             EmailValidation,
@@ -569,7 +568,7 @@ class TestProtectSignup:
 
 class TestRateLimitHeaders:
     def test_sets_ietf_headers(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
         from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -581,7 +580,7 @@ class TestRateLimitHeaders:
             decide_pb2.Decision(
                 id="d1",
                 conclusion=decide_pb2.CONCLUSION_ALLOW,
-                reason=decide_pb2.Reason(rate_limit=rl),
+                reason=decide_pb2.Reason(rate_limit=rl),  # type: ignore[arg-type]
             )
         )
         headers: dict[str, str] = {}
@@ -590,7 +589,7 @@ class TestRateLimitHeaders:
         assert headers["RateLimit-Policy"] == "100;w=60"
 
     def test_uses_response_headers_attribute(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
         from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -606,7 +605,7 @@ class TestRateLimitHeaders:
             decide_pb2.Decision(
                 id="d1",
                 conclusion=decide_pb2.CONCLUSION_DENY,
-                reason=decide_pb2.Reason(rate_limit=rl),
+                reason=decide_pb2.Reason(rate_limit=rl),  # type: ignore[arg-type]
             )
         )
         response = Response()
@@ -645,7 +644,7 @@ class TestRateLimitHeaders:
         )
 
     def test_nearest_remaining_wins(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
 
@@ -664,7 +663,7 @@ class TestRateLimitHeaders:
         assert headers["RateLimit-Policy"] == "10;w=10, 100;w=60"
 
     def test_duplicate_max_aborts(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
 
@@ -682,7 +681,7 @@ class TestRateLimitHeaders:
         assert headers == {}
 
     def test_fetch_style_headers(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
         from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -707,7 +706,7 @@ class TestRateLimitHeaders:
             decide_pb2.Decision(
                 id="d1",
                 conclusion=decide_pb2.CONCLUSION_ALLOW,
-                reason=decide_pb2.Reason(rate_limit=rl),
+                reason=decide_pb2.Reason(rate_limit=rl),  # type: ignore[arg-type]
             )
         )
         headers = FetchHeaders()
@@ -716,7 +715,7 @@ class TestRateLimitHeaders:
         assert headers.get("RateLimit-Policy") == "10;w=10"
 
     def test_set_header_style_response(self, mock_protobuf_modules):
-        from tests.fixtures.protobuf_stubs import StubRateLimitReason
+        from fixtures.protobuf_stubs import StubRateLimitReason
 
         from arcjet import set_rate_limit_headers
         from arcjet.proto.decide.v1alpha1 import decide_pb2
@@ -742,7 +741,7 @@ class TestRateLimitHeaders:
             decide_pb2.Decision(
                 id="d1",
                 conclusion=decide_pb2.CONCLUSION_DENY,
-                reason=decide_pb2.Reason(rate_limit=rl),
+                reason=decide_pb2.Reason(rate_limit=rl),  # type: ignore[arg-type]
             )
         )
         response = Outgoing()
@@ -766,9 +765,13 @@ class TestPromptInjectionThresholdRemoved:
         from arcjet._rules import Mode, detect_prompt_injection
 
         rule = detect_prompt_injection(mode=Mode.LIVE)
-        assert not hasattr(rule, "threshold") or getattr(rule, "threshold", None) is None
+        assert (
+            not hasattr(rule, "threshold") or getattr(rule, "threshold", None) is None
+        )
         pb = rule.to_proto()
-        assert pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_LIVE
+        assert (
+            pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_LIVE
+        )
 
 
 # ---------------------------------------------------------------------------

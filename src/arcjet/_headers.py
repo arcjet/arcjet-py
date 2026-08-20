@@ -39,17 +39,37 @@ def _nearest_limit(current: RateLimitReason, nxt: RateLimitReason) -> RateLimitR
     return nxt
 
 
+def _as_rate_limit_reason(holder: Any) -> RateLimitReason | None:
+    """Return a ``RateLimitReason`` if *holder* has one, else ``None``.
+
+    ``Decision.reason_v2`` assumes a proto reason is present; ALLOW
+    decisions often have none, so we check before converting.
+    """
+    raw = getattr(holder, "raw", None)
+    if raw is None:
+        to_proto = getattr(holder, "to_proto", None)
+        raw = to_proto() if callable(to_proto) else None
+    if raw is None or getattr(raw, "reason", None) is None:
+        return None
+    typed = holder.reason_v2
+    # Discriminate on the public ``type`` field rather than ``isinstance``.
+    # Tests reload ``arcjet.*`` after stubbing protobuf, which can create a
+    # second ``RateLimitReason`` class object with the same name.
+    if getattr(typed, "type", None) == "RATE_LIMIT":
+        return typed
+    return None
+
+
 def _rate_limit_reasons(decision: Decision) -> list[RateLimitReason]:
     reasons = [
-        result.reason_v2
+        reason
         for result in decision.results
-        if isinstance(result.reason_v2, RateLimitReason)
+        if (reason := _as_rate_limit_reason(result)) is not None
     ]
     if reasons:
         return reasons
-    if isinstance(decision.reason_v2, RateLimitReason):
-        return [decision.reason_v2]
-    return []
+    top = _as_rate_limit_reason(decision)
+    return [top] if top is not None else []
 
 
 def _is_header_like(value: Any) -> bool:
@@ -90,9 +110,7 @@ def _apply_headers(target: Any, limit: str, policy: str) -> bool:
         if target.has("RateLimit"):
             _warn_existing("RateLimit", target.get("RateLimit"), limit)
         if target.has("RateLimit-Policy"):
-            _warn_existing(
-                "RateLimit-Policy", target.get("RateLimit-Policy"), policy
-            )
+            _warn_existing("RateLimit-Policy", target.get("RateLimit-Policy"), policy)
         target.set("RateLimit", limit)
         target.set("RateLimit-Policy", policy)
         return True

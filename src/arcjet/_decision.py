@@ -496,14 +496,18 @@ def is_missing_user_agent(result: RuleResult) -> bool:
 def _clone_decision_proto(src: decide_pb2.Decision) -> decide_pb2.Decision:
     """Deep-copy a decision proto without aliasing the cached object.
 
-    Real protobuf messages use ``CopyFrom``. Test stubs fall back to
-    ``deepcopy``.
+    Construct the clone from ``type(src)`` so test stubs do not get mixed
+    with the real protobuf class (``CopyFrom`` requires the same type).
+    Real messages use ``CopyFrom``; anything else falls back to ``deepcopy``.
     """
-    clone = decide_pb2.Decision()
+    clone = type(src)()
     copy_from = getattr(clone, "CopyFrom", None)
     if callable(copy_from):
-        copy_from(src)
-        return clone
+        try:
+            copy_from(src)
+            return clone
+        except TypeError:
+            pass
     return copy.deepcopy(src)
 
 
