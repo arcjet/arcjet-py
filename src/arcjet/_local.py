@@ -179,13 +179,13 @@ def evaluate_bot_locally(
     request_json = _context_to_analyze_request(ctx)
 
     # Build the WASM config from the rule's allow/deny lists.
-    # allow takes precedence over deny (matches JS SDK); the builder API
-    # prevents both being set, but we handle it defensively here.
-    if rule.allow:
+    # `is not None` so an empty allow list (block every bot) stays an allow
+    # config, matching JS `detectBot({ allow: [] })`.
+    if rule.allow is not None:
         entities = [str(e) for e in rule.allow]
         config = AllowedBotConfig(entities=entities, skip_custom_detect=True)
     else:
-        entities = [str(e) for e in rule.deny]
+        entities = [str(e) for e in (rule.deny or ())]
         config = DeniedBotConfig(entities=entities, skip_custom_detect=True)
 
     try:
@@ -247,7 +247,7 @@ def evaluate_email_locally(
         return None
 
     # Build the WASM config from the rule
-    if rule.allow:
+    if rule.allow is not None:
         email_config = AllowEmailValidationConfig(
             require_top_level_domain=rule.require_top_level_domain,
             allow_domain_literal=rule.allow_domain_literal,
@@ -257,7 +257,7 @@ def evaluate_email_locally(
         email_config = DenyEmailValidationConfig(
             require_top_level_domain=rule.require_top_level_domain,
             allow_domain_literal=rule.allow_domain_literal,
-            deny=[str(t.value) for t in rule.deny],
+            deny=[str(t.value) for t in (rule.deny or ())],
         )
 
     try:
