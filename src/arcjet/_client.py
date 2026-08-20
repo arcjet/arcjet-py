@@ -66,6 +66,7 @@ from ._rules import (
     PromptInjectionDetection,
     RuleSpec,
     SensitiveInfoDetection,
+    Shield,
     SlidingWindow,
     TokenBucket,
 )
@@ -205,6 +206,44 @@ def _sdk_version(default: str = "0.0.0") -> str:
         return default
 
 
+# Local evaluation order matches the JS SDK priority table. The first LIVE
+# DENY wins, so Sensitive Info must run before any rule that might forward
+# the payload.
+#
+# PromptInjectionDetection is listed for JS-order parity only. It is not
+# evaluated locally today — ``_run_local_rules`` has no PI branch — so the
+# rank is reserved until a local evaluator is wired up.
+_LOCAL_RULE_PRIORITY: dict[type[RuleSpec], int] = {
+    SensitiveInfoDetection: 1,
+    Filter: 2,
+    Shield: 3,
+    TokenBucket: 4,
+    FixedWindow: 4,
+    SlidingWindow: 4,
+    BotDetection: 5,
+    EmailValidation: 6,
+    PromptInjectionDetection: 7,
+}
+_UNMAPPED_LOCAL_PRIORITY = 100
+
+
+def _local_rule_priority(rule: RuleSpec) -> int:
+    """Return the JS local-evaluation rank, or the unmapped fallback."""
+    priority = _LOCAL_RULE_PRIORITY.get(type(rule))
+    if priority is not None:
+        return priority
+    logger.debug(
+        "No local-evaluation priority for %s; sorting after mapped rules",
+        type(rule).__name__,
+    )
+    return _UNMAPPED_LOCAL_PRIORITY
+
+
+def _sort_rules_for_local(rules: Sequence[RuleSpec]) -> list[RuleSpec]:
+    """Sort rules by JS local-evaluation priority (stable for equal ranks)."""
+    return sorted(rules, key=_local_rule_priority)
+
+
 def _run_local_rules(
     ctx: RequestContext,
     rules: tuple[RuleSpec, ...],
@@ -213,10 +252,13 @@ def _run_local_rules(
 
     Returns a DENY Decision if any rule denies in LIVE mode (short-circuit),
     or None if all locally-evaluated rules allow (proceed to remote API).
+
+    Rules are evaluated in JS priority order, not declaration order, so a
+    Sensitive Info LIVE DENY is reported before a later Bot/Email DENY.
     """
     local_results: list[decide_pb2.RuleResult] = []
 
-    for rule in rules:
+    for rule in _sort_rules_for_local(rules):
         result: decide_pb2.RuleResult | None = None
         if isinstance(rule, BotDetection):
             result = evaluate_bot_locally(ctx, rule)
