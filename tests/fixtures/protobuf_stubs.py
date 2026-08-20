@@ -274,6 +274,27 @@ class StubRuleResult:
         self.ttl = ttl
 
 
+class StubRateLimitReason:
+    """Stub for protobuf RateLimitReason message."""
+
+    def __init__(
+        self,
+        max: int = 0,
+        remaining: int = 0,
+        reset_in_seconds: int = 0,
+        window_in_seconds: int = 0,
+        reset_time: Any = None,
+    ) -> None:
+        self.max = max
+        self.remaining = remaining
+        self.reset_in_seconds = reset_in_seconds
+        self.window_in_seconds = window_in_seconds
+        self.reset_time = reset_time
+
+    def HasField(self, name: str) -> bool:
+        return name == "reset_time" and self.reset_time is not None
+
+
 class StubDecision:
     """Stub for protobuf Decision message."""
 
