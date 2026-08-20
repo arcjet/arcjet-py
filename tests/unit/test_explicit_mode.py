@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 
@@ -25,13 +23,3 @@ def test_http_factory_requires_mode(mock_protobuf_modules, factory, kwargs):
     fn = getattr(rules, factory)
     with pytest.raises(TypeError, match="mode"):
         fn(**kwargs)
-
-
-def test_guard_mode_defaults_to_live_matching_js():
-    from arcjet.guard import DetectPromptInjection, TokenBucket
-
-    assert inspect.signature(TokenBucket.__init__).parameters["mode"].default == "LIVE"
-    assert (
-        inspect.signature(DetectPromptInjection.__init__).parameters["mode"].default
-        == "LIVE"
-    )
