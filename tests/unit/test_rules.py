@@ -21,9 +21,9 @@ def test_shield_to_proto_and_characteristics(mock_protobuf_modules):
 
 def test_detect_bot_allows_categories_and_names(mock_protobuf_modules):
     """Test detect_bot rule accepts both categories and string names."""
-    from arcjet._rules import BotCategory, detect_bot
+    from arcjet._rules import BotCategory, Mode, detect_bot
 
-    r = detect_bot(allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"))
+    r = detect_bot(mode=Mode.LIVE, allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"))
     pb = r.to_proto()
     assert pb.bot_v2.allow == [BotCategory.GOOGLE.value, "OPENAI_CRAWLER_SEARCH"]
 
@@ -40,35 +40,35 @@ def test_rate_limit_builders_validation_and_proto(mock_protobuf_modules):
     )
     assert pb.rate_limit.interval == 60
 
-    fw = fixed_window(max=100, window=60)
+    fw = fixed_window(mode=Mode.LIVE, max=100, window=60)
     pb2 = fw.to_proto()
     assert pb2.rate_limit.max == 100
 
-    sw = sliding_window(max=77, interval=30)
+    sw = sliding_window(mode=Mode.LIVE, max=77, interval=30)
     pb3 = sw.to_proto()
     assert pb3.rate_limit.interval == 30
 
     with pytest.raises(ValueError):
-        token_bucket(refill_rate=0, interval=1, capacity=1)
+        token_bucket(mode=Mode.LIVE, refill_rate=0, interval=1, capacity=1)
 
     with pytest.raises(ValueError):
-        fixed_window(max=0, window=1)
+        fixed_window(mode=Mode.LIVE, max=0, window=1)
 
     with pytest.raises(ValueError):
-        sliding_window(max=1, interval=0)
+        sliding_window(mode=Mode.LIVE, max=1, interval=0)
 
 
 def test_validate_email_coercion_and_proto(mock_protobuf_modules):
     """Test validate_email rule coerces string/enum types and converts to protobuf."""
-    from arcjet._rules import EmailType, validate_email
+    from arcjet._rules import EmailType, Mode, validate_email
 
-    r = validate_email(deny=(EmailType.DISPOSABLE, "INVALID"))
+    r = validate_email(mode=Mode.LIVE, deny=(EmailType.DISPOSABLE, "INVALID"))
     pb = r.to_proto()
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_DISPOSABLE in pb.email.deny
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_INVALID in pb.email.deny
     assert pb.email.allow == []
 
-    r = validate_email(allow=(EmailType.NO_MX_RECORDS, "FREE"))
+    r = validate_email(mode=Mode.LIVE, allow=(EmailType.NO_MX_RECORDS, "FREE"))
     pb = r.to_proto()
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_NO_MX_RECORDS in pb.email.allow
     assert mock_protobuf_modules["pb2"].EMAIL_TYPE_FREE in pb.email.allow
@@ -149,9 +149,9 @@ def test_apply_global_characteristics_to_rate_limit_rules():
         token_bucket,
     )
 
-    tb = token_bucket(refill_rate=1, interval=1, capacity=1)
-    fw = fixed_window(max=10, window=60)
-    sw = sliding_window(max=10, interval=60)
+    tb = token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)
+    fw = fixed_window(mode=Mode.LIVE, max=10, window=60)
+    sw = sliding_window(mode=Mode.LIVE, max=10, interval=60)
     sh = shield(mode=Mode.LIVE)
 
     rules = (tb, fw, sw, sh)
@@ -168,10 +168,14 @@ def test_apply_global_characteristics_to_rate_limit_rules():
 def test_apply_global_characteristics_does_not_override_per_rule():
     """Per-rule characteristics take precedence over global characteristics."""
     from arcjet._client import _apply_global_characteristics
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     tb = token_bucket(
-        refill_rate=1, interval=1, capacity=1, characteristics=("ip.src",)
+        mode=Mode.LIVE,
+        refill_rate=1,
+        interval=1,
+        capacity=1,
+        characteristics=("ip.src",),
     )
     result = _apply_global_characteristics((tb,), ("userId",))
 
@@ -182,9 +186,9 @@ def test_apply_global_characteristics_does_not_override_per_rule():
 def test_apply_global_characteristics_noop_when_empty():
     """Empty global characteristics returns rules unchanged."""
     from arcjet._client import _apply_global_characteristics
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
-    tb = token_bucket(refill_rate=1, interval=1, capacity=1)
+    tb = token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)
     result = _apply_global_characteristics((tb,), ())
 
     assert result[0].get_characteristics() == ()

@@ -12,7 +12,7 @@ def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.Monke
     """Test that fail_open=False raises ArcjetTransportError on network error."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetTransportError
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     def raise_decide(req):
@@ -23,7 +23,7 @@ def test_fail_open_false_raises(mock_protobuf_modules, monkeypatch: pytest.Monke
     )
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         fail_open=False,
     )
     with pytest.raises(ArcjetTransportError):
@@ -36,9 +36,9 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
     """Test that validate_email rule raises error when email is missing."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet._rules import validate_email
+    from arcjet._rules import Mode, validate_email
 
-    aj = arcjet(key="ajkey_x", rules=[validate_email(deny=["INVALID"])])
+    aj = arcjet(key="ajkey_x", rules=[validate_email(mode=Mode.LIVE, deny=["INVALID"])])
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration):
@@ -49,9 +49,9 @@ def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules
     """Test that detect_prompt_injection rule raises error when message is missing."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet._rules import detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
 
-    aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection()])
+    aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection(mode=Mode.LIVE)])
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration):
@@ -61,7 +61,7 @@ def test_message_required_for_detect_prompt_injection_rule(mock_protobuf_modules
 def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.MonkeyPatch):
     """Test that fail_open=True returns error decision on network error."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     def raise_decide(req):
@@ -72,7 +72,7 @@ def test_fail_open_true_errors(mock_protobuf_modules, monkeypatch: pytest.Monkey
     )
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         fail_open=True,
     )
     import asyncio
@@ -93,7 +93,7 @@ def test_requested_default_and_characteristics_in_extra(
 ):
     """Test that requested default and characteristics are passed in extra metadata."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
@@ -106,7 +106,7 @@ def test_requested_default_and_characteristics_in_extra(
     monkeypatch.setattr(
         DecideServiceClient, "decide_behavior", capture_decide, raising=False
     )
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules)
     import asyncio
 
@@ -125,7 +125,7 @@ def test_ip_override_with_ip_src(
 ):
     """Test that ip_src overrides automatic IP detection when configured."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
@@ -138,7 +138,7 @@ def test_ip_override_with_ip_src(
     monkeypatch.setattr(
         DecideServiceClient, "decide_behavior", capture_decide, raising=False
     )
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
     import asyncio
 
@@ -160,7 +160,7 @@ def test_correlation_id_sent_in_decide_request(
 ):
     """correlation_id is forwarded on RequestDetails, not placed in extra."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
@@ -174,7 +174,7 @@ def test_correlation_id_sent_in_decide_request(
     monkeypatch.setattr(
         DecideServiceClient, "decide_behavior", capture_decide, raising=False
     )
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules)
     import asyncio
 
@@ -189,9 +189,9 @@ def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     """Test that ip_src is required when automatic IP detection is disabled."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
     import asyncio
 
@@ -203,9 +203,9 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     """Test that proxies cannot be used with manual IP detection."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(
         key="ajkey_x",
         rules=rules,
@@ -222,9 +222,9 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
     """Test that ip_src cannot be used when automatic IP detection is enabled."""
     from arcjet import arcjet
     from arcjet._errors import ArcjetMisconfiguration
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
-    rules = [token_bucket(refill_rate=1, interval=1, capacity=1)]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     aj = arcjet(
         key="ajkey_x",
         rules=rules,
@@ -238,12 +238,12 @@ def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_mod
 def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
     """Test that base_url parameter strips trailing slashes."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     # Create client with trailing slash in base_url
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         base_url="https://example.com/",
     )
     # Access the internal client to verify the base_url
@@ -253,12 +253,12 @@ def test_base_url_trailing_slash_is_stripped(mock_protobuf_modules):
 def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
     """Test that base_url parameter strips multiple trailing slashes."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     # Create client with multiple trailing slashes
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         base_url="https://example.com///",
     )
     # Access the internal client to verify the base_url
@@ -268,12 +268,12 @@ def test_base_url_multiple_trailing_slashes_are_stripped(mock_protobuf_modules):
 def test_base_url_without_trailing_slash_unchanged(mock_protobuf_modules):
     """Test that base_url without trailing slash is unchanged."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     # Create client without trailing slash
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         base_url="https://example.com",
     )
     # Access the internal client to verify the base_url
@@ -287,14 +287,14 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
     import importlib
 
     import arcjet._client as client_module
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     with monkeypatch.context() as m:
         m.setenv("ARCJET_BASE_URL", "https://example.com/")
         reloaded_module = importlib.reload(client_module)
         aj = reloaded_module.arcjet(
             key="ajkey_x",
-            rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+            rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
         )
         assert getattr(aj._client, "base_url") == "https://example.com"
 
@@ -304,11 +304,11 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
 def test_default_timeout_is_2000_ms(mock_protobuf_modules):
     """Test that the default timeout is 2000ms for every rule set."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
     assert aj._timeout_ms == 2000
 
@@ -316,11 +316,11 @@ def test_default_timeout_is_2000_ms(mock_protobuf_modules):
 def test_default_timeout_is_2000_ms_with_prompt_injection(mock_protobuf_modules):
     """Test that detect_prompt_injection uses the same 2000ms default."""
     from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[detect_prompt_injection()],
+        rules=[detect_prompt_injection(mode=Mode.LIVE)],
     )
     assert aj._timeout_ms == 2000
 
@@ -330,11 +330,11 @@ def test_default_timeout_is_2000_ms_in_development(
 ):
     """Test that the default timeout is 2000ms in development as well."""
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
     assert aj._timeout_ms == 2000
 
@@ -342,11 +342,11 @@ def test_default_timeout_is_2000_ms_in_development(
 def test_explicit_timeout_overrides_default(mock_protobuf_modules):
     """Test that an explicit timeout_ms replaces the 2000ms default."""
     from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[detect_prompt_injection()],
+        rules=[detect_prompt_injection(mode=Mode.LIVE)],
         timeout_ms=200,
     )
     assert aj._timeout_ms == 200
@@ -360,14 +360,14 @@ def test_global_characteristics_applied_to_rules_by_factory(mock_protobuf_module
     This test catches if that wiring is accidentally removed (e.g. during rebase).
     """
     from arcjet import arcjet
-    from arcjet._rules import fixed_window, shield, token_bucket
+    from arcjet._rules import Mode, fixed_window, shield, token_bucket
 
     aj = arcjet(
         key="ajkey_x",
         rules=[
-            token_bucket(refill_rate=1, interval=1, capacity=1),
-            fixed_window(max=10, window=60),
-            shield(),
+            token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1),
+            fixed_window(mode=Mode.LIVE, max=10, window=60),
+            shield(mode=Mode.LIVE),
         ],
         characteristics=["userId"],
     )
@@ -393,7 +393,7 @@ def test_sensitive_info_value_survives_context_reconstruction(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet._rules import detect_sensitive_info
+    from arcjet._rules import Mode, detect_sensitive_info
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured_ctx = {}
@@ -416,7 +416,7 @@ def test_sensitive_info_value_survives_context_reconstruction(
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[detect_sensitive_info(deny=["EMAIL"])],
+        rules=[detect_sensitive_info(mode=Mode.LIVE, deny=["EMAIL"])],
     )
     asyncio.run(
         aj.protect(
@@ -442,7 +442,7 @@ def test_filter_local_survives_context_reconstruction(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet._rules import filter_request
+    from arcjet._rules import Mode, filter_request
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured_ctx = {}
@@ -465,7 +465,7 @@ def test_filter_local_survives_context_reconstruction(
 
     aj = arcjet(
         key="ajkey_x",
-        rules=[filter_request(deny=["x == 1"])],
+        rules=[filter_request(mode=Mode.LIVE, deny=["x == 1"])],
     )
     asyncio.run(
         aj.protect(
@@ -491,7 +491,7 @@ def test_decide_call_sends_prompt_injection_message_unredacted(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection
+    from arcjet._rules import Mode, detect_prompt_injection
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
@@ -504,7 +504,7 @@ def test_decide_call_sends_prompt_injection_message_unredacted(
         DecideServiceClient, "decide_behavior", capture_decide, raising=False
     )
 
-    aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection()])
+    aj = arcjet(key="ajkey_x", rules=[detect_prompt_injection(mode=Mode.LIVE)])
     asyncio.run(
         aj.protect(
             {"headers": [], "type": "http"},
@@ -563,7 +563,7 @@ def test_local_deny_report_redacts_prompt_injection_message(
 
     import arcjet._client as client_module
     from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection, detect_sensitive_info
+    from arcjet._rules import Mode, detect_prompt_injection, detect_sensitive_info
 
     captured = {}
     real_redact = client_module._redact_report_details
@@ -592,8 +592,8 @@ def test_local_deny_report_redacts_prompt_injection_message(
     aj = arcjet(
         key="ajkey_x",
         rules=[
-            detect_sensitive_info(deny=["EMAIL"]),
-            detect_prompt_injection(),
+            detect_sensitive_info(mode=Mode.LIVE, deny=["EMAIL"]),
+            detect_prompt_injection(mode=Mode.LIVE),
         ],
     )
     asyncio.run(
@@ -626,7 +626,7 @@ def test_cache_hit_report_redacts_prompt_injection_message(
 
     import arcjet._client as client_module
     from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection, token_bucket
+    from arcjet._rules import Mode, detect_prompt_injection, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     captured = {}
@@ -652,8 +652,8 @@ def test_cache_hit_report_redacts_prompt_injection_message(
     aj = arcjet(
         key="ajkey_x",
         rules=[
-            detect_prompt_injection(),
-            token_bucket(refill_rate=1, interval=1, capacity=1),
+            detect_prompt_injection(mode=Mode.LIVE),
+            token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1),
         ],
     )
 
