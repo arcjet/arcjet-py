@@ -267,14 +267,24 @@ class BotDetection(RuleSpec):
     """
 
     mode: Mode
-    allow: tuple[BotSpecifier, ...] = ()
-    deny: tuple[BotSpecifier, ...] = ()
+    allow: tuple[BotSpecifier, ...] | None = None
+    deny: tuple[BotSpecifier, ...] | None = None
     characteristics: tuple[str, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("BotDetection.mode must be a Mode enum")
+        if self.allow is not None and self.deny is not None:
+            raise ValueError(
+                "BotDetection options error: `allow` and `deny` cannot be provided together"
+            )
+        if self.allow is None and self.deny is None:
+            raise ValueError(
+                "BotDetection options error: either `allow` or `deny` must be specified"
+            )
         for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if seq is None:
+                continue
             if not isinstance(seq, tuple):
                 raise TypeError(
                     f"BotDetection.{name} must be a tuple of BotCategory or str"
@@ -296,8 +306,8 @@ class BotDetection(RuleSpec):
 
     def to_proto(self) -> decide_pb2.Rule:
         br = decide_pb2.BotV2Rule(mode=_mode_to_proto(self.mode))
-        br.allow.extend([_bot_category_to_proto(a) for a in self.allow])
-        br.deny.extend([_bot_category_to_proto(d) for d in self.deny])
+        br.allow.extend([_bot_category_to_proto(a) for a in (self.allow or ())])
+        br.deny.extend([_bot_category_to_proto(d) for d in (self.deny or ())])
         return decide_pb2.Rule(bot_v2=br)
 
 
@@ -730,8 +740,8 @@ class EmailValidation(RuleSpec):
     """
 
     mode: Mode
-    deny: tuple[EmailType, ...] = ()
-    allow: tuple[EmailType, ...] = ()
+    deny: tuple[EmailType, ...] | None = None
+    allow: tuple[EmailType, ...] | None = None
     require_top_level_domain: bool = True
     allow_domain_literal: bool = False
     characteristics: tuple[str, ...] = ()
@@ -739,7 +749,17 @@ class EmailValidation(RuleSpec):
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("EmailValidation.mode must be a Mode enum")
+        if self.allow is not None and self.deny is not None:
+            raise ValueError(
+                "EmailValidation options error: `allow` and `deny` cannot be provided together"
+            )
+        if self.allow is None and self.deny is None:
+            raise ValueError(
+                "EmailValidation options error: either `allow` or `deny` must be specified"
+            )
         for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if seq is None:
+                continue
             if not isinstance(seq, tuple):
                 raise TypeError(f"EmailValidation.{name} must be a tuple of EmailType")
             for item in seq:
@@ -763,8 +783,8 @@ class EmailValidation(RuleSpec):
             require_top_level_domain=bool(self.require_top_level_domain),
             allow_domain_literal=bool(self.allow_domain_literal),
         )
-        er.allow.extend([_email_type_to_proto(t.value) for t in self.allow])
-        er.deny.extend([_email_type_to_proto(t.value) for t in self.deny])
+        er.allow.extend([_email_type_to_proto(t.value) for t in (self.allow or ())])
+        er.deny.extend([_email_type_to_proto(t.value) for t in (self.deny or ())])
         # Do not set version explicitly; server will use the latest
         return decide_pb2.Rule(email=er)
 
@@ -798,6 +818,23 @@ def _coerce_mode(mode: Union[str, Mode]) -> Mode:
     if m in ("LIVE", "DRY_RUN", "DRYRUN", "DRY-RUN"):
         return Mode.LIVE if m == "LIVE" else Mode.DRY_RUN
     raise ValueError(f"Unknown mode: {mode!r}")
+
+
+def _require_allow_xor_deny(
+    allow: object | None,
+    deny: object | None,
+    *,
+    name: str,
+) -> None:
+    """Reject allow+deny together or neither, matching the JS SDK builders."""
+    if allow is not None and deny is not None:
+        raise ValueError(
+            f"`{name}` options error: `allow` and `deny` cannot be provided together"
+        )
+    if allow is None and deny is None:
+        raise ValueError(
+            f"`{name}` options error: either `allow` or `deny` must be specified"
+        )
 
 
 def shield(
@@ -890,8 +927,8 @@ def _coerce_bot_categories(
 def detect_bot(
     *,
     mode: Union[str, Mode] = Mode.LIVE,
-    allow: Sequence[Union[str, BotCategory]] = (),
-    deny: Sequence[Union[str, BotCategory]] = (),
+    allow: Sequence[Union[str, BotCategory]] | None = None,
+    deny: Sequence[Union[str, BotCategory]] | None = None,
 ) -> BotDetection:
     """Detect and filter automated bot traffic.
 
@@ -910,10 +947,11 @@ def detect_bot(
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
             ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
             ``Mode.LIVE``.
-        allow: Bots to permit. All other bots are denied. Do not combine
-            with ``deny``.
+        allow: Bots to permit. All other bots are denied. An empty list
+            denies every bot. Do not combine with ``deny``.
         deny: Bots to block. All other bots are allowed. Do not combine
-            with ``allow``.
+            with ``allow``. Exactly one of ``allow`` or ``deny`` must be
+            provided.
 
     Returns:
         A ``BotDetection`` rule to include in the ``rules`` list of
@@ -931,10 +969,11 @@ def detect_bot(
             )
         ]
     """
+    _require_allow_xor_deny(allow, deny, name="detect_bot")
     return BotDetection(
         mode=_coerce_mode(mode),
-        allow=_coerce_bot_categories(allow),
-        deny=_coerce_bot_categories(deny),
+        allow=_coerce_bot_categories(allow) if allow is not None else None,
+        deny=_coerce_bot_categories(deny) if deny is not None else None,
     )
 
 
@@ -1121,8 +1160,8 @@ def _coerce_email_types(
 def validate_email(
     *,
     mode: Union[str, Mode] = Mode.LIVE,
-    deny: Sequence[Union[str, EmailType]] = (),
-    allow: Sequence[Union[str, EmailType]] = (),
+    deny: Sequence[Union[str, EmailType]] | None = None,
+    allow: Sequence[Union[str, EmailType]] | None = None,
     require_top_level_domain: bool = True,
     allow_domain_literal: bool = False,
 ) -> EmailValidation:
@@ -1130,7 +1169,8 @@ def validate_email(
 
     Checks the email passed to ``protect(email=...)`` against configurable
     criteria. Use ``deny`` to block specific email types (e.g. disposable
-    addresses), or ``allow`` to restrict to only certain types.
+    addresses), or ``allow`` to restrict to only certain types. An empty
+    ``allow`` list permits no email types.
 
     When this rule is configured, you **must** pass ``email=...`` to every
     ``protect()`` call, otherwise an ``ArcjetMisconfiguration`` is raised.
@@ -1140,7 +1180,8 @@ def validate_email(
             ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
             ``Mode.LIVE``.
         deny: Email types to reject. Common choices: ``EmailType.DISPOSABLE``,
-            ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``.
+            ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``. Exactly one of
+            ``allow`` or ``deny`` must be provided.
         allow: Email types to permit. All other types are rejected.
         require_top_level_domain: Reject addresses without a valid TLD.
             Defaults to ``True``.
@@ -1164,10 +1205,11 @@ def validate_email(
         # Then pass the email address on each protect() call:
         # decision = await aj.protect(request, email="alice@example.com")
     """
+    _require_allow_xor_deny(allow, deny, name="validate_email")
     return EmailValidation(
         mode=_coerce_mode(mode),
-        deny=_coerce_email_types(deny),
-        allow=_coerce_email_types(allow),
+        deny=_coerce_email_types(deny) if deny is not None else None,
+        allow=_coerce_email_types(allow) if allow is not None else None,
         require_top_level_domain=require_top_level_domain,
         allow_domain_literal=allow_domain_literal,
     )
