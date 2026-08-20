@@ -315,14 +315,6 @@ def chat():
     # safe to pass body["message"] to your LLM
 ```
 
-You can tune the detection sensitivity with the `threshold` parameter (0.0–1.0,
-default 0.5). Higher values require stronger signals to trigger a denial,
-reducing false positives but potentially missing subtle attacks:
-
-```py
-detect_prompt_injection(mode=Mode.LIVE, threshold=0.8)
-```
-
 See the [Prompt Injection docs](https://docs.arcjet.com/prompt-injection) for
 more details.
 
