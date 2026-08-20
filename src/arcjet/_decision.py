@@ -427,3 +427,71 @@ def is_spoofed_bot(result: RuleResult) -> bool:
     if r.WhichOneof("reason") == "bot_v2":
         return bool(r.bot_v2.spoofed)
     return False
+
+
+def _is_active_result(result: RuleResult) -> bool:
+    """Return ``True`` when a rule result is not a dry-run observation."""
+    return result.state != decide_pb2.RULE_STATE_DRY_RUN
+
+
+def is_verified_bot(result: RuleResult) -> bool:
+    """Return ``True`` if a live bot rule verified a known legitimate bot.
+
+    Verified bots are identified by matching the client IP against official
+    ranges for that crawler (e.g. Googlebot). Results from ``DRY_RUN`` rules
+    are ignored.
+
+    Args:
+        result: A single ``RuleResult`` from ``decision.results``.
+
+    Returns:
+        ``True`` when a live bot rule verified the client as a known bot.
+
+    Example::
+
+        from arcjet import is_verified_bot
+
+        if any(is_verified_bot(r) for r in decision.results):
+            return jsonify(message="Hello bot")
+    """
+    if not _is_active_result(result):
+        return False
+    r = result.raw.reason
+    if not r:
+        return False
+    if r.WhichOneof("reason") == "bot_v2":
+        return bool(r.bot_v2.verified)
+    return False
+
+
+def is_missing_user_agent(result: RuleResult) -> bool:
+    """Return ``True`` if a live bot rule failed because ``User-Agent`` was missing.
+
+    A missing ``User-Agent`` is a strong signal of a non-browser client.
+    Results from ``DRY_RUN`` rules are ignored.
+
+    Args:
+        result: A single ``RuleResult`` from ``decision.results``.
+
+    Returns:
+        ``True`` when a live bot rule reported a missing ``User-Agent`` header.
+
+    Example::
+
+        from arcjet import is_missing_user_agent
+
+        if any(is_missing_user_agent(r) for r in decision.results):
+            return jsonify(error="User-Agent required"), 403
+    """
+    if not _is_active_result(result):
+        return False
+    r = result.raw.reason
+    if not r:
+        return False
+    if r.WhichOneof("reason") != "error":
+        return False
+    message = getattr(r.error, "message", "") or ""
+    return (
+        "missing User-Agent header" in message
+        or "requires user-agent header" in message
+    )

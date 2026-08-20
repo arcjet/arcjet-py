@@ -38,7 +38,7 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
     from arcjet._errors import ArcjetMisconfiguration
     from arcjet._rules import validate_email
 
-    aj = arcjet(key="ajkey_x", rules=[validate_email()])
+    aj = arcjet(key="ajkey_x", rules=[validate_email(deny=["INVALID"])])
     import asyncio
 
     with pytest.raises(ArcjetMisconfiguration):
