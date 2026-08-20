@@ -429,11 +429,6 @@ def is_spoofed_bot(result: RuleResult) -> bool:
     return False
 
 
-def _is_active_result(result: RuleResult) -> bool:
-    """Return ``True`` when a rule result is not a dry-run observation."""
-    return result.state != decide_pb2.RULE_STATE_DRY_RUN
-
-
 def is_verified_bot(result: RuleResult) -> bool:
     """Return ``True`` if a live bot rule verified a known legitimate bot.
 

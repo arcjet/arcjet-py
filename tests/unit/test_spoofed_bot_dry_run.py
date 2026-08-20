@@ -42,3 +42,28 @@ def test_is_spoofed_bot_ignores_dry_run(mock_protobuf_modules):
         state=decide_pb2.RULE_STATE_DRY_RUN,
     )
     assert is_spoofed_bot(rr) is False
+
+
+def test_is_spoofed_bot_live_not_spoofed(mock_protobuf_modules):
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    rr = _bot_result(
+        mock_protobuf_modules,
+        spoofed=False,
+        state=decide_pb2.RULE_STATE_RUN,
+    )
+    assert is_spoofed_bot(rr) is False
+
+
+def test_is_spoofed_bot_false_for_non_bot_reason(mock_protobuf_modules):
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    rr = decide_pb2.RuleResult(
+        rule_id="r1",
+        state=decide_pb2.RULE_STATE_RUN,
+        conclusion=decide_pb2.CONCLUSION_DENY,
+        reason=decide_pb2.Reason(
+            error=decide_pb2.ErrorReason(message="something else")
+        ),
+    )
+    assert is_spoofed_bot(SDKRuleResult(rr)) is False
