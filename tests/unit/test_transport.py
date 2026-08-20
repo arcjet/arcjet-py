@@ -189,45 +189,97 @@ class _LocalHTTPS:
         self.ca_pem = ca_pem
 
 
-def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
-    cert = tmp_path / "cert.pem"
-    key = tmp_path / "key.pem"
+def _run_openssl(*args: str) -> None:
     subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-keyout",
-            str(key),
-            "-out",
-            str(cert),
-            "-days",
-            "1",
-            "-nodes",
-            "-subj",
-            "/CN=localhost",
-            "-addext",
-            "subjectAltName=DNS:localhost,IP:127.0.0.1",
-        ],
+        ["openssl", *args],
         check=True,
         capture_output=True,
         text=True,
     )
-    return cert, key
+
+
+def _make_ca_and_server_cert(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Return ``(ca_pem, server_pem, server_key)``.
+
+    rustls rejects a CA certificate presented as the server leaf
+    (``CaUsedAsEndEntity``), so the server cert must be a separate
+    end-entity signed by the throwaway CA.
+    """
+    ca_key = tmp_path / "ca.key"
+    ca_pem = tmp_path / "ca.pem"
+    server_key = tmp_path / "server.key"
+    server_csr = tmp_path / "server.csr"
+    server_pem = tmp_path / "server.pem"
+    server_ext = tmp_path / "server.ext"
+
+    _run_openssl(
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-keyout",
+        str(ca_key),
+        "-out",
+        str(ca_pem),
+        "-days",
+        "1",
+        "-nodes",
+        "-subj",
+        "/CN=arcjet-test-ca",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+    )
+    _run_openssl(
+        "req",
+        "-newkey",
+        "rsa:2048",
+        "-keyout",
+        str(server_key),
+        "-out",
+        str(server_csr),
+        "-nodes",
+        "-subj",
+        "/CN=localhost",
+    )
+    server_ext.write_text(
+        "basicConstraints=CA:FALSE\n"
+        "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
+        "keyUsage=digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\n"
+    )
+    _run_openssl(
+        "x509",
+        "-req",
+        "-in",
+        str(server_csr),
+        "-CA",
+        str(ca_pem),
+        "-CAkey",
+        str(ca_key),
+        "-CAcreateserial",
+        "-out",
+        str(server_pem),
+        "-days",
+        "1",
+        "-extfile",
+        str(server_ext),
+    )
+    return ca_pem, server_pem, server_key
 
 
 @pytest.fixture
 def local_https(tmp_path: Path) -> Iterator[_LocalHTTPS]:
     """Local HTTPS server whose CA is *not* in the system store."""
-    cert_path, key_path = _make_self_signed_cert(tmp_path)
+    ca_path, cert_path, key_path = _make_ca_and_server_cert(tmp_path)
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            body = b"ok"
             self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -242,7 +294,7 @@ def local_https(tmp_path: Path) -> Iterator[_LocalHTTPS]:
         host, port = httpd.server_address
         yield _LocalHTTPS(
             url=f"https://{host}:{port}/",
-            ca_pem=cert_path.read_bytes(),
+            ca_pem=ca_path.read_bytes(),
         )
     finally:
         httpd.shutdown()
@@ -269,7 +321,7 @@ class TestIssue201Reproduction:
     ) -> None:
         client = pyqwest.SyncClient(pyqwest.SyncHTTPTransport())
 
-        with pytest.raises(pyqwest.ConnectionError) as exc_info:
+        with pytest.raises(ConnectionError) as exc_info:
             client.get(local_https.url)
 
         _assert_unknown_issuer(exc_info.value)
@@ -282,7 +334,7 @@ class TestIssue201Reproduction:
             pyqwest.SyncHTTPTransport(http_version=pyqwest.HTTPVersion.HTTP2)
         )
 
-        with pytest.raises(pyqwest.ConnectionError) as exc_info:
+        with pytest.raises(ConnectionError) as exc_info:
             client.get(local_https.url)
 
         _assert_unknown_issuer(exc_info.value)
@@ -302,7 +354,7 @@ class TestIssue201Reproduction:
             )
         )
 
-        with pytest.raises(pyqwest.ConnectionError) as exc_info:
+        with pytest.raises(ConnectionError) as exc_info:
             client.get(local_https.url)
 
         _assert_unknown_issuer(exc_info.value)
