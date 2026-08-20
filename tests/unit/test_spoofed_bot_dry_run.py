@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import types
+from typing import Any
 
 from arcjet._decision import RuleResult as SDKRuleResult
 from arcjet._decision import is_spoofed_bot
 
 
-def _bot_result(mock_protobuf_modules, *, spoofed: bool, state: int) -> SDKRuleResult:
+def _bot_result(mock_protobuf_modules, *, spoofed: bool, state: Any) -> SDKRuleResult:
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     bot_v2 = types.SimpleNamespace(spoofed=spoofed, verified=False)
