@@ -38,7 +38,9 @@ def test_email_required_for_validate_email_rule(mock_protobuf_modules):
     from arcjet._errors import ArcjetMisconfiguration
     from arcjet._rules import Mode, validate_email
 
-    aj = arcjet_sync(key="ajkey_x", rules=[validate_email(mode=Mode.LIVE)])
+    aj = arcjet_sync(
+        key="ajkey_x", rules=[validate_email(mode=Mode.LIVE, deny=["INVALID"])]
+    )
     with pytest.raises(ArcjetMisconfiguration):
         aj.protect({"headers": [], "type": "http"})
 

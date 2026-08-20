@@ -7,9 +7,12 @@ from ._decision import (
     IpInfo,
     Reason,  # type: ignore -- intentionally deprecated
     RuleResult,
+    is_missing_user_agent,
     is_spoofed_bot,
+    is_verified_bot,
 )
 from ._enums import Mode
+from ._headers import set_rate_limit_headers
 from ._metadata import Metadata, MetadataValue
 from ._rules import (
     BotCategory,
@@ -53,7 +56,10 @@ __all__ = [
     "IpInfo",
     "IpDetails",
     "ThreatIntelligence",
+    "is_missing_user_agent",
     "is_spoofed_bot",
+    "is_verified_bot",
+    "set_rate_limit_headers",
     "Metadata",
     "MetadataValue",
     "Mode",
