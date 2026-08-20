@@ -302,10 +302,11 @@ def test_default_timeout_production_without_prompt_injection(mock_protobuf_modul
 
 
 def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is at least 1000ms when detect_prompt_injection is configured.
+    """Test that the default timeout in production is at least 2000ms when detect_prompt_injection is configured.
 
     detect_prompt_injection defines its latency guarantees individually rather
-    than as part of the protect call, so a minimum of 1 second is enforced.
+    than as part of the protect call, and a cold model start can exceed the
+    500ms production default, so a minimum of 2 seconds is enforced.
     """
     from arcjet import arcjet_sync
     from arcjet._rules import detect_prompt_injection
@@ -314,7 +315,7 @@ def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules)
         key="ajkey_x",
         rules=[detect_prompt_injection()],
     )
-    assert aj._timeout_ms == 1000
+    assert aj._timeout_ms == 2000
 
 
 def test_default_timeout_development_without_prompt_injection(
@@ -334,7 +335,7 @@ def test_default_timeout_development_without_prompt_injection(
 def test_default_timeout_development_with_prompt_injection(
     mock_protobuf_modules, dev_environment
 ):
-    """Test that the default timeout in development is 1000ms when detect_prompt_injection is configured."""
+    """Test that the default timeout in development is at least 2000ms when detect_prompt_injection is configured."""
     from arcjet import arcjet_sync
     from arcjet._rules import detect_prompt_injection
 
@@ -342,7 +343,7 @@ def test_default_timeout_development_with_prompt_injection(
         key="ajkey_x",
         rules=[detect_prompt_injection()],
     )
-    assert aj._timeout_ms == 1000
+    assert aj._timeout_ms == 2000
 
 
 def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):

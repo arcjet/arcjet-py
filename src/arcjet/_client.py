@@ -147,15 +147,24 @@ class ProtectOptions(TypedDict, total=False):
     ASCII; invalid values are dropped, not truncated."""
 
 
+# Minimum Decide timeout when ``detect_prompt_injection()`` is configured.
+#
+# Warm inference is typically ~100ms, but a cold model start can exceed the
+# 500ms production default (and the previous 1s floor). A tight deadline
+# fail-opens and skips detection, so we match Guard's 2s default for the
+# same class of remote inference rules.
+_PROMPT_INJECTION_MIN_TIMEOUT_MS = 2000
+
+
 def _default_timeout_ms(
     rules: Sequence[RuleSpec] = (), environment: str | None = None
 ) -> int:
     # 1000ms in development, 500ms otherwise.
     default = 1000 if _is_development(environment=environment) else 500
     # detect_prompt_injection defines its latency guarantees individually
-    # rather than as part of the protect call, so enforce a 1 second minimum.
+    # rather than as part of the protect call, so enforce a 2 second minimum.
     if any(isinstance(r, PromptInjectionDetection) for r in rules):
-        return max(default, 1000)
+        return max(default, _PROMPT_INJECTION_MIN_TIMEOUT_MS)
     return default
 
 
@@ -1469,8 +1478,9 @@ def arcjet(
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
             development and 500 ms in production. When a
             ``detect_prompt_injection()`` rule is configured, the minimum is
-            1000 ms because that rule defines its latency guarantees
-            individually rather than as part of the protect call.
+            2000 ms because that rule defines its latency guarantees
+            individually rather than as part of the protect call, and a cold
+            model start can exceed the shorter defaults.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
@@ -1607,8 +1617,9 @@ def arcjet_sync(
         timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
             development and 500 ms in production. When a
             ``detect_prompt_injection()`` rule is configured, the minimum is
-            1000 ms because that rule defines its latency guarantees
-            individually rather than as part of the protect call.
+            2000 ms because that rule defines its latency guarantees
+            individually rather than as part of the protect call, and a cold
+            model start can exceed the shorter defaults.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``

@@ -314,10 +314,11 @@ def test_default_timeout_production_without_prompt_injection(mock_protobuf_modul
 
 
 def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is at least 1000ms when detect_prompt_injection is configured.
+    """Test that the default timeout in production is at least 2000ms when detect_prompt_injection is configured.
 
     detect_prompt_injection defines its latency guarantees individually rather
-    than as part of the protect call, so a minimum of 1 second is enforced.
+    than as part of the protect call, and a cold model start can exceed the
+    500ms production default, so a minimum of 2 seconds is enforced.
     """
     from arcjet import arcjet
     from arcjet._rules import detect_prompt_injection
@@ -326,7 +327,7 @@ def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules)
         key="ajkey_x",
         rules=[detect_prompt_injection()],
     )
-    assert aj._timeout_ms == 1000
+    assert aj._timeout_ms == 2000
 
 
 def test_default_timeout_development_without_prompt_injection(
@@ -346,7 +347,7 @@ def test_default_timeout_development_without_prompt_injection(
 def test_default_timeout_development_with_prompt_injection(
     mock_protobuf_modules, dev_environment
 ):
-    """Test that the default timeout in development is 1000ms when detect_prompt_injection is configured."""
+    """Test that the default timeout in development is at least 2000ms when detect_prompt_injection is configured."""
     from arcjet import arcjet
     from arcjet._rules import detect_prompt_injection
 
@@ -354,7 +355,7 @@ def test_default_timeout_development_with_prompt_injection(
         key="ajkey_x",
         rules=[detect_prompt_injection()],
     )
-    assert aj._timeout_ms == 1000
+    assert aj._timeout_ms == 2000
 
 
 def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):
@@ -717,24 +718,24 @@ class TestDefaultTimeoutMsEnvironmentKwarg:
         from arcjet._rules import detect_prompt_injection
 
         monkeypatch.delenv("ARCJET_ENV", raising=False)
-        # detect_prompt_injection enforces a 1000ms minimum even in production.
+        # detect_prompt_injection enforces a 2000ms minimum even in production.
         assert (
             _default_timeout_ms([detect_prompt_injection()], environment="production")
-            == 1000
+            == 2000
         )
 
-    def test_prompt_injection_in_development_keeps_1000(
+    def test_prompt_injection_in_development_clamps_to_2000(
         self, monkeypatch: pytest.MonkeyPatch
     ):
         from arcjet._client import _default_timeout_ms
         from arcjet._rules import detect_prompt_injection
 
         monkeypatch.delenv("ARCJET_ENV", raising=False)
-        # Dev default (1000) already meets the prompt-injection min (1000);
-        # the max() should be a no-op rather than incorrectly clamping higher.
+        # Dev default (1000) is below the prompt-injection min (2000);
+        # the max() should raise the timeout rather than keep 1000.
         assert (
             _default_timeout_ms([detect_prompt_injection()], environment="development")
-            == 1000
+            == 2000
         )
 
     def test_env_var_fallback_when_kwarg_none(self, monkeypatch: pytest.MonkeyPatch):
