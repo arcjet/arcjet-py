@@ -33,21 +33,31 @@ def wasmtime_section() -> Iterator[None]:
     """Hold the process-global wasmtime lock and suspend GC.
 
     Re-entrant on the same thread so ``__init__``, ``_call``, and ``close``
-    can nest. Distinct threads serialize, which also covers wasmtime-py's
-    unsynchronized slabs.
+    can nest. Distinct threads — and distinct ``AnalyzeComponent`` instances
+    — fully serialize for the duration of the section, including the WASM
+    call itself. That is required: wasmtime-py's function slab is
+    process-global and unsynchronized, so a per-instance lock is not enough
+    and must not be restored in place of this section.
+
+    GC is disabled only at depth 0 and re-enabled in an outer ``finally`` so
+    an interrupt between ``gc.disable()`` and the depth increment cannot
+    leave collection permanently off.
     """
     global _depth, _restore_gc
     with _lock:
         if _depth == 0:
             _restore_gc = gc.isenabled()
             gc.disable()
-        _depth += 1
         try:
-            yield
+            _depth += 1
+            try:
+                yield
+            finally:
+                _depth -= 1
         finally:
-            _depth -= 1
             if _depth == 0 and _restore_gc:
                 gc.enable()
+                _restore_gc = False
 
 
 def collect_wasmtime_finalizers() -> None:

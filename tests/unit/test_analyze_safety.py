@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gc
 
+import pytest
+
 from arcjet._analyze._safety import collect_wasmtime_finalizers, wasmtime_section
 
 
@@ -32,6 +34,14 @@ def test_wasmtime_section_preserves_already_disabled_gc() -> None:
         assert not gc.isenabled()
     finally:
         gc.enable()
+    assert gc.isenabled()
+
+
+def test_wasmtime_section_restores_gc_when_body_raises() -> None:
+    assert gc.isenabled()
+    with pytest.raises(RuntimeError, match="boom"):
+        with wasmtime_section():
+            raise RuntimeError("boom")
     assert gc.isenabled()
 
 

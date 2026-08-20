@@ -79,6 +79,10 @@ class AnalyzeComponent(AnalyzeComponentBase):
         if self._closed:
             raise RuntimeError("AnalyzeComponent is closed")
         with wasmtime_section():
+            # Re-check after acquiring the section: a concurrent close() may
+            # have won the lock, set ``_closed``, and dropped ``_engine``.
+            if self._closed:
+                raise RuntimeError("AnalyzeComponent is closed")
             return super()._call(export_name, *args)
 
     def close(self) -> None:
@@ -91,7 +95,7 @@ class AnalyzeComponent(AnalyzeComponentBase):
         with wasmtime_section():
             if getattr(self, "_closed", False):
                 return
-            self._closed = True
+            super().close()
             for attr in _WASMTIME_ATTRS:
                 if hasattr(self, attr):
                     delattr(self, attr)
