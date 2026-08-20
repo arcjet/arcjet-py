@@ -286,6 +286,9 @@ def local_https(tmp_path: Path) -> Iterator[_LocalHTTPS]:
 
     httpd = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    # PROTOCOL_TLS_SERVER can still offer TLS 1.0/1.1 unless pinned; CodeQL
+    # flags that even for this localhost fixture.
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
