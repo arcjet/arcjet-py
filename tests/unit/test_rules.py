@@ -191,38 +191,29 @@ def test_apply_global_characteristics_noop_when_empty():
 
 
 def test_detect_prompt_injection_to_proto(mock_protobuf_modules):
-    """Test detect_prompt_injection rule converts to protobuf with mode and threshold."""
+    """Test detect_prompt_injection rule converts to protobuf with mode."""
     from arcjet._rules import Mode, detect_prompt_injection
 
-    r = detect_prompt_injection(mode=Mode.LIVE, threshold=0.9)
+    r = detect_prompt_injection(mode=Mode.LIVE)
     pb = r.to_proto()
     assert pb.prompt_injection_detection is not None
     assert pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_LIVE
-    assert pb.prompt_injection_detection.threshold == 0.9
 
 
-def test_detect_prompt_injection_default_threshold(mock_protobuf_modules):
-    """Test detect_prompt_injection uses default threshold of 0.5."""
+def test_detect_prompt_injection_dry_run(mock_protobuf_modules):
+    """Test detect_prompt_injection accepts DRY_RUN mode."""
     from arcjet._rules import Mode, detect_prompt_injection
 
     r = detect_prompt_injection(mode=Mode.DRY_RUN)
     pb = r.to_proto()
-    assert pb.prompt_injection_detection.threshold == 0.5
+    assert (
+        pb.prompt_injection_detection.mode == mock_protobuf_modules["pb2"].MODE_DRY_RUN
+    )
 
 
-def test_detect_prompt_injection_validation(mock_protobuf_modules):
-    """Test detect_prompt_injection validates threshold range."""
-    from arcjet._rules import detect_prompt_injection
+def test_detect_prompt_injection_rejects_threshold(mock_protobuf_modules):
+    """Threshold is removed; the server ignored it."""
+    from arcjet._rules import Mode, detect_prompt_injection
 
-    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
-        detect_prompt_injection(threshold=1.5)
-
-    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
-        detect_prompt_injection(threshold=-0.1)
-
-    # Edge cases should work
-    r1 = detect_prompt_injection(threshold=0.0)
-    assert r1.threshold == 0.0
-
-    r2 = detect_prompt_injection(threshold=1.0)
-    assert r2.threshold == 1.0
+    with pytest.raises(TypeError, match="threshold"):
+        detect_prompt_injection(mode=Mode.LIVE, threshold=0.8)  # type: ignore[call-arg]

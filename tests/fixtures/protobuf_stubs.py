@@ -99,7 +99,7 @@ class StubShieldRule:
 class StubPromptInjectionDetectionRule:
     """Stub for protobuf PromptInjectionDetectionRule message."""
 
-    def __init__(self, mode: int, threshold: float) -> None:
+    def __init__(self, mode: int, threshold: float = 0.0) -> None:
         self.mode = mode
         self.threshold = threshold
 
