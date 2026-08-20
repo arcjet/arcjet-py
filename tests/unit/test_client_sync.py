@@ -289,8 +289,8 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
     importlib.reload(client_module)
 
 
-def test_default_timeout_production_without_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is 500ms without prompt injection."""
+def test_default_timeout_is_2000_ms(mock_protobuf_modules):
+    """Test that the default timeout is 2000ms for every rule set."""
     from arcjet import arcjet_sync
     from arcjet._rules import token_bucket
 
@@ -298,16 +298,11 @@ def test_default_timeout_production_without_prompt_injection(mock_protobuf_modul
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
     )
-    assert aj._timeout_ms == 500
+    assert aj._timeout_ms == 2000
 
 
-def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is at least 2000ms when detect_prompt_injection is configured.
-
-    detect_prompt_injection defines its latency guarantees individually rather
-    than as part of the protect call, and a cold model start can exceed the
-    500ms production default, so a minimum of 2 seconds is enforced.
-    """
+def test_default_timeout_is_2000_ms_with_prompt_injection(mock_protobuf_modules):
+    """Test that detect_prompt_injection uses the same 2000ms default."""
     from arcjet import arcjet_sync
     from arcjet._rules import detect_prompt_injection
 
@@ -318,10 +313,10 @@ def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules)
     assert aj._timeout_ms == 2000
 
 
-def test_default_timeout_development_without_prompt_injection(
+def test_default_timeout_is_2000_ms_in_development(
     mock_protobuf_modules, dev_environment
 ):
-    """Test that the default timeout in development is 1000ms without prompt injection."""
+    """Test that the default timeout is 2000ms in development as well."""
     from arcjet import arcjet_sync
     from arcjet._rules import token_bucket
 
@@ -329,25 +324,11 @@ def test_default_timeout_development_without_prompt_injection(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
     )
-    assert aj._timeout_ms == 1000
-
-
-def test_default_timeout_development_with_prompt_injection(
-    mock_protobuf_modules, dev_environment
-):
-    """Test that the default timeout in development is at least 2000ms when detect_prompt_injection is configured."""
-    from arcjet import arcjet_sync
-    from arcjet._rules import detect_prompt_injection
-
-    aj = arcjet_sync(
-        key="ajkey_x",
-        rules=[detect_prompt_injection()],
-    )
     assert aj._timeout_ms == 2000
 
 
-def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):
-    """Test that an explicit timeout_ms is not affected by the prompt injection floor."""
+def test_explicit_timeout_overrides_default(mock_protobuf_modules):
+    """Test that an explicit timeout_ms replaces the 2000ms default."""
     from arcjet import arcjet_sync
     from arcjet._rules import detect_prompt_injection
 
@@ -632,8 +613,7 @@ def test_cache_hit_report_redacts_prompt_injection_message(
 
 class TestArcjetSyncFactoryEnvironmentKwarg:
     """Sync counterpart to `TestArcjetFactoryEnvironmentKwarg` — `environment=`
-    flows from `arcjet_sync()` into the dataclass and through
-    `_default_timeout_ms`.
+    flows from `arcjet_sync()` into the dataclass. Timeout is a flat 2000ms.
     """
 
     def test_kwarg_reaches_dataclass(self, monkeypatch: pytest.MonkeyPatch):
@@ -648,7 +628,7 @@ class TestArcjetSyncFactoryEnvironmentKwarg:
             environment="development",
         )
         assert aj._environment == "development"
-        assert aj._timeout_ms == 1000
+        assert aj._timeout_ms == 2000
 
     def test_kwarg_production_beats_env_var(self, monkeypatch: pytest.MonkeyPatch):
         from arcjet import arcjet_sync
@@ -662,7 +642,7 @@ class TestArcjetSyncFactoryEnvironmentKwarg:
             environment="production",
         )
         assert aj._environment == "production"
-        assert aj._timeout_ms == 500
+        assert aj._timeout_ms == 2000
 
     def test_protect_uses_environment_for_loopback_fallback(
         self,

@@ -301,8 +301,8 @@ def test_default_base_url_from_env_trailing_slash_is_stripped(
     importlib.reload(client_module)
 
 
-def test_default_timeout_production_without_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is 500ms without prompt injection."""
+def test_default_timeout_is_2000_ms(mock_protobuf_modules):
+    """Test that the default timeout is 2000ms for every rule set."""
     from arcjet import arcjet
     from arcjet._rules import token_bucket
 
@@ -310,16 +310,11 @@ def test_default_timeout_production_without_prompt_injection(mock_protobuf_modul
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
     )
-    assert aj._timeout_ms == 500
+    assert aj._timeout_ms == 2000
 
 
-def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules):
-    """Test that the default timeout in production is at least 2000ms when detect_prompt_injection is configured.
-
-    detect_prompt_injection defines its latency guarantees individually rather
-    than as part of the protect call, and a cold model start can exceed the
-    500ms production default, so a minimum of 2 seconds is enforced.
-    """
+def test_default_timeout_is_2000_ms_with_prompt_injection(mock_protobuf_modules):
+    """Test that detect_prompt_injection uses the same 2000ms default."""
     from arcjet import arcjet
     from arcjet._rules import detect_prompt_injection
 
@@ -330,10 +325,10 @@ def test_default_timeout_production_with_prompt_injection(mock_protobuf_modules)
     assert aj._timeout_ms == 2000
 
 
-def test_default_timeout_development_without_prompt_injection(
+def test_default_timeout_is_2000_ms_in_development(
     mock_protobuf_modules, dev_environment
 ):
-    """Test that the default timeout in development is 1000ms without prompt injection."""
+    """Test that the default timeout is 2000ms in development as well."""
     from arcjet import arcjet
     from arcjet._rules import token_bucket
 
@@ -341,25 +336,11 @@ def test_default_timeout_development_without_prompt_injection(
         key="ajkey_x",
         rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
     )
-    assert aj._timeout_ms == 1000
-
-
-def test_default_timeout_development_with_prompt_injection(
-    mock_protobuf_modules, dev_environment
-):
-    """Test that the default timeout in development is at least 2000ms when detect_prompt_injection is configured."""
-    from arcjet import arcjet
-    from arcjet._rules import detect_prompt_injection
-
-    aj = arcjet(
-        key="ajkey_x",
-        rules=[detect_prompt_injection()],
-    )
     assert aj._timeout_ms == 2000
 
 
-def test_explicit_timeout_overrides_prompt_injection_floor(mock_protobuf_modules):
-    """Test that an explicit timeout_ms is not affected by the prompt injection floor."""
+def test_explicit_timeout_overrides_default(mock_protobuf_modules):
+    """Test that an explicit timeout_ms replaces the 2000ms default."""
     from arcjet import arcjet
     from arcjet._rules import detect_prompt_injection
 
@@ -691,63 +672,9 @@ def test_cache_hit_report_redacts_prompt_injection_message(
     assert captured["details"].extra.get("detectPromptInjectionMessage") == "<redacted>"
 
 
-class TestDefaultTimeoutMsEnvironmentKwarg:
-    """`_default_timeout_ms` honors the `environment` kwarg.
-
-    The 1000 vs 500 ms split is keyed off dev/prod, so it has the same
-    pydantic-settings bug as `coerce_request_context` and must accept the
-    same kwarg.
-    """
-
-    def test_kwarg_development_returns_1000(self, monkeypatch: pytest.MonkeyPatch):
-        from arcjet._client import _default_timeout_ms
-
-        monkeypatch.delenv("ARCJET_ENV", raising=False)
-        assert _default_timeout_ms((), environment="development") == 1000
-
-    def test_kwarg_production_returns_500(self, monkeypatch: pytest.MonkeyPatch):
-        from arcjet._client import _default_timeout_ms
-
-        monkeypatch.delenv("ARCJET_ENV", raising=False)
-        assert _default_timeout_ms((), environment="production") == 500
-
-    def test_prompt_injection_min_clamp_still_applies_in_production(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        from arcjet._client import _default_timeout_ms
-        from arcjet._rules import detect_prompt_injection
-
-        monkeypatch.delenv("ARCJET_ENV", raising=False)
-        # detect_prompt_injection enforces a 2000ms minimum even in production.
-        assert (
-            _default_timeout_ms([detect_prompt_injection()], environment="production")
-            == 2000
-        )
-
-    def test_prompt_injection_in_development_clamps_to_2000(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        from arcjet._client import _default_timeout_ms
-        from arcjet._rules import detect_prompt_injection
-
-        monkeypatch.delenv("ARCJET_ENV", raising=False)
-        # Dev default (1000) is below the prompt-injection min (2000);
-        # the max() should raise the timeout rather than keep 1000.
-        assert (
-            _default_timeout_ms([detect_prompt_injection()], environment="development")
-            == 2000
-        )
-
-    def test_env_var_fallback_when_kwarg_none(self, monkeypatch: pytest.MonkeyPatch):
-        from arcjet._client import _default_timeout_ms
-
-        monkeypatch.setenv("ARCJET_ENV", "development")
-        assert _default_timeout_ms((), environment=None) == 1000
-
-
 class TestArcjetFactoryEnvironmentKwarg:
     """End-to-end wiring: `environment=` flows from the factory into the
-    dataclass and through `_default_timeout_ms`.
+    dataclass. Timeout is a flat 2000ms and does not depend on environment.
     """
 
     def test_kwarg_reaches_dataclass(self, monkeypatch: pytest.MonkeyPatch):
@@ -762,10 +689,9 @@ class TestArcjetFactoryEnvironmentKwarg:
             environment="development",
         )
         assert aj._environment == "development"
-        # 1000 ms dev timeout proves _default_timeout_ms saw the kwarg.
-        assert aj._timeout_ms == 1000
+        assert aj._timeout_ms == 2000
 
-    def test_kwarg_production_sets_short_timeout(self, monkeypatch: pytest.MonkeyPatch):
+    def test_kwarg_production_beats_env_var(self, monkeypatch: pytest.MonkeyPatch):
         from arcjet import arcjet
         from arcjet._enums import Mode
         from arcjet._rules import shield
@@ -777,8 +703,7 @@ class TestArcjetFactoryEnvironmentKwarg:
             environment="production",
         )
         assert aj._environment == "production"
-        # Explicit kwarg beats env var: 500 ms prod timeout.
-        assert aj._timeout_ms == 500
+        assert aj._timeout_ms == 2000
 
     def test_no_kwarg_falls_back_to_env_var(self, monkeypatch: pytest.MonkeyPatch):
         """Pre-existing behavior: no kwarg + ARCJET_ENV=development -> dev mode.
@@ -792,7 +717,7 @@ class TestArcjetFactoryEnvironmentKwarg:
         monkeypatch.setenv("ARCJET_ENV", "development")
         aj = arcjet(key="ajkey_x", rules=[shield(mode=Mode.LIVE)])
         assert aj._environment is None
-        assert aj._timeout_ms == 1000
+        assert aj._timeout_ms == 2000
 
     def test_explicit_timeout_overrides_kwarg_inference(
         self, monkeypatch: pytest.MonkeyPatch
