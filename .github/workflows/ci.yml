@@ -179,6 +179,9 @@ jobs:
         python-version: ["3.10", "3.14"]
     runs-on: macos-latest
     timeout-minutes: 30
+    # macos-latest ships openssl on PATH (`/usr/bin/openssl`), so unlike
+    # Windows there is no extra PATH step. The TLS transport tests skip at
+    # collection if `shutil.which("openssl")` misses.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
