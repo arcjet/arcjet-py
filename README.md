@@ -257,6 +257,9 @@ Or with pip:
 pip install arcjet
 ```
 
+Prefer a glibc Linux image (Debian/Ubuntu slim) in containers. Alpine/musl is
+not a supported install target — see [Compatibility](#compatibility).
+
 ## Prompt injection detection
 
 Detect and block prompt injection attacks — attempts by users to hijack your
@@ -2032,8 +2035,22 @@ Policy](https://docs.arcjet.com/security).
 
 ## Compatibility
 
-Packages maintained in this repository are compatible with Python 3.10 and
-above.
+Packages maintained in this repository support CPython 3.10+ on macOS, Windows,
+and glibc Linux (Debian, Ubuntu, RHEL, and `*-slim` / manylinux container
+images).
+
+Two runtime dependencies ship native code:
+
+- [`wasmtime`](https://pypi.org/project/wasmtime/) — local WASM rule evaluation
+- [`pyqwest`](https://pypi.org/project/pyqwest/) — HTTP client used by
+  `connect-python`
+
+Those packages publish `musllinux` wheels today, so `pip install arcjet` often
+succeeds on Alpine without a compiler. Alpine/musl is still **not a supported
+target**. A future wheel gap forces a source build (Rust plus a C toolchain),
+which is what broke `python3.10-alpine` images after local analysis landed.
+Prefer a glibc image such as `python:3.10-slim` or
+`astral/uv:python3.10-trixie-slim`.
 
 ## License
 
