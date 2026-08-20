@@ -450,8 +450,6 @@ def _rewrite_rate_limit_reset(
     if which != "rate_limit":
         return
     rate_limit = reason.rate_limit
-    if rate_limit is None:
-        return
     if hasattr(rate_limit, "reset_in_seconds"):
         rate_limit.reset_in_seconds = remaining_ttl
 
