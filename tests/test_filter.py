@@ -33,10 +33,6 @@ class TestFilterRequestFactory:
         assert rule.allow == ('http.host == "example.com"',)
         assert rule.deny == ()
 
-    def test_default_mode_is_live(self):
-        rule = filter_request(mode=Mode.LIVE, deny=["ip.src == 1"])
-        assert rule.mode == Mode.LIVE
-
     def test_dry_run_mode(self):
         rule = filter_request(mode=Mode.DRY_RUN, deny=["ip.src == 1"])
         assert rule.mode == Mode.DRY_RUN

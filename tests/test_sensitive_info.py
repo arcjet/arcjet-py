@@ -75,10 +75,6 @@ class TestDetectSensitiveInfoFactory:
         )
         assert rule.deny == (SensitiveInfoEntityType.EMAIL,)
 
-    def test_default_mode_is_live(self):
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["EMAIL"])
-        assert rule.mode == Mode.LIVE
-
     def test_dry_run_mode(self):
         rule = detect_sensitive_info(mode=Mode.DRY_RUN, deny=["EMAIL"])
         assert rule.mode == Mode.DRY_RUN

@@ -21,5 +21,5 @@ def test_http_factory_requires_mode(mock_protobuf_modules, factory, kwargs):
     import arcjet._rules as rules
 
     fn = getattr(rules, factory)
-    with pytest.raises(TypeError, match="mode"):
+    with pytest.raises(TypeError, match=r"missing.*'mode'"):
         fn(**kwargs)
