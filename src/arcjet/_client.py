@@ -980,6 +980,10 @@ class Arcjet:
         route-specific clones still benefit from cached denials. Flags
         such as ``_needs_email`` are recomputed from the combined rule set.
 
+        Stored rule order is declaration order, matching JS ``withRule``.
+        Local WASM evaluation still re-sorts via ``_sort_rules_for_local``,
+        so a Sensitive Info rule added here runs before Bot/Email.
+
         Args:
             rule: A single rule or a sequence of rules.
 
@@ -1512,6 +1516,10 @@ class ArcjetSync:
         The returned client shares this instance's decision cache, so
         route-specific clones still benefit from cached denials. Flags
         such as ``_needs_email`` are recomputed from the combined rule set.
+
+        Stored rule order is declaration order, matching JS ``withRule``.
+        Local WASM evaluation still re-sorts via ``_sort_rules_for_local``,
+        so a Sensitive Info rule added here runs before Bot/Email.
 
         Args:
             rule: A single rule or a sequence of rules.
