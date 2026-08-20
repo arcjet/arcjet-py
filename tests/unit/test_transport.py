@@ -13,8 +13,11 @@ broken *published* package needs a scheduled install-and-request job.
 from __future__ import annotations
 
 import http.server
+import os
+import shutil
 import ssl
 import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -189,9 +192,38 @@ class _LocalHTTPS:
         self.ca_pem = ca_pem
 
 
+def _openssl_bin() -> str | None:
+    """Return an ``openssl`` executable, or ``None`` if none is installed.
+
+    GitHub's Windows image ships OpenSSL, but it is not always on PATH for
+    PowerShell. Search the well-known install locations.
+    """
+    found = shutil.which("openssl")
+    if found is not None:
+        return found
+    if sys.platform != "win32":
+        return None
+    program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    for candidate in (
+        program_files / "OpenSSL" / "bin" / "openssl.exe",
+        program_files / "OpenSSL-Win64" / "bin" / "openssl.exe",
+        program_files / "Git" / "usr" / "bin" / "openssl.exe",
+        program_files / "Git" / "mingw64" / "bin" / "openssl.exe",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+_OPENSSL = _openssl_bin()
+_OPENSSL_SKIP_REASON = "openssl is required for the local HTTPS transport tests"
+
+
 def _run_openssl(*args: str) -> None:
+    if _OPENSSL is None:
+        raise FileNotFoundError(_OPENSSL_SKIP_REASON)
     subprocess.run(
-        ["openssl", *args],
+        [_OPENSSL, *args],
         check=True,
         capture_output=True,
         text=True,
@@ -308,6 +340,7 @@ def _assert_unknown_issuer(exc: BaseException) -> None:
     assert "UnknownIssuer" in message, message
 
 
+@pytest.mark.skipif(_OPENSSL is None, reason=_OPENSSL_SKIP_REASON)
 class TestIssue201Reproduction:
     """Reproduce the 0.9.0 TLS failure against a local HTTPS server.
 

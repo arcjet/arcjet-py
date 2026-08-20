@@ -92,8 +92,9 @@ jobs:
   # above therefore needs no change to the ruleset, which cannot be edited from
   # a pull request and so would otherwise drift behind the matrix.
   #
-  # The name is the context `main` already requires. It predates the matrix,
-  # when the only axis was `os`.
+  # The name is the context `main` already requires. It predates the Python
+  # matrix, when the only axis was `os`. Windows and macOS report through
+  # their own aggregators below so this check stays Linux-only.
   test-matrix:
     name: Run tests (ubuntu-latest)
     # Runs whether the matrix passed or failed, so the context always reports.
@@ -110,4 +111,95 @@ jobs:
         if: needs.test.result != 'success'
         run: |
           echo "::error::Test matrix result: ${{ needs.test.result }}"
+          exit 1
+
+  # Floor + current latest on each non-Linux OS. Ubuntu already covers every
+  # released interpreter; repeating that on windows-latest (2× minutes) and
+  # macos-latest (10×) would dominate the bill without catching much more than
+  # "does the locked wheel set install, and does WASM/TLS still work".
+  #
+  # Separate jobs — not extra cells on `test` — so a Windows or macOS failure
+  # cannot fail the required `Run tests (ubuntu-latest)` context. Each OS has
+  # its own aggregator with a stable name for a later ruleset addition.
+  test-windows:
+    name: Run tests (windows-latest, py${{ matrix.python-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    runs-on: windows-latest
+    # First-run uv/Python/wheel fetch on Windows is slower than Ubuntu; a hung
+    # wasmtime or onnxruntime import must not sit on the 6h GitHub default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The local-HTTPS transport tests shell out to `openssl`. The image ships
+      # it, but it is not always on PATH for PowerShell.
+      - name: Put OpenSSL on PATH
+        shell: pwsh
+        run: |
+          if (Get-Command openssl -ErrorAction SilentlyContinue) { exit 0 }
+          foreach ($dir in @(
+            "${env:ProgramFiles}\OpenSSL\bin",
+            "${env:ProgramFiles}\OpenSSL-Win64\bin",
+            "${env:ProgramFiles}\Git\usr\bin",
+            "${env:ProgramFiles}\Git\mingw64\bin"
+          )) {
+            if (Test-Path (Join-Path $dir "openssl.exe")) {
+              Add-Content -Path $env:GITHUB_PATH -Value $dir
+              exit 0
+            }
+          }
+          Write-Error "openssl.exe not found (required by tests/unit/test_transport.py)"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Tests
+        run: uv run --python ${{ matrix.python-version }} pytest
+
+  test-windows-matrix:
+    name: Run tests (windows-latest)
+    if: ${{ !cancelled() }}
+    needs: test-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the matrix result
+        if: needs.test-windows.result != 'success'
+        run: |
+          echo "::error::Windows test matrix result: ${{ needs.test-windows.result }}"
+          exit 1
+
+  test-macos:
+    name: Run tests (macos-latest, py${{ matrix.python-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    # macos-latest ships openssl on PATH (`/usr/bin/openssl`), so unlike
+    # Windows there is no extra PATH step. The TLS transport tests skip at
+    # collection if `shutil.which("openssl")` misses.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Tests
+        run: uv run --python ${{ matrix.python-version }} pytest
+
+  test-macos-matrix:
+    name: Run tests (macos-latest)
+    if: ${{ !cancelled() }}
+    needs: test-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the matrix result
+        if: needs.test-macos.result != 'success'
+        run: |
+          echo "::error::macOS test matrix result: ${{ needs.test-macos.result }}"
           exit 1
