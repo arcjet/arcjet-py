@@ -209,6 +209,10 @@ def _sdk_version(default: str = "0.0.0") -> str:
 # Local evaluation order matches the JS SDK priority table. The first LIVE
 # DENY wins, so Sensitive Info must run before any rule that might forward
 # the payload.
+#
+# PromptInjectionDetection is listed for JS-order parity only. It is not
+# evaluated locally today — ``_run_local_rules`` has no PI branch — so the
+# rank is reserved until a local evaluator is wired up.
 _LOCAL_RULE_PRIORITY: dict[type[RuleSpec], int] = {
     SensitiveInfoDetection: 1,
     Filter: 2,
@@ -220,11 +224,24 @@ _LOCAL_RULE_PRIORITY: dict[type[RuleSpec], int] = {
     EmailValidation: 6,
     PromptInjectionDetection: 7,
 }
+_UNMAPPED_LOCAL_PRIORITY = 100
+
+
+def _local_rule_priority(rule: RuleSpec) -> int:
+    """Return the JS local-evaluation rank, or the unmapped fallback."""
+    priority = _LOCAL_RULE_PRIORITY.get(type(rule))
+    if priority is not None:
+        return priority
+    logger.debug(
+        "No local-evaluation priority for %s; sorting after mapped rules",
+        type(rule).__name__,
+    )
+    return _UNMAPPED_LOCAL_PRIORITY
 
 
 def _sort_rules_for_local(rules: Sequence[RuleSpec]) -> list[RuleSpec]:
     """Sort rules by JS local-evaluation priority (stable for equal ranks)."""
-    return sorted(rules, key=lambda rule: _LOCAL_RULE_PRIORITY.get(type(rule), 100))
+    return sorted(rules, key=_local_rule_priority)
 
 
 def _run_local_rules(
