@@ -556,11 +556,15 @@ class TestAsyncDelivery:
                 flush_task = asyncio.create_task(delivery.flush(100))
                 deadline = time.monotonic() + TIMEOUT
                 while not delivery._flush_now:
-                    assert time.monotonic() < deadline, "flush never started"
+                    if time.monotonic() >= deadline:
+                        raise AssertionError("flush never started")
                     await asyncio.sleep(0)
                 delivery.capture(event("late-1"))
                 delivery.capture(event("late-2"))
-                await flush_task
+                try:
+                    await asyncio.wait_for(flush_task, timeout=TIMEOUT)
+                except (asyncio.TimeoutError, TimeoutError) as exc:
+                    raise AssertionError("flush did not finish") from exc
 
                 assert len(delivery._queue) == 2, "late events must still be queued"
             finally:
