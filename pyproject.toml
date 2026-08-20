@@ -101,7 +101,7 @@ dev = [
   # tests/analyze/test_detect_bot.py::TestDetectBotThreadSafety and arcjet-py#185.
   "pytest==9.0.3",
   "pytest-cov>=7.0.0",
-  "ruff==0.15.22",
+  "ruff==0.16.2",
   "tomli>=2.0.0; python_version < '3.11'",
   "ty==0.0.23",
   "types-protobuf==7.34.1.20260518",

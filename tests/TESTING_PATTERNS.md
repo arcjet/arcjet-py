@@ -188,6 +188,7 @@ def wasm_path() -> str:
     assert os.path.exists(WASM_PATH), f"WASM not found: {WASM_PATH}"
     return WASM_PATH
 
+
 @pytest.fixture()
 def component(wasm_path: str) -> AnalyzeComponent:
     """Default AnalyzeComponent with no custom callbacks."""
@@ -200,13 +201,15 @@ Define reusable request JSON constants in `conftest.py`:
 
 ```python
 # tests/analyze/conftest.py
-BOT_REQUEST = json.dumps({
-    "ip": "1.2.3.4",
-    "method": "GET",
-    "host": "example.com",
-    "path": "/",
-    "headers": {"user-agent": "curl/8.0"},
-})
+BOT_REQUEST = json.dumps(
+    {
+        "ip": "1.2.3.4",
+        "method": "GET",
+        "host": "example.com",
+        "path": "/",
+        "headers": {"user-agent": "curl/8.0"},
+    }
+)
 
 # In test files, import and optionally alias:
 from .conftest import BOT_REQUEST as CURL_REQUEST
@@ -240,7 +243,7 @@ variant was returned, then access `.value` for the payload:
 
 ```python
 result = component.detect_bot(request, config)
-assert isinstance(result, Ok)          # or Err for error cases
+assert isinstance(result, Ok)  # or Err for error cases
 assert isinstance(result.value, BotResult)
 assert result.value.denied == ["CURL"]
 ```

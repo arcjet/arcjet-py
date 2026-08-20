@@ -105,7 +105,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from arcjet import (
-    arcjet,        # async client — use arcjet_sync for Flask and other sync frameworks
+    arcjet,  # async client — use arcjet_sync for Flask and other sync frameworks
     detect_bot,
     detect_prompt_injection,
     detect_sensitive_info,
@@ -274,6 +274,7 @@ aj = arcjet(
     ],
 )
 
+
 @app.post("/chat")
 async def chat(request: Request, body: ChatRequest):
     decision = await aj.protect(
@@ -298,6 +299,7 @@ aj = arcjet_sync(
         detect_prompt_injection(mode=Mode.LIVE),
     ],
 )
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -346,6 +348,7 @@ aj = arcjet(
     ],
 )
 
+
 @app.get("/")
 async def index(request: Request):
     decision = await aj.protect(request)
@@ -367,6 +370,7 @@ aj = arcjet_sync(
         detect_bot(mode=Mode.LIVE, allow=[BotCategory.SEARCH_ENGINE]),
     ],
 )
+
 
 @app.route("/")
 def index():
@@ -446,12 +450,13 @@ aj = arcjet(
         token_bucket(
             characteristics=["userId"],  # or ["ip.src"] for IP-based
             mode=Mode.LIVE,
-            refill_rate=100,   # tokens added per interval
-            interval=60,       # interval in seconds
-            capacity=1000,     # maximum tokens per bucket
+            refill_rate=100,  # tokens added per interval
+            interval=60,  # interval in seconds
+            capacity=1000,  # maximum tokens per bucket
         ),
     ],
 )
+
 
 @app.post("/chat")
 async def chat(request: Request):
@@ -527,6 +532,7 @@ You can supplement built-in detectors with a custom `detect` callback:
 ```py
 def my_detect(tokens: list[str]) -> list[str | None]:
     return ["CUSTOM_PII" if "secret" in t.lower() else None for t in tokens]
+
 
 rules = [
     detect_sensitive_info(
@@ -651,12 +657,15 @@ aj = arcjet(
     ],
 )
 
+
 @app.get("/")
 async def index(request: Request):
     decision = await aj.protect(request)
 
     if decision.is_denied():
-        return JSONResponse({"error": "Access restricted in your region"}, status_code=403)
+        return JSONResponse(
+            {"error": "Access restricted in your region"}, status_code=403
+        )
 ```
 
 To restrict to a specific state or province, combine country and region:
@@ -683,9 +692,9 @@ aj = arcjet(
         filter_request(
             mode=Mode.LIVE,
             deny=[
-                "ip.src.vpn",    # VPN services
+                "ip.src.vpn",  # VPN services
                 "ip.src.proxy",  # Open proxies
-                "ip.src.tor",    # Tor exit nodes
+                "ip.src.tor",  # Tor exit nodes
             ],
         ),
     ],
@@ -750,10 +759,10 @@ if decision.ip.is_vpn() or decision.ip.is_proxy() or decision.ip.is_tor():
 # Typed field access
 ip = decision.ip_details
 if ip:
-    print(ip.city, ip.country_name)   # geolocation
-    print(ip.asn, ip.asn_name)        # ASN / network
-    print(ip.is_vpn, ip.is_hosting)   # reputation
-    if ip.threat:                     # optional threat intelligence
+    print(ip.city, ip.country_name)  # geolocation
+    print(ip.asn, ip.asn_name)  # ASN / network
+    print(ip.is_vpn, ip.is_hosting)  # reputation
+    if ip.threat:  # optional threat intelligence
         threat = ip.threat
         print(threat.risk_level, threat.confidence, threat.reputation)
         print(threat.is_safe, threat.network_types, threat.activities)
@@ -780,7 +789,15 @@ budgets before invoking the agent.
 ### FastAPI + LangChain
 
 ```py
-from arcjet import arcjet, detect_bot, detect_prompt_injection, detect_sensitive_info, token_bucket, Mode, SensitiveInfoEntityType
+from arcjet import (
+    arcjet,
+    detect_bot,
+    detect_prompt_injection,
+    detect_sensitive_info,
+    token_bucket,
+    Mode,
+    SensitiveInfoEntityType,
+)
 
 aj = arcjet(
     key=arcjet_key,
@@ -795,9 +812,16 @@ aj = arcjet(
             ],
         ),
         detect_bot(mode=Mode.LIVE, allow=["CURL"]),
-        token_bucket(characteristics=["userId"], mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
+        token_bucket(
+            characteristics=["userId"],
+            mode=Mode.LIVE,
+            refill_rate=5,
+            interval=10,
+            capacity=10,
+        ),
     ],
 )
+
 
 @app.post("/chat")
 async def chat(request: Request, body: ChatRequest):
@@ -820,7 +844,15 @@ async def chat(request: Request, body: ChatRequest):
 ### Flask + LangChain
 
 ```py
-from arcjet import arcjet_sync, detect_bot, detect_prompt_injection, detect_sensitive_info, token_bucket, Mode, SensitiveInfoEntityType
+from arcjet import (
+    arcjet_sync,
+    detect_bot,
+    detect_prompt_injection,
+    detect_sensitive_info,
+    token_bucket,
+    Mode,
+    SensitiveInfoEntityType,
+)
 
 aj = arcjet_sync(
     key=arcjet_key,
@@ -835,9 +867,16 @@ aj = arcjet_sync(
             ],
         ),
         detect_bot(mode=Mode.LIVE, allow=["CURL"]),
-        token_bucket(characteristics=["userId"], mode=Mode.LIVE, refill_rate=5, interval=10, capacity=10),
+        token_bucket(
+            characteristics=["userId"],
+            mode=Mode.LIVE,
+            refill_rate=5,
+            interval=10,
+            capacity=10,
+        ),
     ],
 )
+
 
 @app.post("/chat")
 def chat():
@@ -886,7 +925,7 @@ content moderation, sensitive information detection, and custom rules.
 ```py
 import os
 from arcjet.guard import (
-    launch_arcjet,       # async — use launch_arcjet_sync for sync frameworks
+    launch_arcjet,  # async — use launch_arcjet_sync for sync frameworks
     TokenBucket,
     DetectPromptInjection,
     ModerateContent,
@@ -909,6 +948,7 @@ user_limit = TokenBucket(
 prompt_scan = DetectPromptInjection()
 moderate = ModerateContent()
 sensitive = LocalDetectSensitiveInfo(deny=["EMAIL", "CREDIT_CARD_NUMBER"])
+
 
 # At call time, bind input and guard
 async def handle_tool_call(user_id: str, message: str):
@@ -1002,6 +1042,7 @@ with arcjet_sequence(correlation_id="request-id-123"):
 
 # Outside the sequence, ID is None
 assert current_correlation_id() is None
+
 
 # Worker resumes the sequence by reopening it. Nothing is inherited across a
 # broker or a bare thread, so the ID has to arrive as data.
@@ -1179,10 +1220,9 @@ the tool it wraps.
 class PublicEmailArgs(BaseModel):
     to: str  # `internal_note` is deliberately absent
 
+
 send_email_tool.args_schema = PublicEmailArgs  # narrow first, then guard
-guarded_send_email = guard_tool(
-    guard=aj, tool=send_email_tool, action="email.sent"
-)
+guarded_send_email = guard_tool(guard=aj, tool=send_email_tool, action="email.sent")
 ```
 
 Note that "discarded" is not "rejected": pydantic ignores an unknown field by
@@ -1277,6 +1317,7 @@ from arcjet.guard import launch_arcjet_sync, TokenBucket
 aj = launch_arcjet_sync(key=arcjet_key)
 user_limit = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
 
+
 def handle_tool_call(user_id: str):
     decision = aj.guard(
         label="tools.weather",
@@ -1302,9 +1343,9 @@ token count) for each invocation:
 from arcjet.guard import TokenBucket
 
 user_limit = TokenBucket(
-    refill_rate=100,      # tokens added per interval
+    refill_rate=100,  # tokens added per interval
     interval_seconds=60,  # seconds between refills
-    max_tokens=1000,      # maximum bucket capacity
+    max_tokens=1000,  # maximum bucket capacity
 )
 
 # At call time:
@@ -1437,14 +1478,18 @@ override `evaluate` (sync) or `evaluate_async` (async):
 from typing import TypedDict
 from arcjet.guard import LocalCustomRule, CustomEvaluateResult
 
+
 class TopicConfig(TypedDict):
     blocked_topic: str
+
 
 class TopicInput(TypedDict):
     topic: str
 
+
 class TopicData(TypedDict):
     matched: str
+
 
 class TopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
     def evaluate(
@@ -1458,6 +1503,7 @@ class TopicBlockRule(LocalCustomRule[TopicConfig, TopicInput, TopicData]):
                 data={"matched": input["topic"]},
             )
         return CustomEvaluateResult(conclusion="ALLOW")
+
 
 rule = TopicBlockRule(config={"blocked_topic": "weapons"})
 inp = rule(data={"topic": user_topic})
@@ -1499,13 +1545,13 @@ if denied:
 decision = await aj.guard(label="tools.weather", rules=[...])
 
 # Layer 1: conclusion and reason
-decision.conclusion   # "ALLOW" or "DENY"
-decision.reason       # "RATE_LIMIT", "PROMPT_INJECTION", "MODERATE_CONTENT", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
+decision.conclusion  # "ALLOW" or "DENY"
+decision.reason  # "RATE_LIMIT", "PROMPT_INJECTION", "MODERATE_CONTENT", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
 
 # Layer 2: error/warning detection
 decision.has_failed_open()  # True if ALLOW only because a rule/decision could not be processed (fail-closed gate)
 decision.error_results()  # Results that errored (rules or the decision that could not be processed)
-decision.warnings           # Decision-level diagnostics (e.g. an invalid metadata key that was stripped)
+decision.warnings  # Decision-level diagnostics (e.g. an invalid metadata key that was stripped)
 
 # Layer 3: per-rule results (see "Per-rule results" above)
 for result in decision.results:
@@ -1611,8 +1657,8 @@ if decision.conclusion == "ALLOW":
 
     aj.capture(
         action="refund.issued",
-        correlation_id=workflow_id,   # ties this to other calls in the workflow
-        decision_id=decision.id,      # ties it to the decision above
+        correlation_id=workflow_id,  # ties this to other calls in the workflow
+        decision_id=decision.id,  # ties it to the decision above
         metadata={"amount_cents": 4999, "invoice": {"id": "inv_123"}},
     )
 ```
@@ -1850,6 +1896,7 @@ Create one Arcjet client at startup and reuse it across all requests:
 # Good — one instance, created once at startup
 aj = arcjet(key=arcjet_key, rules=[...])
 
+
 # Bad — new instance per request wastes resources
 @app.get("/")
 async def index(request: Request):
@@ -1942,16 +1989,16 @@ All parameters are optional keyword arguments passed alongside the `request`:
 decision = await aj.protect(request)
 
 # Top-level checks
-decision.is_denied()     # True if any rule denied the request
-decision.is_allowed()    # True if all rules allowed the request
-decision.is_error()      # True if Arcjet encountered an error (fails open)
+decision.is_denied()  # True if any rule denied the request
+decision.is_allowed()  # True if all rules allowed the request
+decision.is_error()  # True if Arcjet encountered an error (fails open)
 
 # reason_v2.type values: "BOT", "RATE_LIMIT", "SHIELD", "EMAIL", "ERROR", "FILTER"
 if decision.reason_v2.type == "RATE_LIMIT":
     print(decision.reason_v2.remaining)  # tokens/requests remaining
 elif decision.reason_v2.type == "BOT":
-    print(decision.reason_v2.denied)     # list of denied bot names
-    print(decision.reason_v2.spoofed)    # list of spoofed bot names
+    print(decision.reason_v2.denied)  # list of denied bot names
+    print(decision.reason_v2.spoofed)  # list of spoofed bot names
 
 # Per-rule results (for granular handling)
 for result in decision.results:

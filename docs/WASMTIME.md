@@ -89,9 +89,9 @@ wasmtime-py v40 maps `result<T, E>` without `Ok`/`Err` wrappers:
 Record attributes use **kebab-case** names matching the WIT definition:
 
 ```python
-result.allowed                                     # works (single word)
-getattr(result, "matched-expressions")             # required for kebab-case
-getattr(result, "undetermined-expressions")        # required for kebab-case
+result.allowed  # works (single word)
+getattr(result, "matched-expressions")  # required for kebab-case
+getattr(result, "undetermined-expressions")  # required for kebab-case
 ```
 
 ## Variant type mapping (validated by spike)
