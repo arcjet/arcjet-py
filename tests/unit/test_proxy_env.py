@@ -95,12 +95,9 @@ class _FakeProxy:
 
 
 def _make_transport() -> pyqwest.SyncHTTPTransport:
-    # Use the same HTTP/2 setting the SDK's transport uses (see arcjet_sync()
-    # and the guard client), so we exercise the same proxy/CONNECT-tunnel code
-    # path the real client uses. connect_timeout is a test-only addition to keep
-    # the bypass cases fast; the SDK does not set it.
-    # Built through the SDK's own helper so this cannot drift from it again;
-    # connect_timeout is a test-only addition to keep the bypass cases fast.
+    # Built through the SDK's own helper so TLS settings cannot drift from the
+    # factories. connect_timeout is a test-only addition to keep the bypass
+    # cases fast; the SDK does not set it (it uses the default transport).
     return build_sync_transport(connect_timeout=3.0)
 
 
