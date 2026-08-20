@@ -15,7 +15,11 @@ dependencies = [
   "arcjet==0.10.0b1",
   "numpy>=1.24",
   # 1.23+ dropped CPython 3.10 wheels; the SDK still supports 3.10.
-  "onnxruntime>=1.17,<1.23",
+  # 3.14 needs a newer line (1.24+ added those wheels but dropped 3.10).
+  # Pin 3.14 to 1.28 — the line we lock and test. 1.24.1/1.24.2 segfaulted
+  # on 3.14, and a `<2` ceiling would float later untested 1.x minors.
+  "onnxruntime>=1.17,<1.23; python_version < '3.14'",
+  "onnxruntime>=1.28,<1.29; python_version >= '3.14'",
   "tokenizers>=0.20",
 ]
 classifiers = [

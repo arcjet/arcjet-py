@@ -72,7 +72,7 @@ jobs:
         # released versions the package installs on. The repo pins 3.10 in
         # `.python-version`, so without this axis only the floor is exercised.
         # Add each new Python here as it is released.
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,7 +83,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Tests
         # `--python` rather than the environment alone, so the run cannot fall
-        # back to `.python-version` and silently retest the floor three times.
+        # back to `.python-version` and silently retest the floor on every
+        # other cell.
         run: uv run --python ${{ matrix.python-version }} pytest
 
   # One check that stands for the whole matrix, so branch protection names a
