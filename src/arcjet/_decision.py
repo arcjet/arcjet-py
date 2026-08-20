@@ -14,6 +14,7 @@ Core types:
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 
@@ -490,3 +491,56 @@ def is_missing_user_agent(result: RuleResult) -> bool:
         "missing User-Agent header" in message
         or "requires user-agent header" in message
     )
+
+
+def _clone_decision_proto(src: decide_pb2.Decision) -> decide_pb2.Decision:
+    """Deep-copy a decision proto without aliasing the cached object.
+
+    Construct the clone from ``type(src)`` so test stubs do not get mixed
+    with the real protobuf class (``CopyFrom`` requires the same type).
+    Real messages use ``CopyFrom``; anything else falls back to ``deepcopy``.
+    """
+    clone = type(src)()
+    copy_from = getattr(clone, "CopyFrom", None)
+    if callable(copy_from):
+        try:
+            copy_from(src)
+            return clone
+        except TypeError:
+            pass
+    return copy.deepcopy(src)
+
+
+def _rewrite_rate_limit_reset(
+    reason: decide_pb2.Reason | None, remaining_ttl: int
+) -> None:
+    """Point rate-limit ``reset`` at the live remaining cache lifetime."""
+    if reason is None:
+        return
+    which = reason.WhichOneof("reason") if hasattr(reason, "WhichOneof") else None
+    if which != "rate_limit":
+        return
+    rate_limit = reason.rate_limit
+    if hasattr(rate_limit, "reset_in_seconds"):
+        rate_limit.reset_in_seconds = remaining_ttl
+
+
+def materialize_cached_decision(
+    cached: Decision, remaining_ttl: int, request_id: str
+) -> Decision:
+    """Return an isolated cache-hit decision with a live TTL and request id.
+
+    The cached proto is never mutated. Rate-limit ``reset`` / ``reset_in_seconds``
+    are rewritten to ``remaining_ttl`` so ``Retry-After`` stays accurate.
+    """
+    proto = _clone_decision_proto(cached.to_proto())
+    proto.id = request_id
+    proto.ttl = remaining_ttl
+    reason = proto.reason if getattr(proto, "reason", None) is not None else None
+    _rewrite_rate_limit_reset(reason, remaining_ttl)
+    for rule_result in getattr(proto, "rule_results", ()) or ():
+        rr_reason = getattr(rule_result, "reason", None)
+        _rewrite_rate_limit_reset(rr_reason, remaining_ttl)
+        if hasattr(rule_result, "ttl"):
+            rule_result.ttl = remaining_ttl
+    return Decision(proto)

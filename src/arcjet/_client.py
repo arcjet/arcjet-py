@@ -42,7 +42,7 @@ from ._context import (
     coerce_request_context,
     request_details_from_context,
 )
-from ._decision import Decision
+from ._decision import Decision, materialize_cached_decision
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._ids import crockford32, uuidv7_bytes
 from ._local import (
@@ -673,13 +673,17 @@ class Arcjet:
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
-        cached = self._cache.get(cache_key) if cache_key is not None else None
-        if cached is not None:
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
+        if cached_hit is not None:
+            cached, remaining_ttl = cached_hit
+            # Isolate the caller from the cached proto: new id, live TTL, and
+            # a rewritten rate-limit reset. The object in the cache is unchanged.
+            served = materialize_cached_decision(
+                cached, remaining_ttl, _new_local_request_id()
+            )
             # Fire-and-forget async report; do not await
             try:
-                # Use cached decision but override ID with locally generated request ID
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
+                dec = served.to_proto()
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
@@ -717,9 +721,9 @@ class Arcjet:
                     logger.debug(
                         "report: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                         dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
+                        decide_pb2.Conclusion.Name(served.conclusion),
+                        served.reason.which(),
+                        str(served.ttl),
                         round(api_ms, 3),
                         round(prepare_ms, 3),
                         round(total_ms, 3),
@@ -727,9 +731,9 @@ class Arcjet:
                         extra={
                             "event": "arcjet_report_cache_hit",
                             "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
+                            "conclusion": decide_pb2.Conclusion.Name(served.conclusion),
+                            "reason": served.reason.which(),
+                            "ttl": served.ttl,
                             "rule_count": len(self._rules),
                             "api_ms": round(api_ms, 3),
                             "prepare_ms": round(prepare_ms, 3),
@@ -745,7 +749,7 @@ class Arcjet:
                         "error": str(e),
                     },
                 )
-            return cached
+            return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
         local_decision = _run_local_rules(ctx, self._rules)
@@ -1179,12 +1183,15 @@ class ArcjetSync:
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
-        cached = self._cache.get(cache_key) if cache_key is not None else None
-        if cached is not None:
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
+        if cached_hit is not None:
+            cached, remaining_ttl = cached_hit
+            served = materialize_cached_decision(
+                cached, remaining_ttl, _new_local_request_id()
+            )
             # Fire-and-forget background report using sync client
             try:
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
+                dec = served.to_proto()
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
@@ -1221,9 +1228,9 @@ class ArcjetSync:
                     logger.debug(
                         "report (cache-hit sync): id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                         dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
+                        decide_pb2.Conclusion.Name(served.conclusion),
+                        served.reason.which(),
+                        str(served.ttl),
                         round(api_ms, 3),
                         round(prepare_ms, 3),
                         round(total_ms, 3),
@@ -1231,9 +1238,9 @@ class ArcjetSync:
                         extra={
                             "event": "arcjet_report_cache_hit",
                             "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
+                            "conclusion": decide_pb2.Conclusion.Name(served.conclusion),
+                            "reason": served.reason.which(),
+                            "ttl": served.ttl,
                             "rule_count": len(self._rules),
                             "api_ms": round(api_ms, 3),
                             "prepare_ms": round(prepare_ms, 3),
@@ -1249,7 +1256,7 @@ class ArcjetSync:
                         "error": str(e),
                     },
                 )
-            return cached
+            return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
         local_decision = _run_local_rules(ctx, self._rules)
