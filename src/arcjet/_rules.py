@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple, Union
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -1402,4 +1402,61 @@ def filter_request(
         mode=_coerce_mode(mode),
         allow=tuple(str(e) for e in allow),
         deny=tuple(str(e) for e in deny),
+    )
+
+
+def protect_signup(
+    *,
+    rate_limit: Mapping[str, Any],
+    bots: Mapping[str, Any],
+    email: Mapping[str, Any],
+) -> Tuple[SlidingWindow, BotDetection, EmailValidation]:
+    """Signup protection: sliding window + bot detection + email validation.
+
+    Sugar over the three rules the JS ``protectSignup`` helper composes.
+    Returns a tuple you can unpack into ``arcjet(..., rules=...)``.
+
+    Args:
+        rate_limit: Options forwarded to ``sliding_window()``. Typical keys:
+            ``mode``, ``max``, and ``interval``.
+        bots: Options forwarded to ``detect_bot()``. Typical keys: ``mode``
+            and either ``allow`` or ``deny``. Use ``allow=[]`` to block every
+            detected bot.
+        email: Options forwarded to ``validate_email()``. Typical keys:
+            ``mode`` and either ``allow`` or ``deny``.
+
+    Returns:
+        ``(sliding_window, detect_bot, validate_email)`` rule specs.
+
+    Example::
+
+        from arcjet import (
+            EmailType,
+            Mode,
+            arcjet,
+            protect_signup,
+        )
+
+        aj = arcjet(
+            key="ajkey_...",
+            rules=[
+                *protect_signup(
+                    rate_limit={"mode": Mode.LIVE, "max": 5, "interval": 600},
+                    bots={"mode": Mode.LIVE, "allow": []},
+                    email={
+                        "mode": Mode.LIVE,
+                        "deny": [
+                            EmailType.DISPOSABLE,
+                            EmailType.INVALID,
+                            EmailType.NO_MX_RECORDS,
+                        ],
+                    },
+                )
+            ],
+        )
+    """
+    return (
+        sliding_window(**rate_limit),
+        detect_bot(**bots),
+        validate_email(**email),
     )
