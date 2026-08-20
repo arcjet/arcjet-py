@@ -394,18 +394,24 @@ class Decision:
         return json.dumps(self.to_dict())
 
 
+def _is_active_result(result: RuleResult) -> bool:
+    """Return ``True`` when a rule result is not a dry-run observation."""
+    return result.state != decide_pb2.RULE_STATE_DRY_RUN
+
+
 def is_spoofed_bot(result: RuleResult) -> bool:
-    """Return ``True`` if a bot detection rule found a spoofed user agent.
+    """Return ``True`` if a live bot rule found a spoofed user agent.
 
     A spoofed bot claims to be a well-known crawler (e.g. Googlebot) but
     originates from an IP address that does not match the verified ranges for
-    that crawler.
+    that crawler. Results from ``DRY_RUN`` rules are ignored so staging a bot
+    rule cannot accidentally block traffic.
 
     Args:
         result: A single ``RuleResult`` from ``decision.results``.
 
     Returns:
-        ``True`` when the bot rule detected a spoofed user agent.
+        ``True`` when a live bot rule detected a spoofed user agent.
 
     Example::
 
@@ -414,17 +420,14 @@ def is_spoofed_bot(result: RuleResult) -> bool:
         if any(is_spoofed_bot(r) for r in decision.results):
             return jsonify(error="Spoofed bot detected"), 403
     """
+    if not _is_active_result(result):
+        return False
     r = result.raw.reason
     if not r:
         return False
     if r.WhichOneof("reason") == "bot_v2":
         return bool(r.bot_v2.spoofed)
     return False
-
-
-def _is_active_result(result: RuleResult) -> bool:
-    """Return ``True`` when a rule result is not a dry-run observation."""
-    return result.state != decide_pb2.RULE_STATE_DRY_RUN
 
 
 def is_verified_bot(result: RuleResult) -> bool:
