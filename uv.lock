@@ -145,7 +145,7 @@ requires-dist = [
     { name = "arcjet", editable = "." },
     { name = "numpy", specifier = ">=1.24" },
     { name = "onnxruntime", marker = "python_full_version < '3.14'", specifier = ">=1.17,<1.23" },
-    { name = "onnxruntime", marker = "python_full_version >= '3.14'", specifier = ">=1.24.3,<2" },
+    { name = "onnxruntime", marker = "python_full_version >= '3.14'", specifier = ">=1.28,<1.29" },
     { name = "tokenizers", specifier = ">=0.20" },
 ]
 
