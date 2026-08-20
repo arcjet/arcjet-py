@@ -291,9 +291,8 @@ def local_https(tmp_path: Path) -> Iterator[_LocalHTTPS]:
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     try:
-        host, port = httpd.server_address
         yield _LocalHTTPS(
-            url=f"https://{host}:{port}/",
+            url=f"https://127.0.0.1:{httpd.server_port}/",
             ca_pem=ca_path.read_bytes(),
         )
     finally:
