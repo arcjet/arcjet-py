@@ -206,6 +206,15 @@ def _sdk_version(default: str = "0.0.0") -> str:
         return default
 
 
+def _rule_flags(rules: Sequence[RuleSpec]) -> tuple[bool, bool, bool]:
+    """Return ``(needs_email, needs_message, has_token_bucket)`` for *rules*."""
+    return (
+        any(isinstance(r, EmailValidation) for r in rules),
+        any(isinstance(r, PromptInjectionDetection) for r in rules),
+        any(isinstance(r, TokenBucket) for r in rules),
+    )
+
+
 # Local evaluation order matches the JS SDK priority table. The first LIVE
 # DENY wins, so Sensitive Info must run before any rule that might forward
 # the payload.
@@ -964,6 +973,40 @@ class Arcjet:
             )
         return decision
 
+    def with_rule(self, rule: RuleSpec | Sequence[RuleSpec]) -> Arcjet:
+        """Return a copy of this client with extra rule(s) appended.
+
+        The returned client shares this instance's decision cache, so
+        route-specific clones still benefit from cached denials. Flags
+        such as ``_needs_email`` are recomputed from the combined rule set.
+
+        Stored rule order is declaration order, matching JS ``withRule``.
+        Local WASM evaluation still re-sorts via ``_sort_rules_for_local``,
+        so a Sensitive Info rule added here runs before Bot/Email.
+
+        Args:
+            rule: A single rule or a sequence of rules.
+
+        Returns:
+            A new ``Arcjet`` instance. This client is unchanged.
+
+        Example::
+
+            signup = aj.with_rule(
+                detect_bot(mode=Mode.LIVE, allow=["CATEGORY:SEARCH_ENGINE"])
+            )
+        """
+        extra = (rule,) if isinstance(rule, RuleSpec) else tuple(rule)
+        new_rules = self._rules + extra
+        needs_email, needs_message, has_token_bucket = _rule_flags(new_rules)
+        return replace(
+            self,
+            _rules=new_rules,
+            _needs_email=needs_email,
+            _needs_message=needs_message,
+            _has_token_bucket=has_token_bucket,
+        )
+
     async def aclose(self) -> None:
         """Close the underlying transport when supported (async)."""
         close = getattr(self._client, "aclose", None)
@@ -1467,6 +1510,34 @@ class ArcjetSync:
             )
         return decision
 
+    def with_rule(self, rule: RuleSpec | Sequence[RuleSpec]) -> ArcjetSync:
+        """Return a copy of this client with extra rule(s) appended.
+
+        The returned client shares this instance's decision cache, so
+        route-specific clones still benefit from cached denials. Flags
+        such as ``_needs_email`` are recomputed from the combined rule set.
+
+        Stored rule order is declaration order, matching JS ``withRule``.
+        Local WASM evaluation still re-sorts via ``_sort_rules_for_local``,
+        so a Sensitive Info rule added here runs before Bot/Email.
+
+        Args:
+            rule: A single rule or a sequence of rules.
+
+        Returns:
+            A new ``ArcjetSync`` instance. This client is unchanged.
+        """
+        extra = (rule,) if isinstance(rule, RuleSpec) else tuple(rule)
+        new_rules = self._rules + extra
+        needs_email, needs_message, has_token_bucket = _rule_flags(new_rules)
+        return replace(
+            self,
+            _rules=new_rules,
+            _needs_email=needs_email,
+            _needs_message=needs_message,
+            _has_token_bucket=has_token_bucket,
+        )
+
     def close(self) -> None:
         """Close the underlying transport when supported (sync)."""
         close = getattr(self._client, "close", None)
@@ -1592,6 +1663,7 @@ def arcjet(
     client = DecideServiceClient(
         base_url.rstrip("/"), http_client=pyqwest.Client(transport)
     )
+    needs_email, needs_message, has_token_bucket = _rule_flags(rules)
     return Arcjet(
         _key=key,
         _rules=resolved_rules,
@@ -1600,9 +1672,9 @@ def arcjet(
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
+        _needs_email=needs_email,
+        _needs_message=needs_message,
+        _has_token_bucket=has_token_bucket,
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,
@@ -1723,6 +1795,7 @@ def arcjet_sync(
         base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
     )
 
+    needs_email, needs_message, has_token_bucket = _rule_flags(rules)
     return ArcjetSync(
         _key=key,
         _rules=resolved_rules,
@@ -1731,9 +1804,9 @@ def arcjet_sync(
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
+        _needs_email=needs_email,
+        _needs_message=needs_message,
+        _has_token_bucket=has_token_bucket,
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,
