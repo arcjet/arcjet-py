@@ -940,6 +940,7 @@ if not arcjet_key:
     raise RuntimeError("ARCJET_KEY is required")
 
 # Create a single guard client and reuse it.
+# Guard never reads ARCJET_KEY itself — pass key= explicitly (same as JS Guard).
 aj = launch_arcjet(key=arcjet_key)
 
 # Configure rules once at startup
