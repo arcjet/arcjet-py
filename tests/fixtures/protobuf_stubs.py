@@ -6,6 +6,7 @@ It uses proper fixture scoping to avoid cross-contamination between tests.
 
 from __future__ import annotations
 
+import copy
 import sys
 import types
 from collections.abc import Generator
@@ -98,7 +99,7 @@ class StubShieldRule:
 class StubPromptInjectionDetectionRule:
     """Stub for protobuf PromptInjectionDetectionRule message."""
 
-    def __init__(self, mode: int, threshold: float) -> None:
+    def __init__(self, mode: int, threshold: float = 0.0) -> None:
         self.mode = mode
         self.threshold = threshold
 
@@ -315,6 +316,16 @@ class StubDecision:
         self.ip = ip
         self.ip_details = ip_details
         self.rule_results: list[StubRuleResult] = list(rule_results or [])
+
+    def CopyFrom(self, other: StubDecision) -> None:
+        """Copy fields from *other* so cache hits can clone without aliasing."""
+        self.id = other.id
+        self.conclusion = other.conclusion
+        self.ttl = other.ttl
+        self.reason = copy.deepcopy(other.reason)
+        self.ip = other.ip
+        self.ip_details = copy.deepcopy(other.ip_details)
+        self.rule_results = copy.deepcopy(other.rule_results)
 
     def HasField(self, name: str) -> bool:
         """Check if a field has a value."""
