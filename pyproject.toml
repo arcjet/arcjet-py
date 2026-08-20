@@ -101,7 +101,7 @@ dev = [
   # now serializes wasmtime slab ops so this is safe (arcjet-py#154).
   "pytest==9.1.1",
   "pytest-cov>=7.0.0",
-  "ruff==0.16.2",
+  "ruff==0.16.3",
   "tomli>=2.0.0; python_version < '3.11'",
   "ty==0.0.23",
   "types-protobuf==7.34.1.20260518",
