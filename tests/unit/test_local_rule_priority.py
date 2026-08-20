@@ -4,26 +4,25 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from arcjet._client import _run_local_rules, _sort_rules_for_local
-from arcjet._context import RequestContext
-from arcjet._rules import (
-    BotDetection,
-    EmailValidation,
-    Filter,
-    Mode,
-    SensitiveInfoDetection,
-    Shield,
-    SlidingWindow,
-    detect_bot,
-    detect_sensitive_info,
-    filter_request,
-    shield,
-    sliding_window,
-    validate_email,
-)
-
 
 def test_sort_matches_js_priority(mock_protobuf_modules):
+    from arcjet._client import _sort_rules_for_local
+    from arcjet._rules import (
+        BotDetection,
+        EmailValidation,
+        Filter,
+        Mode,
+        SensitiveInfoDetection,
+        Shield,
+        SlidingWindow,
+        detect_bot,
+        detect_sensitive_info,
+        filter_request,
+        shield,
+        sliding_window,
+        validate_email,
+    )
+
     bot = detect_bot(mode=Mode.LIVE, deny=["CURL"])
     email = validate_email(mode=Mode.LIVE, deny=["INVALID"])
     filt = filter_request(mode=Mode.LIVE, deny=["ip.src == 1"])
@@ -42,6 +41,9 @@ def test_sort_matches_js_priority(mock_protobuf_modules):
 
 
 def test_sensitive_info_denies_before_later_bot(mock_protobuf_modules):
+    from arcjet._client import _run_local_rules
+    from arcjet._context import RequestContext
+    from arcjet._rules import Mode, detect_bot, detect_sensitive_info
     from arcjet.proto.decide.v1alpha1 import decide_pb2
 
     bot = detect_bot(mode=Mode.LIVE, deny=["CURL"])
