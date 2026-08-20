@@ -255,13 +255,22 @@ class TestSyncDelivery:
             delivery.capture(event("early"))
             assert in_send.wait(TIMEOUT)
 
-            def capture_late() -> None:
-                time.sleep(0.02)
-                delivery.capture(event("late-1"))
-                delivery.capture(event("late-2"))
+            # Capture only after flush() has snapshotted the queue. A sleep
+            # here races: if the late puts land first, they are this flush's
+            # remainder and `_abandon` drops them.
+            flushed = threading.Event()
 
-            threading.Thread(target=capture_late, daemon=True).start()
-            delivery.flush(100)  # cannot drain: the first send is stuck
+            def run_flush() -> None:
+                try:
+                    delivery.flush(100)  # cannot drain: the first send is stuck
+                finally:
+                    flushed.set()
+
+            threading.Thread(target=run_flush, daemon=True).start()
+            assert delivery._flush_now.wait(TIMEOUT)
+            delivery.capture(event("late-1"))
+            delivery.capture(event("late-2"))
+            assert flushed.wait(TIMEOUT)
 
             assert delivery._queue.qsize() == 2, "late events must still be queued"
         finally:
@@ -542,16 +551,18 @@ class TestAsyncDelivery:
                 delivery.capture(event("early"))
                 await asyncio.wait_for(in_send.wait(), TIMEOUT)
 
-                async def capture_late() -> None:
-                    await asyncio.sleep(0.02)
-                    delivery.capture(event("late-1"))
-                    delivery.capture(event("late-2"))
-
-                task = asyncio.create_task(capture_late())
-                await delivery.flush(100)  # cannot drain: the send is stuck
+                # Same race as the sync test: capture after `_flush_now` so
+                # the snapshot cannot include these events.
+                flush_task = asyncio.create_task(delivery.flush(100))
+                deadline = time.monotonic() + TIMEOUT
+                while not delivery._flush_now:
+                    assert time.monotonic() < deadline, "flush never started"
+                    await asyncio.sleep(0)
+                delivery.capture(event("late-1"))
+                delivery.capture(event("late-2"))
+                await flush_task
 
                 assert len(delivery._queue) == 2, "late events must still be queued"
-                await task
             finally:
                 blocked.set()
             await delivery.flush(TIMEOUT_MS)
