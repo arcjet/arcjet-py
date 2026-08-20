@@ -952,7 +952,11 @@ def launch_arcjet(
     """Create an async Arcjet Guard client.
 
     Args:
-        key: Your Arcjet site key.
+        key: Your Arcjet site key. Required and must be passed explicitly —
+            Guard never reads ``ARCJET_KEY`` (or any other environment
+            variable) for credentials. This matches the JavaScript Guard
+            SDK. The Go Guard SDK falls back to ``ARCJET_KEY`` when ``Key``
+            is empty; Python does not.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 2000).
         logger: Where to report capture diagnostics — dropped events, failed
@@ -1007,7 +1011,11 @@ def launch_arcjet_sync(
     """Create a sync Arcjet Guard client.
 
     Args:
-        key: Your Arcjet site key.
+        key: Your Arcjet site key. Required and must be passed explicitly —
+            Guard never reads ``ARCJET_KEY`` (or any other environment
+            variable) for credentials. This matches the JavaScript Guard
+            SDK. The Go Guard SDK falls back to ``ARCJET_KEY`` when ``Key``
+            is empty; Python does not.
         base_url: Override the Arcjet API endpoint.
         timeout_ms: Request timeout in milliseconds (default 2000).
         logger: Where to report capture diagnostics — dropped events, failed

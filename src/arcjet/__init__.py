@@ -7,9 +7,12 @@ from ._decision import (
     IpInfo,
     Reason,  # type: ignore -- intentionally deprecated
     RuleResult,
+    is_missing_user_agent,
     is_spoofed_bot,
+    is_verified_bot,
 )
 from ._enums import Mode
+from ._headers import set_rate_limit_headers
 from ._metadata import Metadata, MetadataValue
 from ._rules import (
     BotCategory,
@@ -22,6 +25,7 @@ from ._rules import (
     detect_sensitive_info,
     filter_request,
     fixed_window,
+    protect_signup,
     shield,
     sliding_window,
     token_bucket,
@@ -53,14 +57,18 @@ __all__ = [
     "IpInfo",
     "IpDetails",
     "ThreatIntelligence",
+    "is_missing_user_agent",
     "is_spoofed_bot",
+    "is_verified_bot",
     "Metadata",
     "MetadataValue",
     "Mode",
     "PromptInjectionDetection",
+    "protect_signup",
     "Reason",
     "RuleResult",
     "RuleSpec",
+    "set_rate_limit_headers",
     "shield",
     "sliding_window",
     "token_bucket",

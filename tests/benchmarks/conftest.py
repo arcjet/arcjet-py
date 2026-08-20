@@ -22,7 +22,7 @@ from arcjet._analyze import (
 from arcjet._context import RequestContext
 from arcjet._enums import Mode
 from arcjet._local import _get_component
-from arcjet._rules import BotDetection, EmailType, EmailValidation, Shield
+from arcjet._rules import BotDetection, EmailType, EmailValidation, Mode, Shield
 
 # ---------------------------------------------------------------------------
 # WASM component fixtures

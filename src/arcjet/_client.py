@@ -42,7 +42,7 @@ from ._context import (
     coerce_request_context,
     request_details_from_context,
 )
-from ._decision import Decision
+from ._decision import Decision, materialize_cached_decision
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
 from ._ids import crockford32, uuidv7_bytes
 from ._local import (
@@ -66,6 +66,7 @@ from ._rules import (
     PromptInjectionDetection,
     RuleSpec,
     SensitiveInfoDetection,
+    Shield,
     SlidingWindow,
     TokenBucket,
 )
@@ -205,6 +206,36 @@ def _sdk_version(default: str = "0.0.0") -> str:
         return default
 
 
+# Local evaluation order matches the JS SDK priority table. The first LIVE
+# DENY wins, so Sensitive Info must run before any rule that might forward
+# the payload.
+_LOCAL_RULE_PRIORITY: dict[type[RuleSpec], int] = {
+    SensitiveInfoDetection: 1,
+    Filter: 2,
+    Shield: 3,
+    TokenBucket: 4,
+    FixedWindow: 4,
+    SlidingWindow: 4,
+    BotDetection: 5,
+    EmailValidation: 6,
+    PromptInjectionDetection: 7,
+}
+
+
+def _sort_rules_for_local(rules: Sequence[RuleSpec]) -> list[RuleSpec]:
+    """Sort rules by JS local-evaluation priority (stable for equal ranks)."""
+    return sorted(rules, key=lambda rule: _LOCAL_RULE_PRIORITY.get(type(rule), 100))
+
+
+def _rule_flags(rules: Sequence[RuleSpec]) -> tuple[bool, bool, bool]:
+    """Return ``(needs_email, needs_message, has_token_bucket)`` for *rules*."""
+    return (
+        any(isinstance(r, EmailValidation) for r in rules),
+        any(isinstance(r, PromptInjectionDetection) for r in rules),
+        any(isinstance(r, TokenBucket) for r in rules),
+    )
+
+
 def _run_local_rules(
     ctx: RequestContext,
     rules: tuple[RuleSpec, ...],
@@ -213,10 +244,13 @@ def _run_local_rules(
 
     Returns a DENY Decision if any rule denies in LIVE mode (short-circuit),
     or None if all locally-evaluated rules allow (proceed to remote API).
+
+    Rules are evaluated in JS priority order, not declaration order, so a
+    Sensitive Info LIVE DENY is reported before a later Bot/Email DENY.
     """
     local_results: list[decide_pb2.RuleResult] = []
 
-    for rule in rules:
+    for rule in _sort_rules_for_local(rules):
         result: decide_pb2.RuleResult | None = None
         if isinstance(rule, BotDetection):
             result = evaluate_bot_locally(ctx, rule)
@@ -631,13 +665,17 @@ class Arcjet:
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
-        cached = self._cache.get(cache_key) if cache_key is not None else None
-        if cached is not None:
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
+        if cached_hit is not None:
+            cached, remaining_ttl = cached_hit
+            # Isolate the caller from the cached proto: new id, live TTL, and
+            # a rewritten rate-limit reset. The object in the cache is unchanged.
+            served = materialize_cached_decision(
+                cached, remaining_ttl, _new_local_request_id()
+            )
             # Fire-and-forget async report; do not await
             try:
-                # Use cached decision but override ID with locally generated request ID
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
+                dec = served.to_proto()
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
@@ -675,9 +713,9 @@ class Arcjet:
                     logger.debug(
                         "report: id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                         dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
+                        decide_pb2.Conclusion.Name(served.conclusion),
+                        served.reason.which(),
+                        str(served.ttl),
                         round(api_ms, 3),
                         round(prepare_ms, 3),
                         round(total_ms, 3),
@@ -685,9 +723,9 @@ class Arcjet:
                         extra={
                             "event": "arcjet_report_cache_hit",
                             "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
+                            "conclusion": decide_pb2.Conclusion.Name(served.conclusion),
+                            "reason": served.reason.which(),
+                            "ttl": served.ttl,
                             "rule_count": len(self._rules),
                             "api_ms": round(api_ms, 3),
                             "prepare_ms": round(prepare_ms, 3),
@@ -703,7 +741,7 @@ class Arcjet:
                         "error": str(e),
                     },
                 )
-            return cached
+            return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
         local_decision = _run_local_rules(ctx, self._rules)
@@ -917,6 +955,44 @@ class Arcjet:
                 },
             )
         return decision
+
+    def with_rule(self, rule: RuleSpec | Sequence[RuleSpec]) -> Arcjet:
+        """Return a copy of this client with extra rule(s) appended.
+
+        The returned client shares this instance's decision cache, so
+        route-specific clones still benefit from cached denials. Flags
+        such as ``_needs_email`` are recomputed from the combined rule set.
+
+        Args:
+            rule: A single rule or a sequence of rules (for example the
+                tuple returned by ``protect_signup()``).
+
+        Returns:
+            A new ``Arcjet`` instance. This client is unchanged.
+
+        Example::
+
+            signup = aj.with_rule(
+                protect_signup(
+                    rate_limit={"mode": Mode.LIVE, "max": 5, "interval": 600},
+                    bots={"mode": Mode.LIVE, "allow": []},
+                    email={
+                        "mode": Mode.LIVE,
+                        "deny": [EmailType.DISPOSABLE, EmailType.INVALID],
+                    },
+                )
+            )
+        """
+        extra = (rule,) if isinstance(rule, RuleSpec) else tuple(rule)
+        new_rules = self._rules + extra
+        needs_email, needs_message, has_token_bucket = _rule_flags(new_rules)
+        return replace(
+            self,
+            _rules=new_rules,
+            _needs_email=needs_email,
+            _needs_message=needs_message,
+            _has_token_bucket=has_token_bucket,
+        )
 
     async def aclose(self) -> None:
         """Close the underlying transport when supported (async)."""
@@ -1137,12 +1213,15 @@ class ArcjetSync:
 
         # Cache lookup before hitting Decide API
         cache_key = make_cache_key(ctx, self._rules)
-        cached = self._cache.get(cache_key) if cache_key is not None else None
-        if cached is not None:
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
+        if cached_hit is not None:
+            cached, remaining_ttl = cached_hit
+            served = materialize_cached_decision(
+                cached, remaining_ttl, _new_local_request_id()
+            )
             # Fire-and-forget background report using sync client
             try:
-                dec = cached.to_proto()
-                dec.id = _new_local_request_id()
+                dec = served.to_proto()
                 rep = decide_pb2.ReportRequest(
                     sdk_stack=_sdk_stack(self._sdk_stack),
                     sdk_version=self._sdk_version,
@@ -1179,9 +1258,9 @@ class ArcjetSync:
                     logger.debug(
                         "report (cache-hit sync): id=%s conclusion=%s reason=%s ttl=%s api_ms=%.3f prepare_ms=%.3f total_ms=%.3f rules=%d",
                         dec.id,
-                        decide_pb2.Conclusion.Name(cached.conclusion),
-                        cached.reason.which(),
-                        str(cached.ttl),
+                        decide_pb2.Conclusion.Name(served.conclusion),
+                        served.reason.which(),
+                        str(served.ttl),
                         round(api_ms, 3),
                         round(prepare_ms, 3),
                         round(total_ms, 3),
@@ -1189,9 +1268,9 @@ class ArcjetSync:
                         extra={
                             "event": "arcjet_report_cache_hit",
                             "decision_id": dec.id,
-                            "conclusion": decide_pb2.Conclusion.Name(cached.conclusion),
-                            "reason": cached.reason.which(),
-                            "ttl": cached.ttl,
+                            "conclusion": decide_pb2.Conclusion.Name(served.conclusion),
+                            "reason": served.reason.which(),
+                            "ttl": served.ttl,
                             "rule_count": len(self._rules),
                             "api_ms": round(api_ms, 3),
                             "prepare_ms": round(prepare_ms, 3),
@@ -1207,7 +1286,7 @@ class ArcjetSync:
                         "error": str(e),
                     },
                 )
-            return cached
+            return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
         local_decision = _run_local_rules(ctx, self._rules)
@@ -1418,6 +1497,31 @@ class ArcjetSync:
             )
         return decision
 
+    def with_rule(self, rule: RuleSpec | Sequence[RuleSpec]) -> ArcjetSync:
+        """Return a copy of this client with extra rule(s) appended.
+
+        The returned client shares this instance's decision cache, so
+        route-specific clones still benefit from cached denials. Flags
+        such as ``_needs_email`` are recomputed from the combined rule set.
+
+        Args:
+            rule: A single rule or a sequence of rules (for example the
+                tuple returned by ``protect_signup()``).
+
+        Returns:
+            A new ``ArcjetSync`` instance. This client is unchanged.
+        """
+        extra = (rule,) if isinstance(rule, RuleSpec) else tuple(rule)
+        new_rules = self._rules + extra
+        needs_email, needs_message, has_token_bucket = _rule_flags(new_rules)
+        return replace(
+            self,
+            _rules=new_rules,
+            _needs_email=needs_email,
+            _needs_message=needs_message,
+            _has_token_bucket=has_token_bucket,
+        )
+
     def close(self) -> None:
         """Close the underlying transport when supported (sync)."""
         close = getattr(self._client, "close", None)
@@ -1539,6 +1643,7 @@ def arcjet(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
+    needs_email, needs_message, has_token_bucket = _rule_flags(resolved_rules)
     transport = build_async_transport()
     client = DecideServiceClient(
         base_url.rstrip("/"), http_client=pyqwest.Client(transport)
@@ -1551,9 +1656,9 @@ def arcjet(
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
+        _needs_email=needs_email,
+        _needs_message=needs_message,
+        _has_token_bucket=has_token_bucket,
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,
@@ -1669,6 +1774,7 @@ def arcjet_sync(
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
+    needs_email, needs_message, has_token_bucket = _rule_flags(resolved_rules)
     transport = build_sync_transport()
     client = DecideServiceClientSync(
         base_url.rstrip("/"), http_client=pyqwest.SyncClient(transport)
@@ -1682,9 +1788,9 @@ def arcjet_sync(
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
         _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
-        _needs_email=any(isinstance(r, EmailValidation) for r in rules),
-        _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
-        _has_token_bucket=any(isinstance(r, TokenBucket) for r in rules),
+        _needs_email=needs_email,
+        _needs_message=needs_message,
+        _has_token_bucket=has_token_bucket,
         _proxies=tuple(proxies),
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,

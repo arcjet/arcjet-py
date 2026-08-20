@@ -146,9 +146,7 @@ class TestGetComponent:
 class TestEvaluateBotLocally:
     def test_returns_none_when_component_unavailable(self):
         ctx = RequestContext(ip="1.2.3.4")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
         with patch("arcjet._local._get_component", return_value=None):
             result = _local.evaluate_bot_locally(ctx, rule)
         assert result is None
@@ -163,9 +161,7 @@ class TestEvaluateBotLocally:
         ctx = RequestContext(
             ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
         )
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=("CURL",), deny=(), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, allow=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = _local.evaluate_bot_locally(ctx, rule)
@@ -184,9 +180,7 @@ class TestEvaluateBotLocally:
         ctx = RequestContext(
             ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
         )
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = _local.evaluate_bot_locally(ctx, rule)
@@ -203,9 +197,7 @@ class TestEvaluateBotLocally:
         mock_component.detect_bot.return_value = Ok(bot_result)
 
         ctx = RequestContext(ip="1.2.3.4", method="GET")
-        rule = BotDetection(
-            mode=Mode.DRY_RUN, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.DRY_RUN, deny=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = _local.evaluate_bot_locally(ctx, rule)
@@ -219,9 +211,7 @@ class TestEvaluateBotLocally:
         mock_component.detect_bot.side_effect = RuntimeError("wasm error")
 
         ctx = RequestContext(ip="1.2.3.4", method="GET")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = _local.evaluate_bot_locally(ctx, rule)
@@ -233,9 +223,7 @@ class TestEvaluateBotLocally:
         mock_component.detect_bot.return_value = Err("some error")
 
         ctx = RequestContext(ip="1.2.3.4", method="GET")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = _local.evaluate_bot_locally(ctx, rule)
@@ -253,8 +241,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="test@example.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -267,8 +254,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext()
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -285,8 +271,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="test@example.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -306,8 +291,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="bad-email")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -327,8 +311,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="test@disposable.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -351,8 +334,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="bad@example.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -376,8 +358,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="test@example.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
-            allow=(),
+            deny=(EmailType.INVALID,),
             require_top_level_domain=True,
             allow_domain_literal=False,
             characteristics=(),
@@ -397,7 +378,6 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(email="test@example.com")
         rule = EmailValidation(
             mode=Mode.LIVE,
-            deny=(),
             allow=(EmailType.DISPOSABLE,),
             require_top_level_domain=True,
             allow_domain_literal=False,
@@ -426,7 +406,6 @@ class TestEvaluateEmailLocally:
         rule = EmailValidation(
             mode=Mode.LIVE,
             deny=(EmailType.DISPOSABLE, EmailType.FREE),
-            allow=(),
             require_top_level_domain=False,
             allow_domain_literal=True,
             characteristics=(),
@@ -454,7 +433,7 @@ class TestEvaluateEmailLocally:
             ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
         )
         rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL", "GOOGLEBOT"), characteristics=()
+            mode=Mode.LIVE, deny=("CURL", "GOOGLEBOT"), characteristics=()
         )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
@@ -477,9 +456,7 @@ class TestEvaluateEmailLocally:
         ctx = RequestContext(
             ip="1.2.3.4", headers={"User-Agent": "curl/7.0"}, method="GET"
         )
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=("CURL",), deny=(), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, allow=("CURL",), characteristics=())
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             _local.evaluate_bot_locally(ctx, rule)
@@ -513,9 +490,7 @@ class TestRunLocalRules:
             conclusion=decide_pb2.CONCLUSION_ALLOW,
         )
         ctx = RequestContext(ip="1.2.3.4")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=("CURL",), deny=(), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, allow=("CURL",), characteristics=())
         with (
             patch("arcjet._client.evaluate_bot_locally", return_value=allow_result),
             patch("arcjet._client.evaluate_email_locally", return_value=None),
@@ -531,9 +506,7 @@ class TestRunLocalRules:
             reason=decide_pb2.Reason(bot_v2=decide_pb2.BotV2Reason(denied=["CURL"])),
         )
         ctx = RequestContext(ip="1.2.3.4")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
         with (
             patch("arcjet._client.evaluate_bot_locally", return_value=deny_result),
             patch("arcjet._client.evaluate_email_locally", return_value=None),
@@ -549,9 +522,7 @@ class TestRunLocalRules:
             conclusion=decide_pb2.CONCLUSION_DENY,
         )
         ctx = RequestContext(ip="1.2.3.4")
-        rule = BotDetection(
-            mode=Mode.DRY_RUN, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.DRY_RUN, deny=("CURL",), characteristics=())
         with (
             patch("arcjet._client.evaluate_bot_locally", return_value=deny_dry_run),
             patch("arcjet._client.evaluate_email_locally", return_value=None),
@@ -562,9 +533,7 @@ class TestRunLocalRules:
     def test_returns_none_when_evaluator_returns_none(self):
         """When WASM component fails to load, evaluators return None."""
         ctx = RequestContext(ip="1.2.3.4")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
         with (
             patch("arcjet._client.evaluate_bot_locally", return_value=None),
             patch("arcjet._client.evaluate_email_locally", return_value=None),
@@ -587,9 +556,7 @@ class TestBuildLocalDenyReport:
         )
         local_decision = Decision(deny_proto)
         ctx = RequestContext(ip="1.2.3.4", method="GET")
-        rule = BotDetection(
-            mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()
-        )
+        rule = BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=())
 
         rep = _build_local_deny_report(None, "0.4.1", ctx, local_decision, (rule,))
 
@@ -608,11 +575,10 @@ class TestBuildLocalDenyReport:
         local_decision = Decision(deny_proto)
         ctx = RequestContext(ip="1.2.3.4")
         rules = (
-            BotDetection(mode=Mode.LIVE, allow=(), deny=("CURL",), characteristics=()),
+            BotDetection(mode=Mode.LIVE, deny=("CURL",), characteristics=()),
             EmailValidation(
                 mode=Mode.LIVE,
-                deny=(),
-                allow=(),
+                deny=(EmailType.INVALID,),
                 require_top_level_domain=True,
                 allow_domain_literal=False,
                 characteristics=(),

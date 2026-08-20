@@ -33,7 +33,13 @@ class DecisionCache:
         self._lock = threading.RLock()
         self._store: dict[str, _CacheEntry] = {}
 
-    def get(self, key: str) -> Decision | None:
+    def get(self, key: str) -> tuple[Decision, int] | None:
+        """Return ``(decision, remaining_ttl)`` or ``None`` on miss/expiry.
+
+        ``remaining_ttl`` is the live lifetime of the entry in whole seconds,
+        floored at ``1`` so a just-about-to-expire hit still reports a
+        positive cache window (matching Go ``ruleCache.get``).
+        """
         now = time.monotonic()
         with self._lock:
             entry = self._store.get(key)
@@ -46,7 +52,10 @@ class DecisionCache:
                 except Exception:
                     pass
                 return None
-            return entry.decision
+            remaining = int(entry.expires_at - now)
+            if remaining < 1:
+                remaining = 1
+            return entry.decision, remaining
 
     def set(self, key: str, decision: Decision, ttl_seconds: int | float) -> None:
         if ttl_seconds <= 0:

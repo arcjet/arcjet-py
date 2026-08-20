@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 from arcjet._client import ArcjetSync
 from arcjet._context import RequestContext
 from arcjet._enums import Mode
-from arcjet._rules import (
+from arcjet._rules import Mode, (
     BotDetection,
     EmailType,
     EmailValidation,
@@ -41,7 +41,7 @@ def _make_aj(mock_client: MagicMock, *rules) -> ArcjetSync:
 def test_bench_protect_no_local_rules(
     benchmark, mock_decide_client: MagicMock, bot_ctx: RequestContext
 ):
-    """Baseline: shield() only, no WASM, mocked remote."""
+    """Baseline: shield(mode=Mode.LIVE) only, no WASM, mocked remote."""
     aj = _make_aj(mock_decide_client, Shield(mode=Mode.LIVE))
     benchmark(aj.protect, bot_ctx)
 

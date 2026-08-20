@@ -17,27 +17,31 @@ Shield common sensitive endpoints:
 
 Detect bots with allow/deny lists:
 
-    from arcjet import detect_bot, BotCategory
+    from arcjet import detect_bot, BotCategory, Mode
     rules = [
         detect_bot(
+            mode=Mode.LIVE,
             allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"),
         )
     ]
 
 Rate limiting (token bucket):
 
-    from arcjet import token_bucket
+    from arcjet import token_bucket, Mode
     rules = [
-        token_bucket(refill_rate=10, interval=60, capacity=20),
+        token_bucket(mode=Mode.LIVE, refill_rate=10, interval=60, capacity=20),
     ]
     # When using token buckets, pass `requested` to charge tokens per request:
     #   decision = await aj.protect(req, requested=1)
 
 Email validation:
 
-    from arcjet import validate_email, EmailType
+    from arcjet import validate_email, EmailType, Mode
     rules = [
-        validate_email(deny=(EmailType.DISPOSABLE, EmailType.INVALID))
+        validate_email(
+            mode=Mode.LIVE,
+            deny=(EmailType.DISPOSABLE, EmailType.INVALID),
+        )
     ]
     # When configured, pass `email=...` to `protect()`:
     #   decision = await aj.protect(req, email="alice@example.com")
@@ -47,7 +51,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple, Union
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -126,28 +130,14 @@ class PromptInjectionDetection(RuleSpec):
     """
 
     mode: Mode
-    threshold: float = 0.5
-    """.. deprecated::
-
-        The ``threshold`` parameter is deprecated and will be removed in a
-        future release.
-    """
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("PromptInjectionDetection.mode must be a Mode enum")
-        if not isinstance(self.threshold, (int, float)):
-            raise TypeError("PromptInjectionDetection.threshold must be a number")
-        threshold = float(self.threshold)
-        if not (0.0 <= threshold <= 1.0):
-            raise ValueError(
-                f"PromptInjectionDetection.threshold must be between 0.0 and 1.0, got {threshold}"
-            )
 
     def to_proto(self) -> decide_pb2.Rule:
         pidr = decide_pb2.PromptInjectionDetectionRule(
             mode=_mode_to_proto(self.mode),
-            threshold=float(self.threshold),
         )
         return decide_pb2.Rule(prompt_injection_detection=pidr)
 
@@ -281,14 +271,24 @@ class BotDetection(RuleSpec):
     """
 
     mode: Mode
-    allow: tuple[BotSpecifier, ...] = ()
-    deny: tuple[BotSpecifier, ...] = ()
+    allow: tuple[BotSpecifier, ...] | None = None
+    deny: tuple[BotSpecifier, ...] | None = None
     characteristics: tuple[str, ...] = ()
 
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("BotDetection.mode must be a Mode enum")
+        if self.allow is not None and self.deny is not None:
+            raise ValueError(
+                "BotDetection options error: `allow` and `deny` cannot be provided together"
+            )
+        if self.allow is None and self.deny is None:
+            raise ValueError(
+                "BotDetection options error: either `allow` or `deny` must be specified"
+            )
         for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if seq is None:
+                continue
             if not isinstance(seq, tuple):
                 raise TypeError(
                     f"BotDetection.{name} must be a tuple of BotCategory or str"
@@ -310,8 +310,8 @@ class BotDetection(RuleSpec):
 
     def to_proto(self) -> decide_pb2.Rule:
         br = decide_pb2.BotV2Rule(mode=_mode_to_proto(self.mode))
-        br.allow.extend([_bot_category_to_proto(a) for a in self.allow])
-        br.deny.extend([_bot_category_to_proto(d) for d in self.deny])
+        br.allow.extend([_bot_category_to_proto(a) for a in (self.allow or ())])
+        br.deny.extend([_bot_category_to_proto(d) for d in (self.deny or ())])
         return decide_pb2.Rule(bot_v2=br)
 
 
@@ -744,8 +744,8 @@ class EmailValidation(RuleSpec):
     """
 
     mode: Mode
-    deny: tuple[EmailType, ...] = ()
-    allow: tuple[EmailType, ...] = ()
+    deny: tuple[EmailType, ...] | None = None
+    allow: tuple[EmailType, ...] | None = None
     require_top_level_domain: bool = True
     allow_domain_literal: bool = False
     characteristics: tuple[str, ...] = ()
@@ -753,7 +753,17 @@ class EmailValidation(RuleSpec):
     def __post_init__(self):
         if not isinstance(self.mode, Mode):
             raise TypeError("EmailValidation.mode must be a Mode enum")
+        if self.allow is not None and self.deny is not None:
+            raise ValueError(
+                "EmailValidation options error: `allow` and `deny` cannot be provided together"
+            )
+        if self.allow is None and self.deny is None:
+            raise ValueError(
+                "EmailValidation options error: either `allow` or `deny` must be specified"
+            )
         for seq, name in ((self.allow, "allow"), (self.deny, "deny")):
+            if seq is None:
+                continue
             if not isinstance(seq, tuple):
                 raise TypeError(f"EmailValidation.{name} must be a tuple of EmailType")
             for item in seq:
@@ -777,8 +787,8 @@ class EmailValidation(RuleSpec):
             require_top_level_domain=bool(self.require_top_level_domain),
             allow_domain_literal=bool(self.allow_domain_literal),
         )
-        er.allow.extend([_email_type_to_proto(t.value) for t in self.allow])
-        er.deny.extend([_email_type_to_proto(t.value) for t in self.deny])
+        er.allow.extend([_email_type_to_proto(t.value) for t in (self.allow or ())])
+        er.deny.extend([_email_type_to_proto(t.value) for t in (self.deny or ())])
         # Do not set version explicitly; server will use the latest
         return decide_pb2.Rule(email=er)
 
@@ -814,9 +824,24 @@ def _coerce_mode(mode: Union[str, Mode]) -> Mode:
     raise ValueError(f"Unknown mode: {mode!r}")
 
 
-def shield(
-    *, mode: Union[str, Mode] = Mode.LIVE, characteristics: Sequence[str] = ()
-) -> Shield:
+def _require_allow_xor_deny(
+    allow: object | None,
+    deny: object | None,
+    *,
+    name: str,
+) -> None:
+    """Reject allow+deny together or neither, matching the JS SDK builders."""
+    if allow is not None and deny is not None:
+        raise ValueError(
+            f"`{name}` options error: `allow` and `deny` cannot be provided together"
+        )
+    if allow is None and deny is None:
+        raise ValueError(
+            f"`{name}` options error: either `allow` or `deny` must be specified"
+        )
+
+
+def shield(*, mode: Union[str, Mode], characteristics: Sequence[str] = ()) -> Shield:
     """Protect your app against common attacks such as SQL injection, XSS, and CSRF.
 
     Shield analyzes each request server-side and blocks those that match known
@@ -825,8 +850,9 @@ def shield(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required — there
+            is no default, so a port from another SDK cannot silently change
+            from observe-only to live blocking.
         characteristics: Request attributes used to fingerprint the client
             (e.g. ``["ip.src"]``). Defaults to IP address.
 
@@ -845,9 +871,7 @@ def shield(
     return Shield(mode=_coerce_mode(mode), characteristics=tuple(characteristics))
 
 
-def detect_prompt_injection(
-    *, mode: Union[str, Mode] = Mode.LIVE, threshold: float = 0.5
-) -> PromptInjectionDetection:
+def detect_prompt_injection(*, mode: Union[str, Mode]) -> PromptInjectionDetection:
     """Detect prompt injection attacks in user messages.
 
     Analyzes messages for prompt injection attempts where users try to override
@@ -857,11 +881,7 @@ def detect_prompt_injection(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
-        threshold: **Deprecated.** Detection confidence threshold (0.0 to 1.0).
-            This parameter is deprecated and will be removed in a future
-            release. Defaults to ``0.5``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
 
     Returns:
         A ``PromptInjectionDetection`` rule to include in the ``rules`` list of
@@ -882,7 +902,7 @@ def detect_prompt_injection(
             # Handle detected prompt injection
             return {"error": "Invalid message"}, 400
     """
-    return PromptInjectionDetection(mode=_coerce_mode(mode), threshold=float(threshold))
+    return PromptInjectionDetection(mode=_coerce_mode(mode))
 
 
 def _coerce_bot_categories(
@@ -906,9 +926,9 @@ def _coerce_bot_categories(
 
 def detect_bot(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
-    allow: Sequence[Union[str, BotCategory]] = (),
-    deny: Sequence[Union[str, BotCategory]] = (),
+    mode: Union[str, Mode],
+    allow: Sequence[Union[str, BotCategory]] | None = None,
+    deny: Sequence[Union[str, BotCategory]] | None = None,
 ) -> BotDetection:
     """Detect and filter automated bot traffic.
 
@@ -925,12 +945,12 @@ def detect_bot(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
-        allow: Bots to permit. All other bots are denied. Do not combine
-            with ``deny``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
+        allow: Bots to permit. All other bots are denied. An empty list
+            denies every bot. Do not combine with ``deny``.
         deny: Bots to block. All other bots are allowed. Do not combine
-            with ``allow``.
+            with ``allow``. Exactly one of ``allow`` or ``deny`` must be
+            provided.
 
     Returns:
         A ``BotDetection`` rule to include in the ``rules`` list of
@@ -948,16 +968,17 @@ def detect_bot(
             )
         ]
     """
+    _require_allow_xor_deny(allow, deny, name="detect_bot")
     return BotDetection(
         mode=_coerce_mode(mode),
-        allow=_coerce_bot_categories(allow),
-        deny=_coerce_bot_categories(deny),
+        allow=_coerce_bot_categories(allow) if allow is not None else None,
+        deny=_coerce_bot_categories(deny) if deny is not None else None,
     )
 
 
 def token_bucket(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     refill_rate: int,
     interval: int,
     capacity: int,
@@ -975,8 +996,7 @@ def token_bucket(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         refill_rate: Number of tokens added to the bucket each interval.
         interval: How often (in seconds) tokens are refilled.
         capacity: Maximum number of tokens the bucket can hold.
@@ -1023,7 +1043,7 @@ def token_bucket(
 
 def fixed_window(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     max: int,
     window: int,
     characteristics: Sequence[str] = (),
@@ -1037,8 +1057,7 @@ def fixed_window(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         max: Maximum number of requests allowed per window.
         window: Window duration in seconds.
         characteristics: Request attributes used to identify the client for
@@ -1070,7 +1089,7 @@ def fixed_window(
 
 def sliding_window(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     max: int,
     interval: int,
     characteristics: Sequence[str] = (),
@@ -1083,8 +1102,7 @@ def sliding_window(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         max: Maximum number of requests allowed per window.
         interval: Window duration in seconds.
         characteristics: Request attributes used to identify the client for
@@ -1137,9 +1155,9 @@ def _coerce_email_types(
 
 def validate_email(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
-    deny: Sequence[Union[str, EmailType]] = (),
-    allow: Sequence[Union[str, EmailType]] = (),
+    mode: Union[str, Mode],
+    deny: Sequence[Union[str, EmailType]] | None = None,
+    allow: Sequence[Union[str, EmailType]] | None = None,
     require_top_level_domain: bool = True,
     allow_domain_literal: bool = False,
 ) -> EmailValidation:
@@ -1154,10 +1172,10 @@ def validate_email(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         deny: Email types to reject. Common choices: ``EmailType.DISPOSABLE``,
-            ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``.
+            ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``. Exactly one of
+            ``allow`` or ``deny`` must be provided.
         allow: Email types to permit. All other types are rejected.
         require_top_level_domain: Reject addresses without a valid TLD.
             Defaults to ``True``.
@@ -1181,10 +1199,11 @@ def validate_email(
         # Then pass the email address on each protect() call:
         # decision = await aj.protect(request, email="alice@example.com")
     """
+    _require_allow_xor_deny(allow, deny, name="validate_email")
     return EmailValidation(
         mode=_coerce_mode(mode),
-        deny=_coerce_email_types(deny),
-        allow=_coerce_email_types(allow),
+        deny=_coerce_email_types(deny) if deny is not None else None,
+        allow=_coerce_email_types(allow) if allow is not None else None,
         require_top_level_domain=require_top_level_domain,
         allow_domain_literal=allow_domain_literal,
     )
@@ -1192,7 +1211,7 @@ def validate_email(
 
 def detect_sensitive_info(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     allow: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     deny: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     context_window_size: int | None = None,
@@ -1213,8 +1232,7 @@ def detect_sensitive_info(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         allow: Entity types to permit. All other detected types are denied.
         deny: Entity types to deny.
         context_window_size: Optional context window size for detection.
@@ -1309,7 +1327,7 @@ def detect_sensitive_info(
 
 def filter_request(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     allow: Sequence[str] = (),
     deny: Sequence[str] = (),
 ) -> Filter:
@@ -1335,8 +1353,7 @@ def filter_request(
 
     Args:
         mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+            ``Mode.DRY_RUN`` logs matches without blocking. Required.
         allow: Expressions that allow a request when matched. All other
             requests are denied. Do not combine with ``deny``.
         deny: Expressions that deny a request when matched. All other
@@ -1360,4 +1377,62 @@ def filter_request(
         mode=_coerce_mode(mode),
         allow=tuple(str(e) for e in allow),
         deny=tuple(str(e) for e in deny),
+    )
+
+
+def protect_signup(
+    *,
+    rate_limit: Mapping[str, Any],
+    bots: Mapping[str, Any],
+    email: Mapping[str, Any],
+) -> tuple[SlidingWindow, BotDetection, EmailValidation]:
+    """Signup protection: sliding window + bot detection + email validation.
+
+    Sugar over the three rules the JS ``protectSignup`` helper composes.
+    Returns a tuple you can unpack into ``arcjet(..., rules=...)`` or pass
+    to ``with_rule()``.
+
+    Args:
+        rate_limit: Options forwarded to ``sliding_window()``. Requires
+            ``mode``, ``max``, and ``interval``.
+        bots: Options forwarded to ``detect_bot()``. Requires ``mode`` and
+            either ``allow`` or ``deny``. Use ``allow=[]`` to block every
+            detected bot.
+        email: Options forwarded to ``validate_email()``. Requires ``mode``
+            and either ``allow`` or ``deny``.
+
+    Returns:
+        ``(sliding_window, detect_bot, validate_email)`` rule specs.
+
+    Example::
+
+        from arcjet import (
+            EmailType,
+            Mode,
+            arcjet,
+            protect_signup,
+        )
+
+        aj = arcjet(
+            key="ajkey_...",
+            rules=[
+                *protect_signup(
+                    rate_limit={"mode": Mode.LIVE, "max": 5, "interval": 600},
+                    bots={"mode": Mode.LIVE, "allow": []},
+                    email={
+                        "mode": Mode.LIVE,
+                        "deny": [
+                            EmailType.DISPOSABLE,
+                            EmailType.INVALID,
+                            EmailType.NO_MX_RECORDS,
+                        ],
+                    },
+                )
+            ],
+        )
+    """
+    return (
+        sliding_window(**dict(rate_limit)),
+        detect_bot(**dict(bots)),
+        validate_email(**dict(email)),
     )
