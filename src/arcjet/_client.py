@@ -39,7 +39,6 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 from ._cache import DecisionCache, make_cache_key
 from ._context import (
     RequestContext,
-    _is_development,
     coerce_request_context,
     request_details_from_context,
 )
@@ -147,16 +146,12 @@ class ProtectOptions(TypedDict, total=False):
     ASCII; invalid values are dropped, not truncated."""
 
 
-def _default_timeout_ms(
-    rules: Sequence[RuleSpec] = (), environment: str | None = None
-) -> int:
-    # 1000ms in development, 500ms otherwise.
-    default = 1000 if _is_development(environment=environment) else 500
-    # detect_prompt_injection defines its latency guarantees individually
-    # rather than as part of the protect call, so enforce a 1 second minimum.
-    if any(isinstance(r, PromptInjectionDetection) for r in rules):
-        return max(default, 1000)
-    return default
+# Deadline for a protect() call when timeout_ms is not set.
+#
+# Sized for the slowest rules: a cold prompt-injection or content-moderation
+# start can exceed the old 500ms production default, and a tight deadline
+# fail-opens instead of evaluating the rule. Matches Guard's default.
+_DEFAULT_TIMEOUT_MS = 2000
 
 
 DEFAULT_BASE_URL = (
@@ -1466,11 +1461,7 @@ def arcjet(
             (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
-        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
-            development and 500 ms in production. When a
-            ``detect_prompt_injection()`` rule is configured, the minimum is
-            1000 ms because that rule defines its latency guarantees
-            individually rather than as part of the protect call.
+        timeout_ms: Request timeout in milliseconds. Defaults to 2000 ms.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
@@ -1558,11 +1549,7 @@ def arcjet(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=(
-            _default_timeout_ms(rules=rules, environment=environment)
-            if timeout_ms is None
-            else timeout_ms
-        ),
+        _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
@@ -1604,11 +1591,7 @@ def arcjet_sync(
             (server uses IP address). See https://docs.arcjet.com/fingerprints.
         base_url: Override the Arcjet Decide API endpoint. Only set this if
             directed by Arcjet support.
-        timeout_ms: Request timeout in milliseconds. Defaults to 1000 ms in
-            development and 500 ms in production. When a
-            ``detect_prompt_injection()`` rule is configured, the minimum is
-            1000 ms because that rule defines its latency guarantees
-            individually rather than as part of the protect call.
+        timeout_ms: Request timeout in milliseconds. Defaults to 2000 ms.
         fail_open: When ``True`` (default), transport errors produce an ERROR
             decision instead of raising an exception, so your app stays
             available if Arcjet is temporarily unreachable. Set to ``False``
@@ -1697,11 +1680,7 @@ def arcjet_sync(
         _client=client,
         _sdk_stack=stack,
         _sdk_version=_sdk_version() if sdk_version is None else sdk_version,
-        _timeout_ms=(
-            _default_timeout_ms(rules=rules, environment=environment)
-            if timeout_ms is None
-            else timeout_ms
-        ),
+        _timeout_ms=_DEFAULT_TIMEOUT_MS if timeout_ms is None else timeout_ms,
         _fail_open=fail_open,
         _needs_email=any(isinstance(r, EmailValidation) for r in rules),
         _needs_message=any(isinstance(r, PromptInjectionDetection) for r in rules),
