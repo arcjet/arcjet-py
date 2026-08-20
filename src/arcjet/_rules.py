@@ -1368,7 +1368,7 @@ def protect_signup(
     rate_limit: Mapping[str, Any],
     bots: Mapping[str, Any],
     email: Mapping[str, Any],
-) -> tuple[SlidingWindow, BotDetection, EmailValidation]:
+) -> Tuple[SlidingWindow, BotDetection, EmailValidation]:
     """Signup protection: sliding window + bot detection + email validation.
 
     Sugar over the three rules the JS ``protectSignup`` helper composes.
@@ -1414,7 +1414,7 @@ def protect_signup(
         )
     """
     return (
-        sliding_window(**dict(rate_limit)),
-        detect_bot(**dict(bots)),
-        validate_email(**dict(email)),
+        sliding_window(**rate_limit),
+        detect_bot(**bots),
+        validate_email(**email),
     )

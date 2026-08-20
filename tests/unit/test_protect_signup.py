@@ -26,8 +26,12 @@ def test_returns_three_rules(mock_protobuf_modules):
     assert isinstance(rules[1], BotDetection)
     assert isinstance(rules[2], EmailValidation)
     assert rules[0].max == 5
+    assert rules[0].interval == 600
+    assert rules[0].mode == Mode.LIVE
+    assert rules[1].mode == Mode.LIVE
     assert rules[1].allow == ()
-    assert rules[2].deny is not None
+    assert rules[2].mode == Mode.LIVE
+    assert rules[2].deny == (EmailType.DISPOSABLE, EmailType.INVALID)
 
 
 def test_exported_from_package(mock_protobuf_modules):
