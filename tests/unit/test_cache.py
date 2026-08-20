@@ -188,7 +188,7 @@ def test_should_cache_deny_result_with_ttl(
     (JS: "should cache a deny result w/ `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
@@ -209,7 +209,7 @@ def test_should_cache_deny_result_with_ttl(
 
     aj = arcjet_sync(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     # First call: hits the API
@@ -234,7 +234,7 @@ def test_should_not_cache_allow_result_with_ttl(
     (JS: "should not cache an allow result w/ `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
@@ -255,7 +255,7 @@ def test_should_not_cache_allow_result_with_ttl(
 
     aj = arcjet_sync(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     d1 = aj.protect({"headers": [], "type": "http"})
@@ -279,7 +279,7 @@ def test_should_not_cache_deny_result_without_ttl(
     (JS: "should not cache a deny result w/o `ttl`")
     """
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
@@ -300,7 +300,7 @@ def test_should_not_cache_deny_result_without_ttl(
 
     aj = arcjet_sync(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     d1 = aj.protect({"headers": [], "type": "http"})
@@ -323,7 +323,7 @@ def test_should_not_cache_error_result_with_ttl(
     Only DENY decisions are cached, matching JS semantics.
     """
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     decide_calls = {"count": 0}
@@ -344,7 +344,7 @@ def test_should_not_cache_error_result_with_ttl(
 
     aj = arcjet_sync(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     d1 = aj.protect({"headers": [], "type": "http"})
@@ -370,7 +370,7 @@ def test_async_should_cache_deny_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     decide_calls = {"count": 0}
@@ -391,7 +391,7 @@ def test_async_should_cache_deny_result_with_ttl(
 
     aj = arcjet(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     d1 = asyncio.run(aj.protect({"headers": [], "type": "http"}))
@@ -412,7 +412,7 @@ def test_async_should_not_cache_allow_result_with_ttl(
     import asyncio
 
     from arcjet import arcjet
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
 
     decide_calls = {"count": 0}
@@ -433,7 +433,7 @@ def test_async_should_not_cache_allow_result_with_ttl(
 
     aj = arcjet(
         key="ajkey_test",
-        rules=[token_bucket(refill_rate=1, interval=1, capacity=1)],
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
 
     d1 = asyncio.run(aj.protect({"headers": [], "type": "http"}))

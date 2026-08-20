@@ -151,7 +151,7 @@ def test_metadata_is_attached_to_the_cache_hit_report(
     )
 
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     reports: list[Any] = []
@@ -172,7 +172,8 @@ def test_metadata_is_attached_to_the_cache_hit_report(
     )
 
     aj = arcjet_sync(
-        key="ajkey_x", rules=[token_bucket(refill_rate=1, interval=1, capacity=1)]
+        key="ajkey_x",
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
     scope = {**_SCOPE, "client": ("1.2.3.4", 1234)}
     aj.protect(scope, metadata={"attempt": 1})
@@ -234,7 +235,7 @@ def test_metadata_is_not_part_of_the_cache_key(
     )
 
     from arcjet import arcjet_sync
-    from arcjet._rules import token_bucket
+    from arcjet._rules import Mode, token_bucket
     from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
 
     calls: list[Any] = []
@@ -249,7 +250,8 @@ def test_metadata_is_not_part_of_the_cache_key(
         DecideServiceClientSync, "decide_behavior", behavior, raising=False
     )
     aj = arcjet_sync(
-        key="ajkey_x", rules=[token_bucket(refill_rate=1, interval=1, capacity=1)]
+        key="ajkey_x",
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
     )
     # The cache key falls back to the client IP, so the scope needs one.
     scope = {**_SCOPE, "client": ("1.2.3.4", 1234)}

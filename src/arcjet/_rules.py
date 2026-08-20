@@ -17,27 +17,30 @@ Shield common sensitive endpoints:
 
 Detect bots with allow/deny lists:
 
-    from arcjet import detect_bot, BotCategory
+    from arcjet import detect_bot, BotCategory, Mode
     rules = [
         detect_bot(
+            mode=Mode.LIVE,
             allow=(BotCategory.GOOGLE, "OPENAI_CRAWLER_SEARCH"),
         )
     ]
 
 Rate limiting (token bucket):
 
-    from arcjet import token_bucket
+    from arcjet import token_bucket, Mode
     rules = [
-        token_bucket(refill_rate=10, interval=60, capacity=20),
+        token_bucket(mode=Mode.LIVE, refill_rate=10, interval=60, capacity=20),
     ]
     # When using token buckets, pass `requested` to charge tokens per request:
     #   decision = await aj.protect(req, requested=1)
 
 Email validation:
 
-    from arcjet import validate_email, EmailType
+    from arcjet import validate_email, EmailType, Mode
     rules = [
-        validate_email(deny=(EmailType.DISPOSABLE, EmailType.INVALID))
+        validate_email(
+            mode=Mode.LIVE, deny=(EmailType.DISPOSABLE, EmailType.INVALID)
+        )
     ]
     # When configured, pass `email=...` to `protect()`:
     #   decision = await aj.protect(req, email="alice@example.com")
@@ -814,9 +817,7 @@ def _coerce_mode(mode: Union[str, Mode]) -> Mode:
     raise ValueError(f"Unknown mode: {mode!r}")
 
 
-def shield(
-    *, mode: Union[str, Mode] = Mode.LIVE, characteristics: Sequence[str] = ()
-) -> Shield:
+def shield(*, mode: Union[str, Mode], characteristics: Sequence[str] = ()) -> Shield:
     """Protect your app against common attacks such as SQL injection, XSS, and CSRF.
 
     Shield analyzes each request server-side and blocks those that match known
@@ -824,9 +825,10 @@ def shield(
     enforcement mode.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         characteristics: Request attributes used to fingerprint the client
             (e.g. ``["ip.src"]``). Defaults to IP address.
 
@@ -846,7 +848,7 @@ def shield(
 
 
 def detect_prompt_injection(
-    *, mode: Union[str, Mode] = Mode.LIVE, threshold: float = 0.5
+    *, mode: Union[str, Mode], threshold: float = 0.5
 ) -> PromptInjectionDetection:
     """Detect prompt injection attacks in user messages.
 
@@ -856,9 +858,10 @@ def detect_prompt_injection(
     configured.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         threshold: **Deprecated.** Detection confidence threshold (0.0 to 1.0).
             This parameter is deprecated and will be removed in a future
             release. Defaults to ``0.5``.
@@ -906,7 +909,7 @@ def _coerce_bot_categories(
 
 def detect_bot(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     allow: Sequence[Union[str, BotCategory]] = (),
     deny: Sequence[Union[str, BotCategory]] = (),
 ) -> BotDetection:
@@ -924,9 +927,10 @@ def detect_bot(
       list of named bots.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         allow: Bots to permit. All other bots are denied. Do not combine
             with ``deny``.
         deny: Bots to block. All other bots are allowed. Do not combine
@@ -957,7 +961,7 @@ def detect_bot(
 
 def token_bucket(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     refill_rate: int,
     interval: int,
     capacity: int,
@@ -974,9 +978,10 @@ def token_bucket(
     specify how many tokens each request costs (defaults to 1).
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         refill_rate: Number of tokens added to the bucket each interval.
         interval: How often (in seconds) tokens are refilled.
         capacity: Maximum number of tokens the bucket can hold.
@@ -1023,7 +1028,7 @@ def token_bucket(
 
 def fixed_window(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     max: int,
     window: int,
     characteristics: Sequence[str] = (),
@@ -1036,9 +1041,10 @@ def fixed_window(
     boundaries — use ``sliding_window()`` to avoid this.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         max: Maximum number of requests allowed per window.
         window: Window duration in seconds.
         characteristics: Request attributes used to identify the client for
@@ -1070,7 +1076,7 @@ def fixed_window(
 
 def sliding_window(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     max: int,
     interval: int,
     characteristics: Sequence[str] = (),
@@ -1082,9 +1088,10 @@ def sliding_window(
     bursts at window boundaries.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         max: Maximum number of requests allowed per window.
         interval: Window duration in seconds.
         characteristics: Request attributes used to identify the client for
@@ -1137,7 +1144,7 @@ def _coerce_email_types(
 
 def validate_email(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     deny: Sequence[Union[str, EmailType]] = (),
     allow: Sequence[Union[str, EmailType]] = (),
     require_top_level_domain: bool = True,
@@ -1153,9 +1160,10 @@ def validate_email(
     ``protect()`` call, otherwise an ``ArcjetMisconfiguration`` is raised.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         deny: Email types to reject. Common choices: ``EmailType.DISPOSABLE``,
             ``EmailType.INVALID``, ``EmailType.NO_MX_RECORDS``.
         allow: Email types to permit. All other types are rejected.
@@ -1192,7 +1200,7 @@ def validate_email(
 
 def detect_sensitive_info(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     allow: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     deny: Sequence[Union[str, SensitiveInfoEntityType]] = (),
     context_window_size: int | None = None,
@@ -1212,9 +1220,10 @@ def detect_sensitive_info(
     the rule is silently skipped.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         allow: Entity types to permit. All other detected types are denied.
         deny: Entity types to deny.
         context_window_size: Optional context window size for detection.
@@ -1309,7 +1318,7 @@ def detect_sensitive_info(
 
 def filter_request(
     *,
-    mode: Union[str, Mode] = Mode.LIVE,
+    mode: Union[str, Mode],
     allow: Sequence[str] = (),
     deny: Sequence[str] = (),
 ) -> Filter:
@@ -1334,9 +1343,10 @@ def filter_request(
     available as ``local.<key>`` in expressions.
 
     Args:
-        mode: Enforcement mode. ``Mode.LIVE`` blocks matching requests;
-            ``Mode.DRY_RUN`` logs matches without blocking. Defaults to
-            ``Mode.LIVE``.
+        mode: Required. Enforcement mode with no default. ``Mode.LIVE``
+            blocks matching requests; ``Mode.DRY_RUN`` logs matches without
+            blocking. We do not silently default so a port cannot change
+            observe-only vs live.
         allow: Expressions that allow a request when matched. All other
             requests are denied. Do not combine with ``deny``.
         deny: Expressions that deny a request when matched. All other

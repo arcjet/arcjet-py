@@ -21,20 +21,20 @@ from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 class TestFilterRequestFactory:
     def test_creates_rule_with_deny(self):
-        rule = filter_request(deny=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, deny=['ip.src == "1.2.3.4"'])
         assert isinstance(rule, Filter)
         assert rule.mode == Mode.LIVE
         assert rule.deny == ('ip.src == "1.2.3.4"',)
         assert rule.allow == ()
 
     def test_creates_rule_with_allow(self):
-        rule = filter_request(allow=['http.host == "example.com"'])
+        rule = filter_request(mode=Mode.LIVE, allow=['http.host == "example.com"'])
         assert isinstance(rule, Filter)
         assert rule.allow == ('http.host == "example.com"',)
         assert rule.deny == ()
 
     def test_default_mode_is_live(self):
-        rule = filter_request(deny=["ip.src == 1"])
+        rule = filter_request(mode=Mode.LIVE, deny=["ip.src == 1"])
         assert rule.mode == Mode.LIVE
 
     def test_dry_run_mode(self):
@@ -43,18 +43,18 @@ class TestFilterRequestFactory:
 
     def test_rejects_both_allow_and_deny(self):
         with pytest.raises(ValueError, match="not both"):
-            filter_request(allow=["a"], deny=["b"])
+            filter_request(mode=Mode.LIVE, allow=["a"], deny=["b"])
 
     def test_rejects_empty_allow_and_deny(self):
         with pytest.raises(ValueError, match="one or more expressions"):
-            filter_request()
+            filter_request(mode=Mode.LIVE)
 
     def test_rejects_empty_string_expression(self):
         with pytest.raises(ValueError, match="cannot be empty"):
-            filter_request(deny=[""])
+            filter_request(mode=Mode.LIVE, deny=[""])
 
     def test_multiple_expressions(self):
-        rule = filter_request(deny=["ip.src == 1", 'http.host == "x"'])
+        rule = filter_request(mode=Mode.LIVE, deny=["ip.src == 1", 'http.host == "x"'])
         assert len(rule.deny) == 2
 
 
@@ -65,14 +65,14 @@ class TestFilterRequestFactory:
 
 class TestFilterToProto:
     def test_deny_to_proto(self):
-        rule = filter_request(deny=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, deny=['ip.src == "1.2.3.4"'])
         proto = rule.to_proto()
         assert proto.HasField("filter")
         assert list(proto.filter.deny) == ['ip.src == "1.2.3.4"']
         assert list(proto.filter.allow) == []
 
     def test_allow_to_proto(self):
-        rule = filter_request(allow=['http.host == "example.com"'])
+        rule = filter_request(mode=Mode.LIVE, allow=['http.host == "example.com"'])
         proto = rule.to_proto()
         assert proto.HasField("filter")
         assert list(proto.filter.allow) == ['http.host == "example.com"']
@@ -87,7 +87,7 @@ class TestFilterToProto:
 class TestEvaluateFilterLocally:
     def test_returns_none_when_component_unavailable(self):
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=["ip.src == 1"])
+        rule = filter_request(mode=Mode.LIVE, deny=["ip.src == 1"])
         with patch("arcjet._local._get_component", return_value=None):
             result = evaluate_filter_locally(ctx, rule)
         assert result is None
@@ -103,7 +103,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, deny=['ip.src == "1.2.3.4"'])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -122,7 +122,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="5.6.7.8")
-        rule = filter_request(deny=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, deny=['ip.src == "1.2.3.4"'])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -141,7 +141,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(allow=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, allow=['ip.src == "1.2.3.4"'])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -158,7 +158,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="5.6.7.8")
-        rule = filter_request(allow=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, allow=['ip.src == "1.2.3.4"'])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -195,7 +195,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=["ip.src.country == US"])
+        rule = filter_request(mode=Mode.LIVE, deny=["ip.src.country == US"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -214,7 +214,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4", filter_local={"user_role": "admin"})
-        rule = filter_request(allow=['local.user_role == "admin"'])
+        rule = filter_request(mode=Mode.LIVE, allow=['local.user_role == "admin"'])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             evaluate_filter_locally(ctx, rule)
@@ -233,7 +233,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(allow=["x"])
+        rule = filter_request(mode=Mode.LIVE, allow=["x"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             evaluate_filter_locally(ctx, rule)
@@ -250,7 +250,7 @@ class TestEvaluateFilterLocally:
         )
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=["x"])
+        rule = filter_request(mode=Mode.LIVE, deny=["x"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             evaluate_filter_locally(ctx, rule)
@@ -262,7 +262,7 @@ class TestEvaluateFilterLocally:
         mock_component.match_filters.return_value = Err("parse error")
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=["bad expression"])
+        rule = filter_request(mode=Mode.LIVE, deny=["bad expression"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -274,7 +274,7 @@ class TestEvaluateFilterLocally:
         mock_component.match_filters.side_effect = RuntimeError("wasm error")
 
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=["x"])
+        rule = filter_request(mode=Mode.LIVE, deny=["x"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -286,7 +286,7 @@ class TestEvaluateFilterLocally:
 
         # Pass a non-JSON-serializable value in filter_local
         ctx = RequestContext(ip="1.2.3.4", filter_local={"key": object()})  # type: ignore[arg-type]
-        rule = filter_request(deny=["x"])
+        rule = filter_request(mode=Mode.LIVE, deny=["x"])
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_filter_locally(ctx, rule)
@@ -313,7 +313,7 @@ class TestRunLocalRulesFilter:
             ),
         )
         ctx = RequestContext(ip="1.2.3.4")
-        rule = filter_request(deny=['ip.src == "1.2.3.4"'])
+        rule = filter_request(mode=Mode.LIVE, deny=['ip.src == "1.2.3.4"'])
 
         with (
             patch("arcjet._client.evaluate_bot_locally", return_value=None),
