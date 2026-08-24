@@ -67,11 +67,18 @@ langchain-agents = [
   "langchain-core>=1.2.5,<2",
   "langgraph>=1.2,<2",
 ]
-# CrewAI 1.15.3 shipped `@on` + `HookAborted`. The package itself requires
-# Python >=3.10,<3.14, so this extra is deliberately *not* in the default
-# `dev` group: CI's 3.14 cell must still `uv sync`. Integration tests skip
-# when the extra is absent; unit tests that do not import crewai still run.
-crewai = ["crewai>=1.15.3,<2"]
+# There is deliberately no `crewai` extra, and CrewAI is in no dependency
+# group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
+# 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /
+# GHSA-f4j7-r4q5-qw2c: the Python FastAPI server loads a client-supplied
+# HuggingFace embedding model before it authenticates the request). No fixed
+# version exists, and crewai's `~=1.1.0` pin could not reach one if it did, so
+# an extra would put an unpatchable critical CVE into every `arcjet[crewai]`
+# install and into this lockfile.
+#
+# `arcjet.guard.crewai` imports CrewAI lazily and enforces its own floor
+# (>=1.15.3) at registration, so applications install CrewAI themselves. See
+# `src/arcjet/guard/crewai/_import.py` and CONTRIBUTING for running the tests.
 
 [project.urls]
 "homepage" = "https://arcjet.com"

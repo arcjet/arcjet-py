@@ -979,8 +979,8 @@ are holding when the effect happens.
 | A LangChain `BaseTool` you call yourself | `guard_tool` | `arcjet[langchain]` | Yes |
 | An agent built with `create_agent`, whose tool calls the model chooses | `ArcjetMiddleware` | `arcjet[langchain-agents]` | Yes |
 | A chain or agent you want to *observe* | `ArcjetCaptureHandler` | `arcjet[langchain]` | No — records only |
-| A CrewAI crew / LiteAgent / MCP or crew-injected tool | `register_arcjet_hooks` | `arcjet[crewai]` | Yes — via `HookAborted` |
-| A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | `arcjet[crewai]` | Yes |
+| A CrewAI crew / LiteAgent / MCP or crew-injected tool | `register_arcjet_hooks` | your own `crewai` | Yes — via `HookAborted` |
+| A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | your own `crewai` | Yes |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -999,9 +999,15 @@ right home for capture and the wrong home for policy.
   `langchain-core` only — no LangGraph.
 - **`arcjet[langchain-agents]`** — adds `ArcjetMiddleware`, and pulls in
   LangChain and LangGraph.
-- **`arcjet[crewai]`** — `register_arcjet_hooks` and the CrewAI `guard_tool`.
-  Depends on `crewai>=1.15.3,<2` (`@on` + `HookAborted`). CrewAI itself
-  requires Python `>=3.10,<3.14`.
+There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
+works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
+and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
+not depend on it because `crewai` hard-depends on `chromadb~=1.1.0`, and every
+`chromadb` from 1.0.0 to 1.5.9 carries an unpatched critical RCE
+([CVE-2026-45829](https://nvd.nist.gov/vuln/detail/CVE-2026-45829)) — an
+Arcjet install should not be what puts that in your environment. The floor is
+enforced at `register_arcjet_hooks()` instead, so a too-old CrewAI is reported
+where you can act on it.
 
 These are separate because LangGraph is large and optional; many applications
 use tools without agents. Importing `arcjet.guard.langchain` never loads
@@ -1310,9 +1316,21 @@ that registers once at startup.
 
 ### CrewAI tool hooks
 
-Install the optional integration with `pip install "arcjet[crewai]"` (CrewAI
-`>=1.15.3,<2`; Python `>=3.10,<3.14`). This extra is independent of LangChain
-— it does not import `arcjet.guard.langchain`.
+`arcjet.guard.crewai` needs the `crewai` you already have — install it
+yourself with `pip install "crewai>=1.15.3,<2"` (Python `>=3.10,<3.14`).
+There is no Arcjet extra for it, for the ChromaDB reason
+[above](#guard-surfaces-extras-and-propagation). Nothing here imports
+`arcjet.guard.langchain`, and importing `arcjet.guard` never imports CrewAI.
+
+> [!NOTE]
+> CrewAI installs `chromadb`, which has an unpatched critical RCE
+> ([CVE-2026-45829](https://nvd.nist.gov/vuln/detail/CVE-2026-45829)). The
+> exposed surface is ChromaDB's **Python FastAPI server**, which loads a
+> client-supplied HuggingFace model before it authenticates the request.
+> CrewAI's own memory uses an embedded client and starts no server, so a
+> default CrewAI app is not reachable this way. If you do run a ChromaDB
+> server, use the Rust path (`chroma run` / the Docker images), which is
+> unaffected, and keep the port off untrusted networks.
 
 CrewAI's first-class gate is `PRE_TOOL_CALL`. Register it once; every tool a
 crew, LiteAgent, MCP adapter, or crew-injected tool list executes hits the

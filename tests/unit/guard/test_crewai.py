@@ -7,6 +7,8 @@ These tests import ``arcjet.guard.crewai`` helpers that do not load the peer.
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,19 +26,20 @@ from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import ArcjetDeniedError, ArcjetUnavailableError, arcjet_sequence
 from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._types import RuleResultError
+from arcjet.guard.crewai import _import as import_module
 from arcjet.guard.crewai._hooks import (
     ToolPolicy,
     _hook_config,
     evaluate_pre_tool_call,
     register_arcjet_hooks,
 )
-from arcjet.guard.crewai._import import crewai_present, load_crewai_hooks
+from arcjet.guard.crewai._import import _release, crewai_present, load_crewai_hooks
 from arcjet.guard.crewai._names import (
     _sanitize,
     free_text_arguments,
     sanitize_tool_name,
 )
-from arcjet.guard.crewai._tool import guard_tool
+from arcjet.guard.crewai._tool import _UNREADABLE, _arguments_from_call, guard_tool
 
 CREWAI_SRC = Path(__file__).resolve().parents[3] / "src" / "arcjet" / "guard" / "crewai"
 
@@ -114,11 +117,49 @@ class TestSourceIsolation:
                     for alias in node.names:
                         assert "langchain" not in alias.name
 
-    def test_core_guard_imports_without_crewai(self) -> None:
-        import arcjet.guard as guard
+    def test_core_guard_imports_with_crewai_unimportable(self) -> None:
+        """The real invariant, in a process where ``crewai`` cannot import.
 
-        assert hasattr(guard, "guard")
-        assert hasattr(guard, "ArcjetUnavailableError")
+        Asserted in a subprocess rather than here, because this module has
+        already imported both packages: a check in-process would pass even if
+        core Guard grew a hard dependency on CrewAI.
+        """
+        program = """
+import sys
+
+class _Blocked:
+    def find_module(self, name, path=None):
+        return self.find_spec(name, path)
+
+    def find_spec(self, name, path=None, target=None):
+        if name == "crewai" or name.startswith("crewai."):
+            raise ImportError("crewai is blocked for this test")
+        return None
+
+sys.meta_path.insert(0, _Blocked())
+
+import arcjet.guard
+assert callable(arcjet.guard.guard)
+assert arcjet.guard.ArcjetUnavailableError is not None
+assert "crewai" not in sys.modules
+
+# The adapter itself imports too, and names the extra when it is reached.
+import arcjet.guard.crewai as adapter
+try:
+    adapter.register_arcjet_hooks()
+except ImportError as exc:
+    assert "crewai>=1.15.3,<2" in str(exc), exc
+else:
+    raise AssertionError("expected an ImportError naming what to install")
+print("ok")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "ok"
 
 
 class TestEvaluatePreToolCall:
@@ -257,6 +298,20 @@ class TestEvaluatePreToolCall:
         assert client.guards[0]["actor"] == "u_1"
 
 
+class TestArgumentsFromCall:
+    """How a direct call's arguments are named for a resolver."""
+
+    def test_keyword_mapping_and_single_positional_calls_are_named(self) -> None:
+        assert _arguments_from_call((), {"value": "x"}) == {"value": "x"}
+        assert _arguments_from_call(({"value": "x"},), {}) == {"value": "x"}
+        assert _arguments_from_call(("bare",), {}) == {"input": "bare"}
+        assert _arguments_from_call((), {}) == {}
+
+    def test_multi_positional_call_is_unreadable_not_empty(self) -> None:
+        """An empty mapping would report a clean evaluation of nothing."""
+        assert _arguments_from_call(("a", "b"), {}) is _UNREADABLE
+
+
 class TestRegistrarValidation:
     """Wiring mistakes are refused where they are made, not per call.
 
@@ -289,24 +344,58 @@ class TestRegistrarValidation:
             )
 
 
-class TestMissingExtra:
-    def test_register_names_the_extra_when_crewai_absent(self) -> None:
+class TestMissingPeer:
+    """CrewAI is not an Arcjet dependency, so the error has to name it."""
+
+    def test_register_names_what_to_install(self) -> None:
         if crewai_present():
             pytest.skip("crewai is installed in this environment")
-        with pytest.raises(ImportError, match="arcjet\\[crewai\\]"):
+        with pytest.raises(ImportError, match=r'pip install "crewai>=1\.15\.3,<2"'):
             register_arcjet_hooks()
 
-    def test_guard_tool_names_the_extra_when_crewai_absent(self) -> None:
+    def test_guard_tool_names_what_to_install(self) -> None:
         if crewai_present():
             pytest.skip("crewai is installed in this environment")
-        with pytest.raises(ImportError, match="arcjet\\[crewai\\]"):
+        with pytest.raises(ImportError, match=r'pip install "crewai>=1\.15\.3,<2"'):
             guard_tool(guard=StubGuardClient(), tool=object(), action="x.done")
 
-    def test_load_hooks_names_the_extra_when_crewai_absent(self) -> None:
+    def test_load_hooks_names_what_to_install(self) -> None:
         if crewai_present():
             pytest.skip("crewai is installed in this environment")
-        with pytest.raises(ImportError, match="arcjet\\[crewai\\]"):
+        with pytest.raises(ImportError, match="needs CrewAI"):
             load_crewai_hooks()
+
+
+class TestVersionFloor:
+    """A CrewAI too old to deny is refused where it can still be reported."""
+
+    def test_release_parsing(self) -> None:
+        assert _release("1.15.3") == (1, 15, 3)
+        assert _release("1.15.16") == (1, 15, 16)
+        assert _release("2.0.0b1") == (2, 0, 0)
+        assert _release("1.15") == (1, 15)
+        assert _release("weird") == ()
+
+    def test_below_the_floor_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(import_module, "_installed_version", lambda: "1.15.2")
+        with pytest.raises(ArcjetMisconfiguration, match="needs crewai >= 1.15.3"):
+            import_module._require_crewai()
+
+    def test_at_or_above_the_floor_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for installed in ("1.15.3", "1.15.16", "1.16.0"):
+            monkeypatch.setattr(
+                import_module, "_installed_version", lambda v=installed: v
+            )
+            import_module._require_crewai()
+
+    def test_absent_crewai_is_left_to_the_import(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ImportError names what to install; this check stays quiet."""
+        monkeypatch.setattr(import_module, "_installed_version", lambda: None)
+        import_module._require_crewai()
 
 
 def test_public_errors_remain_for_guard_tool_path() -> None:

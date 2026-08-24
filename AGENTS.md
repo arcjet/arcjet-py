@@ -179,10 +179,14 @@ deliberately kept apart and **must not be merged**:
 - `langchain` → `langchain-core` only. Enough for `guard_tool`.
 - `langchain-agents` → the full `langchain` package, which hard-depends on
   LangGraph. Required only for agent middleware.
-- `crewai` → `crewai>=1.15.3,<2` (`@on` + `HookAborted`). Enough for
-  `register_arcjet_hooks` and the CrewAI `guard_tool`. Not in the default
-  `dev` group: CrewAI requires Python `<3.14`, and CI must still sync on 3.14.
-  Integration tests skip when the extra is absent.
+There is deliberately **no `crewai` extra and no CrewAI dependency group**.
+`crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
+an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
+crewai's `~=1.1.0` pin could not reach one, so declaring it would put an
+unpatchable critical CVE in every `arcjet[crewai]` install and in `uv.lock`.
+`arcjet.guard.crewai` imports CrewAI lazily and enforces its own floor
+(`>=1.15.3`) in `_import.py`. Install it ad hoc to run the integration suite —
+see CONTRIBUTING.
 
 Folding the second into the first would push LangGraph onto every `guard_tool`
 user. Both LangChain extras are in the `dev` group so tests can exercise either
