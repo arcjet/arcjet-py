@@ -144,6 +144,19 @@ keeping the existing API surface intact with internal changes.
   `_middleware.py` needs the full `langchain` package and LangGraph, so
   `__init__.py` resolves its two names lazily rather than importing it. See the
   package docstring for the correlation-ID resolution contract.
+- `src/arcjet/guard/crewai/` — Optional CrewAI integration (`arcjet[crewai]`).
+  Independent of LangChain: it must not import `arcjet.guard.langchain`.
+  `register_arcjet_hooks` is the invoke-wide PRE_TOOL_CALL gate (deny via
+  `HookAborted` only; CrewAI swallows every other exception, so an Arcjet
+  error raised from a hook *runs* the tool). `guard_tool` wraps a standalone
+  `BaseTool` you call yourself and is the only path that raises
+  `ArcjetDeniedError` / `ArcjetUnavailableError`. POST_TOOL_CALL is not
+  registered: it fires on blocked calls and receives a different context
+  object, so PRE→POST state is unmatchable once a tool runs a nested crew.
+  Two invariants the tests pin, both fail-open if broken: only the wrapped
+  *copy* carries the `_arcjet_guarded` brand (branding the original makes the
+  hook skip an unguarded tool), and re-entrancy is tracked per tool instance
+  (a global flag skips a guarded tool called from inside another one).
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -166,14 +179,23 @@ deliberately kept apart and **must not be merged**:
 - `langchain` → `langchain-core` only. Enough for `guard_tool`.
 - `langchain-agents` → the full `langchain` package, which hard-depends on
   LangGraph. Required only for agent middleware.
+There is deliberately **no `crewai` extra and no CrewAI dependency group**.
+`crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
+an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
+crewai's `~=1.1.0` pin could not reach one, so declaring it would put an
+unpatchable critical CVE in every `arcjet[crewai]` install and in `uv.lock`.
+`arcjet.guard.crewai` imports CrewAI lazily and enforces its own floor
+(`>=1.15.3`) in `_import.py`. Install it ad hoc to run the integration suite —
+see CONTRIBUTING.
 
 Folding the second into the first would push LangGraph onto every `guard_tool`
-user. Both are in the `dev` group so tests can exercise either surface, which
-means a test passing locally does not prove the extra it needs is correct —
-check the import against the extra that ships it.
+user. Both LangChain extras are in the `dev` group so tests can exercise either
+surface, which means a test passing locally does not prove the extra it needs
+is correct — check the import against the extra that ships it.
 
 Nothing outside `src/arcjet/guard/langchain/` may import LangChain. Using
-Arcjet Guard must never require LangChain to be installed.
+Arcjet Guard must never require LangChain to be installed. Nothing outside
+`src/arcjet/guard/crewai/` may import CrewAI.
 
 ## Coding conventions
 
