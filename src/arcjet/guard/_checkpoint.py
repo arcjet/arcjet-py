@@ -37,7 +37,7 @@ from ._types import Decision
 
 T = TypeVar("T")
 
-Outcome = Literal["success", "denied", "error", "unavailable"]
+Outcome = Literal["success", "degraded", "denied", "error", "unavailable"]
 
 DeniedFactory = Callable[[str, Decision], BaseException]
 UnavailableFactory = Callable[[str, Optional[BaseException]], BaseException]
@@ -85,6 +85,30 @@ def _resolve_correlation_id(explicit: Optional[str]) -> Optional[str]:
     that in before calling, by passing the config's value as *explicit*.
     """
     return explicit if explicit is not None else current_correlation_id()
+
+
+def _outcome_for_completed_action(
+    decision: Optional[Decision],
+    *,
+    degraded: Optional[BaseException],
+) -> Outcome:
+    """The outcome for an action that ran: ``success`` or ``degraded``.
+
+    ``success`` claims that policy judged the action, so it is reserved for the
+    case where policy judged all of it. Everything else here ran only because
+    ``on_guard_error="allow"`` let it: the guard call failed, its answer could
+    not be read, the decision failed open, or an input the decision needed
+    could not be resolved.
+
+    A ``degraded`` event still carries a decision ID when one exists. That is
+    what separates policy judging the action in part from policy never judging
+    it at all, and it is why one value covers three states.
+    """
+    if decision is None:
+        return "degraded"
+    if decision.has_failed_open() or degraded is not None:
+        return "degraded"
+    return "success"
 
 
 def _merged_metadata(explicit: Optional[Metadata], outcome: Outcome) -> Metadata:
@@ -257,6 +281,9 @@ def run_checkpoint_sync(
     # Bound before the attempt, so the classification below reads it whether or
     # not `prepare` got far enough to return one.
     prepared = ResolvedInputs()
+    # Cleared where the guard's answer could not be classified, which keeps
+    # such an answer off the record below.
+    decision_readable = True
 
     try:
         prepared = prepare() if prepare is not None else ResolvedInputs(actor, inputs)
@@ -324,6 +351,7 @@ def run_checkpoint_sync(
                 exc_info=exc,
             )
             failure = None
+            decision_readable = False
         if failure is not None:
             outcome: Outcome = (
                 "denied" if decision.conclusion == "DENY" else "unavailable"
@@ -338,6 +366,13 @@ def run_checkpoint_sync(
             )
             raise failure
 
+    # What goes on the record. It differs from `decision` only for an answer
+    # the engine could not read: nothing correlatable comes off such an object,
+    # and an answer that could not be classified judged nothing, which is
+    # exactly what an absent decision ID reports. Passing it on would lose the
+    # event altogether, because building one reads an id it does not have.
+    recorded = decision if decision_readable else None
+
     try:
         result = fn()
     except Exception:
@@ -346,7 +381,7 @@ def run_checkpoint_sync(
             action=action,
             outcome="error",
             correlation_id=resolved_correlation_id,
-            decision=decision,
+            decision=recorded,
             metadata=metadata,
         )
         raise
@@ -354,9 +389,9 @@ def run_checkpoint_sync(
     _emit_capture(
         client=guard,
         action=action,
-        outcome="success",
+        outcome=_outcome_for_completed_action(recorded, degraded=prepared.degraded),
         correlation_id=resolved_correlation_id,
-        decision=decision,
+        decision=recorded,
         metadata=metadata,
     )
     return result
@@ -383,6 +418,9 @@ async def run_checkpoint(
     # Bound before the attempt, so the classification below reads it whether or
     # not `prepare` got far enough to return one.
     prepared = ResolvedInputs()
+    # Cleared where the guard's answer could not be classified, which keeps
+    # such an answer off the record below.
+    decision_readable = True
 
     try:
         prepared = (
@@ -452,6 +490,7 @@ async def run_checkpoint(
                 exc_info=exc,
             )
             failure = None
+            decision_readable = False
         if failure is not None:
             outcome: Outcome = (
                 "denied" if decision.conclusion == "DENY" else "unavailable"
@@ -466,6 +505,13 @@ async def run_checkpoint(
             )
             raise failure
 
+    # What goes on the record. It differs from `decision` only for an answer
+    # the engine could not read: nothing correlatable comes off such an object,
+    # and an answer that could not be classified judged nothing, which is
+    # exactly what an absent decision ID reports. Passing it on would lose the
+    # event altogether, because building one reads an id it does not have.
+    recorded = decision if decision_readable else None
+
     try:
         result = await fn()
     except Exception:
@@ -474,7 +520,7 @@ async def run_checkpoint(
             action=action,
             outcome="error",
             correlation_id=resolved_correlation_id,
-            decision=decision,
+            decision=recorded,
             metadata=metadata,
         )
         raise
@@ -482,9 +528,9 @@ async def run_checkpoint(
     _emit_capture(
         client=guard,
         action=action,
-        outcome="success",
+        outcome=_outcome_for_completed_action(recorded, degraded=prepared.degraded),
         correlation_id=resolved_correlation_id,
-        decision=decision,
+        decision=recorded,
         metadata=metadata,
     )
     return result
