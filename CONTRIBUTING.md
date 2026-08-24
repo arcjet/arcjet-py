@@ -71,6 +71,13 @@ All tests (unit and integration) run together in a single test suite:
 The fixture-based approach prevents cross-contamination between tests while
 allowing them to run in a single pytest invocation.
 
+Optional extras that cannot install on every CI interpreter stay out of the
+default `dev` group. `arcjet[crewai]` is one: CrewAI requires Python
+`>=3.10,<3.14`, and the 3.14 test cell must still `uv sync`. Install it
+locally with `uv sync --extra crewai` (or `pip install -e ".[crewai]"`).
+The CrewAI integration suite skips when the extra is absent; unit tests that
+do not import `crewai` still run. Do not add `crewai` to the `dev` group.
+
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call

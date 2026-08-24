@@ -144,6 +144,13 @@ keeping the existing API surface intact with internal changes.
   `_middleware.py` needs the full `langchain` package and LangGraph, so
   `__init__.py` resolves its two names lazily rather than importing it. See the
   package docstring for the correlation-ID resolution contract.
+- `src/arcjet/guard/crewai/` — Optional CrewAI integration (`arcjet[crewai]`).
+  Independent of LangChain: it must not import `arcjet.guard.langchain`.
+  `register_arcjet_hooks` is the invoke-wide PRE_TOOL_CALL gate (deny via
+  `HookAborted` only; CrewAI swallows every other exception). `guard_tool`
+  wraps a standalone `BaseTool` you call yourself and is the only path that
+  raises `ArcjetDeniedError` / `ArcjetUnavailableError`. POST_TOOL_CALL is
+  capture only and is not a public policy API.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -166,14 +173,19 @@ deliberately kept apart and **must not be merged**:
 - `langchain` → `langchain-core` only. Enough for `guard_tool`.
 - `langchain-agents` → the full `langchain` package, which hard-depends on
   LangGraph. Required only for agent middleware.
+- `crewai` → `crewai>=1.15.3,<2` (`@on` + `HookAborted`). Enough for
+  `register_arcjet_hooks` and the CrewAI `guard_tool`. Not in the default
+  `dev` group: CrewAI requires Python `<3.14`, and CI must still sync on 3.14.
+  Integration tests skip when the extra is absent.
 
 Folding the second into the first would push LangGraph onto every `guard_tool`
-user. Both are in the `dev` group so tests can exercise either surface, which
-means a test passing locally does not prove the extra it needs is correct —
-check the import against the extra that ships it.
+user. Both LangChain extras are in the `dev` group so tests can exercise either
+surface, which means a test passing locally does not prove the extra it needs
+is correct — check the import against the extra that ships it.
 
 Nothing outside `src/arcjet/guard/langchain/` may import LangChain. Using
-Arcjet Guard must never require LangChain to be installed.
+Arcjet Guard must never require LangChain to be installed. Nothing outside
+`src/arcjet/guard/crewai/` may import CrewAI.
 
 ## Coding conventions
 

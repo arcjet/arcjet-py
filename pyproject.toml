@@ -67,6 +67,11 @@ langchain-agents = [
   "langchain-core>=1.2.5,<2",
   "langgraph>=1.2,<2",
 ]
+# CrewAI 1.15.3 shipped `@on` + `HookAborted`. The package itself requires
+# Python >=3.10,<3.14, so this extra is deliberately *not* in the default
+# `dev` group: CI's 3.14 cell must still `uv sync`. Integration tests skip
+# when the extra is absent; unit tests that do not import crewai still run.
+crewai = ["crewai>=1.15.3,<2"]
 
 [project.urls]
 "homepage" = "https://arcjet.com"
@@ -162,6 +167,8 @@ exclude = [
   "tests/mocked/test_enums.py",
   "tests/mocked/test_logging.py",
   "tests/mocked/test_rules.py",
+  # Optional extra; crewai is not in the default install (Python <3.14).
+  "tests/integration/guard/test_crewai.py",
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
@@ -183,4 +190,6 @@ exclude = [
   "tests/mocked/test_enums.py",
   "tests/mocked/test_logging.py",
   "tests/mocked/test_rules.py",
+  # Optional extra; crewai is not in the default install (Python <3.14).
+  "tests/integration/guard/test_crewai.py",
 ]

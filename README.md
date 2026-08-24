@@ -979,6 +979,8 @@ are holding when the effect happens.
 | A LangChain `BaseTool` you call yourself | `guard_tool` | `arcjet[langchain]` | Yes |
 | An agent built with `create_agent`, whose tool calls the model chooses | `ArcjetMiddleware` | `arcjet[langchain-agents]` | Yes |
 | A chain or agent you want to *observe* | `ArcjetCaptureHandler` | `arcjet[langchain]` | No — records only |
+| A CrewAI crew / LiteAgent / MCP or crew-injected tool | `register_arcjet_hooks` | `arcjet[crewai]` | Yes — via `HookAborted` |
+| A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | `arcjet[crewai]` | Yes |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -997,6 +999,9 @@ right home for capture and the wrong home for policy.
   `langchain-core` only — no LangGraph.
 - **`arcjet[langchain-agents]`** — adds `ArcjetMiddleware`, and pulls in
   LangChain and LangGraph.
+- **`arcjet[crewai]`** — `register_arcjet_hooks` and the CrewAI `guard_tool`.
+  Depends on `crewai>=1.15.3,<2` (`@on` + `HookAborted`). CrewAI itself
+  requires Python `>=3.10,<3.14`.
 
 These are separate because LangGraph is large and optional; many applications
 use tools without agents. Importing `arcjet.guard.langchain` never loads
@@ -1014,7 +1019,7 @@ from arcjet.guard.langchain import (
 )
 ```
 
-**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `ArcjetMiddleware`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
+**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `ArcjetMiddleware`, `register_arcjet_hooks`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
 
 - **`on_guard_error="deny"`** (default) — If Guard is unavailable or evaluation fails, the guarded action blocks with `ArcjetUnavailableError`.
 - **`on_guard_error="allow"`** — Opt out: if Guard is unavailable, the action runs anyway. Use this only where availability matters more than enforcement.
@@ -1302,6 +1307,83 @@ naming none of them is refused where you wrote it.
 The client is optional. Without `guard=`, the checkpoint uses whatever you
 registered with `register_arcjet()`, which is what you want in an application
 that registers once at startup.
+
+### CrewAI tool hooks
+
+Install the optional integration with `pip install "arcjet[crewai]"` (CrewAI
+`>=1.15.3,<2`; Python `>=3.10,<3.14`). This extra is independent of LangChain
+— it does not import `arcjet.guard.langchain`.
+
+CrewAI's first-class gate is `PRE_TOOL_CALL`. Register it once; every tool a
+crew, LiteAgent, MCP adapter, or crew-injected tool list executes hits the
+hook. A deny raises `HookAborted(reason, source="arcjet")` so the tool does
+not run. CrewAI swallows every other exception — raising
+`ArcjetDeniedError` or `ArcjetUnavailableError` from the hook would *run*
+the tool.
+
+```py
+from arcjet.guard import launch_arcjet_sync, server_input
+from arcjet.guard.crewai import ToolPolicy, register_arcjet_hooks
+
+aj = launch_arcjet_sync(key=arcjet_key)
+
+register_arcjet_hooks(
+    guard=aj,
+    # Default label for tools without a policy. Per-tool overrides below.
+    action=lambda ctx: f"{ctx.tool_name}.invoked",
+    on_guard_error="deny",  # default — HookAborted if Guard is unavailable
+    correlation_id=session_id,  # caller-owned; or open arcjet_sequence()
+    policies={
+        "send_email": ToolPolicy(
+            action="email.sent",
+            inputs=lambda arguments, _ctx: {
+                "recipient": server_input.string(arguments["to"]),
+            },
+        ),
+    },
+)
+
+# Screen inbound user text yourself. There is no guard_inbound helper.
+decision = aj.guard(
+    label="chat.inbound",
+    inputs={"content": server_input.string(user_text)},
+)
+if decision.conclusion == "DENY" or decision.has_failed_open():
+    raise RuntimeError("refusing to start the crew")
+
+crew.kickoff(inputs={"topic": user_text})
+```
+
+`policies=` keys and `tools=` filters are sanitized the way CrewAI sanitizes
+tool names (`Send Email` and `send_email` match). Crew, task, and agent
+*names* are attached as metadata. Their ids are never read and never used as
+a correlation id — pass `correlation_id` or open `arcjet_sequence()`.
+
+The hook path is synchronous and needs `launch_arcjet_sync`.
+`HookAborted.reason` is telemetry only; the agent always sees
+`Tool execution blocked by hook. Tool: {name}`. `POST_TOOL_CALL` is
+registered only to capture an allowed call. It is not a policy API and never
+rewrites the tool result. `human_input` / `request_human_input` is HITL, not
+a deny path.
+
+`BaseTool.run` does not dispatch `PRE_TOOL_CALL`. If you call a CrewAI tool
+yourself, wrap it:
+
+```py
+from arcjet.guard.crewai import guard_tool
+
+guarded_send = guard_tool(
+    guard=aj,
+    tool=send_email_tool,
+    action="email.sent",
+    on_guard_error="deny",
+)
+guarded_send.run(to="a@example.com", body="…")
+```
+
+A wrapped tool raises `ArcjetDeniedError` / `ArcjetUnavailableError` — the
+only CrewAI surface that uses those types. A tool that is both wrapped and
+executed by a hooked crew is evaluated once.
 
 ### Sync usage
 
