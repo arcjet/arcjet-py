@@ -147,10 +147,16 @@ keeping the existing API surface intact with internal changes.
 - `src/arcjet/guard/crewai/` — Optional CrewAI integration (`arcjet[crewai]`).
   Independent of LangChain: it must not import `arcjet.guard.langchain`.
   `register_arcjet_hooks` is the invoke-wide PRE_TOOL_CALL gate (deny via
-  `HookAborted` only; CrewAI swallows every other exception). `guard_tool`
-  wraps a standalone `BaseTool` you call yourself and is the only path that
-  raises `ArcjetDeniedError` / `ArcjetUnavailableError`. POST_TOOL_CALL is
-  capture only and is not a public policy API.
+  `HookAborted` only; CrewAI swallows every other exception, so an Arcjet
+  error raised from a hook *runs* the tool). `guard_tool` wraps a standalone
+  `BaseTool` you call yourself and is the only path that raises
+  `ArcjetDeniedError` / `ArcjetUnavailableError`. POST_TOOL_CALL is not
+  registered: it fires on blocked calls and receives a different context
+  object, so PRE→POST state is unmatchable once a tool runs a nested crew.
+  Two invariants the tests pin, both fail-open if broken: only the wrapped
+  *copy* carries the `_arcjet_guarded` brand (branding the original makes the
+  hook skip an unguarded tool), and re-entrancy is tracked per tool instance
+  (a global flag skips a guarded tool called from inside another one).
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.

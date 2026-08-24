@@ -6,15 +6,19 @@ executor, LiteAgent, or a crew-injected / MCP adapter runs goes through
 ``HookAborted(reason, source="arcjet")`` is the only deny that actually
 stops the tool — every other exception is swallowed (fail-open).
 
-POST_TOOL_CALL is registered only so a successful call can be captured. It
-is not a policy surface: it never raises, never returns a replacement
-result, and is not part of the public API.
+Only PRE is registered. POST_TOOL_CALL is deliberately left alone: it fires
+on blocked calls too, it receives a *different* context object than PRE, and
+a tool that runs a nested crew (CrewAI's delegation tools do) produces
+interleaved PRE/POST pairs that cannot be matched up through the public
+contract. Carrying state from PRE to POST therefore misattributes or drops
+events. The decision is recorded in PRE instead, which is also the only
+thing a hook can honestly observe: CrewAI turns a failing tool into a result
+string, so POST could not tell success from failure either.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast
 
@@ -23,7 +27,6 @@ from arcjet._logging import logger
 from arcjet._metadata import Metadata
 
 from .._checkpoint import (
-    Outcome,
     ResolvedInputs,
     _classify_decision,
     _emit_capture,
@@ -35,9 +38,8 @@ from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _blocking
 from .._rules import RuleWithInput
-from .._types import Decision
 from ._import import load_crewai_hooks
-from ._names import free_text_arguments, sanitize_tool_name
+from ._names import sanitize_tool_name
 
 ActionResolver = Union[str, Callable[[Any], str]]
 ActorResolver = Union[str, Callable[[Mapping[str, Any], Any], Optional[str]], None]
@@ -55,7 +57,13 @@ MetadataResolver = Union[
 ]
 
 _HOOK_SOURCE = "arcjet"
-_BLOCKED_PREFIX = "Tool execution blocked by hook."
+
+#: The attribute :func:`~arcjet.guard.crewai.guard_tool` puts on the tool it
+#: returns, so this hook does not evaluate the same call a second time. An
+#: attribute rather than a registry of ``id()`` values: CPython reuses the id
+#: of a collected object, so an id-keyed registry starts skipping unrelated
+#: tools — a silent fail-open — once the wrapped tool is garbage collected.
+_GUARD_BRAND = "_arcjet_guarded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,9 +79,9 @@ class ToolPolicy:
         rules: Bound rule inputs. Empty is normal and still contacts Guard,
             because the server selects remote policy by ``action``.
         actor: Who is acting — a string, or a callable taking the tool's
-            free-text arguments and the hook context.
+            arguments and the hook context.
         inputs: Values offered for policy evaluation — a mapping, or a
-            callable taking the free-text arguments and the hook context.
+            callable taking the tool's arguments and the hook context.
         metadata: Metadata attached to this checkpoint's capture. Crew,
             task, and agent *names* are added as metadata; they are never
             used as a correlation id.
@@ -87,56 +95,13 @@ class ToolPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-class _Pending:
-    """What PRE decided, so POST can capture without re-evaluating.
-
-    POST still fires on a blocked call. The deny/unavailable capture is
-    emitted in PRE (the tool never runs); POST must not emit a second
-    outcome and must not rewrite ``ctx.tool_result``.
-    """
-
-    action: str
-    correlation_id: Optional[str]
-    decision: Optional[Decision]
-    metadata: Optional[Metadata]
-    blocked: bool
-    client: Any
-
-
-_pending: ContextVar[Optional[_Pending]] = ContextVar(
-    "arcjet_crewai_pending_checkpoint", default=None
-)
-
-# Tools already wrapped by :func:`guard_tool`. A WeakSet is not used because
-# the hook sees a ``CrewStructuredTool`` whose identity is not the BaseTool
-# the caller wrapped; membership is by object id of the original, recorded
-# from the wrap.
-_guarded_originals: set[int] = set()
-
-
-def mark_guarded_tool(tool: Any) -> None:
-    """Remember *tool* so the PRE hook does not evaluate it a second time."""
-    _guarded_originals.add(id(tool))
-
-
-def _is_already_guarded(ctx: Any) -> bool:
-    tool = getattr(ctx, "tool", None)
-    if tool is None:
-        return False
-    if getattr(tool, "_arcjet_guarded", False):
-        return True
-    if id(tool) in _guarded_originals:
-        return True
-    original = getattr(tool, "_original_tool", None)
-    return original is not None and (
-        getattr(original, "_arcjet_guarded", False)
-        or id(original) in _guarded_originals
-    )
-
-
-@dataclass(frozen=True, slots=True)
 class _HookConfig:
-    """Resolved registrar arguments, closed over by the two hooks."""
+    """Resolved registrar arguments, closed over by the hook.
+
+    ``policies`` keys and ``tools`` entries are already sanitized, so matching
+    a call is a dict lookup rather than a scan. Build one through
+    :func:`_hook_config` so that stays true.
+    """
 
     guard: Any
     action: Optional[ActionResolver]
@@ -150,6 +115,41 @@ class _HookConfig:
     tools: Optional[frozenset[str]]
 
 
+def _hook_config(
+    *,
+    guard: Any = None,
+    action: Optional[ActionResolver] = None,
+    actor: ActorResolver = None,
+    inputs: InputResolver = None,
+    rules: RulesResolver = (),
+    metadata: Optional[MetadataResolver] = None,
+    correlation_id: Optional[str] = None,
+    on_guard_error: OnGuardError = "deny",
+    policies: Optional[Mapping[str, ToolPolicy]] = None,
+    tools: Optional[Sequence[str]] = None,
+) -> _HookConfig:
+    """A config whose tool names are sanitized the way CrewAI sanitizes them."""
+    return _HookConfig(
+        guard=guard,
+        action=action,
+        actor=actor,
+        inputs=inputs,
+        rules=rules,
+        metadata=metadata,
+        correlation_id=correlation_id,
+        on_guard_error=on_guard_error,
+        policies={
+            sanitize_tool_name(name): policy
+            for name, policy in (policies or {}).items()
+        },
+        tools=(
+            frozenset(sanitize_tool_name(name) for name in tools)
+            if tools is not None
+            else None
+        ),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _PreAbort:
     """PRE decided the tool must not run. Translated to ``HookAborted``."""
@@ -157,9 +157,35 @@ class _PreAbort:
     reason: str
 
 
+def _is_already_guarded(ctx: Any) -> bool:
+    """Whether ``guard_tool`` already evaluates this tool's calls.
+
+    Reads the brand off the tool the hook was handed and off the
+    ``_original_tool`` a ``CrewStructuredTool`` carries, which is where the
+    wrapped ``BaseTool`` ends up once an agent converts it. An unwrapped tool
+    is never branded, so handing the crew the original rather than the
+    wrapped copy leaves it guarded by this hook.
+    """
+    tool = getattr(ctx, "tool", None)
+    if tool is None:
+        return False
+    if getattr(tool, _GUARD_BRAND, False):
+        return True
+    original = getattr(tool, "_original_tool", None)
+    return original is not None and bool(getattr(original, _GUARD_BRAND, False))
+
+
 def _context_arguments(ctx: Any) -> Mapping[str, Any]:
+    """The arguments the tool is about to receive, as the model sent them.
+
+    Handed to a resolver whole. Nothing is filtered out: a resolver reading
+    ``arguments["user_id"]`` is reading the tool's own argument, and hiding it
+    would fail closed on a correctly written policy. Use
+    :func:`~arcjet.guard.crewai.free_text_arguments` when you want to offer
+    only free text to a scanning rule.
+    """
     raw = getattr(ctx, "tool_input", None)
-    return free_text_arguments(raw)
+    return raw if isinstance(raw, Mapping) else {}
 
 
 def _context_tool_name(ctx: Any) -> str:
@@ -191,29 +217,6 @@ def _context_metadata(ctx: Any, extra: Optional[Metadata]) -> Metadata:
     return merged
 
 
-def _call_factory(factory: Any, arguments: Mapping[str, Any], ctx: Any) -> Any:
-    if not callable(factory):
-        return factory
-    return factory(arguments, ctx)
-
-
-def _normalized_tools(tools: Optional[frozenset[str]]) -> Optional[frozenset[str]]:
-    if tools is None:
-        return None
-    return frozenset(sanitize_tool_name(name) for name in tools)
-
-
-def _select_policy(config: _HookConfig, ctx: Any) -> Optional[ToolPolicy]:
-    name = _context_tool_name(ctx)
-    tools = _normalized_tools(config.tools)
-    if tools is not None and name not in tools:
-        return None
-    for key, policy in config.policies.items():
-        if sanitize_tool_name(key) == name:
-            return policy
-    return None
-
-
 def _resolve_action(config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]) -> str:
     if policy is not None:
         return policy.action
@@ -229,6 +232,14 @@ def _resolve_action(config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy])
 def _prepared(
     config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]
 ) -> ResolvedInputs:
+    """What the decision is made from, with a failed resolver reported not raised.
+
+    A resolver that fails degrades what the decision is made *from*; it is not
+    a failure to reach a decision. Guard is still called, so the call stays on
+    the record and a rate limit on the label keeps counting, and
+    ``on_guard_error`` decides whether a partly-judged call may run — the same
+    contract as every other Arcjet checkpoint.
+    """
     arguments = _context_arguments(ctx)
     actor_src: ActorResolver = policy.actor if policy is not None else config.actor
     inputs_src: InputResolver = policy.inputs if policy is not None else config.inputs
@@ -246,7 +257,7 @@ def _resolve_one(
     if source is None or not callable(source):
         return source, so_far
     try:
-        return _call_factory(source, arguments, ctx), so_far
+        return source(arguments, ctx), so_far
     except Exception as exc:
         return None, so_far or exc
 
@@ -280,35 +291,39 @@ def _resolved_metadata(
 
 
 def _correlation(config: _HookConfig) -> Optional[str]:
+    """The caller's id, or the enclosing sequence's. Never minted from the crew."""
     if config.correlation_id is None:
         return _resolve_correlation_id(None)
     return _resolve_correlation_id(_validated(config.correlation_id))
 
 
+def _unavailable(action: str, cause: Optional[BaseException]) -> BaseException:
+    return ArcjetUnavailableError(action, cause=cause)
+
+
 def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]:
     """Evaluate PRE policy. Return an abort, or ``None`` to let the tool run.
 
-    This function does not import CrewAI. The registrar translates
-    :class:`_PreAbort` into ``HookAborted(reason, source="arcjet")``. Raising
+    Deliberately returns rather than raises, and does not import CrewAI: the
+    registrar is the only thing that turns this into
+    ``HookAborted(reason, source="arcjet")``. Raising
     :class:`~arcjet.guard.ArcjetDeniedError` or
-    :class:`~arcjet.guard.ArcjetUnavailableError` from the hook would be
-    swallowed and the tool would run.
+    :class:`~arcjet.guard.ArcjetUnavailableError` from a hook would be
+    swallowed by CrewAI's dispatcher and the tool would run.
     """
     if _is_already_guarded(ctx):
         return None
 
-    policy = _select_policy(config, ctx)
-    tools = _normalized_tools(config.tools)
-    if tools is not None and _context_tool_name(ctx) not in tools:
+    name = _context_tool_name(ctx)
+    if config.tools is not None and name not in config.tools:
         return None
+    policy = config.policies.get(name)
 
-    # Bound before the attempt so the except path can still name the action
-    # when a factory throws during resolution.
-    action = "tool.invoked"
+    # Bound before the attempt so the failure path can still name the action
+    # and reach the same Sequence when a factory throws.
+    action = f"{name or 'tool'}.invoked"
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
-    prepared = ResolvedInputs()
-    decision: Optional[Decision] = None
 
     try:
         action = _resolve_action(config, ctx, policy)
@@ -316,14 +331,6 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
         metadata = _resolved_metadata(config, ctx, policy)
         prepared = _prepared(config, ctx, policy)
         rules = _resolved_rules(config, ctx, policy)
-        if (
-            _blocking(config.guard, "guard_sync", "guard") is None
-            and config.guard is not None
-        ):
-            raise TypeError(
-                "CrewAI tool hooks are synchronous and require a blocking "
-                "Arcjet client such as ArcjetGuardSync (launch_arcjet_sync)"
-            )
         decision = _guard_sync(
             config.guard,
             rules=rules,
@@ -337,46 +344,18 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
             decision,
             action=action,
             on_guard_error=config.on_guard_error,
-            denied_error=_denied,
+            denied_error=ArcjetDeniedError,
             unavailable_error=_unavailable,
             degraded=prepared.degraded,
         )
-    except _Abort as abort:
-        _emit_capture(
-            client=config.guard,
-            action=action,
-            outcome=abort.outcome,
-            correlation_id=correlation_id,
-            decision=abort.decision,
-            metadata=metadata,
-        )
-        _pending.set(
-            _Pending(
-                action=action,
-                correlation_id=correlation_id,
-                decision=abort.decision,
-                metadata=metadata,
-                blocked=True,
-                client=config.guard,
-            )
-        )
-        return _PreAbort(abort.reason)
     except Exception as exc:
+        # Policy was not evaluated: the guard call failed, or the client
+        # answered with something that is not a decision.
         if config.on_guard_error == "allow":
             logger.warning(
                 "arcjet: policy for action %r could not be evaluated; proceeding "
                 "because on_guard_error is 'allow'",
                 action,
-            )
-            _pending.set(
-                _Pending(
-                    action=action,
-                    correlation_id=correlation_id,
-                    decision=None,
-                    metadata=metadata,
-                    blocked=False,
-                    client=config.guard,
-                )
             )
             return None
         _emit_capture(
@@ -387,121 +366,60 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
             decision=None,
             metadata=metadata,
         )
-        _pending.set(
-            _Pending(
-                action=action,
-                correlation_id=correlation_id,
-                decision=None,
-                metadata=metadata,
-                blocked=True,
-                client=config.guard,
-            )
-        )
         return _PreAbort(str(ArcjetUnavailableError(action, cause=exc)))
 
     if failure is not None:
-        # ``_classify_decision`` returns the exception; ``_denied`` / ``_unavailable``
-        # raise ``_Abort`` instead, so a returned failure is unexpected. Treat it
-        # as unavailable so the hook still fail-closes.
-        return _PreAbort(str(failure))
-
-    _pending.set(
-        _Pending(
+        _emit_capture(
+            client=config.guard,
             action=action,
+            outcome="denied" if decision.conclusion == "DENY" else "unavailable",
             correlation_id=correlation_id,
             decision=decision,
             metadata=metadata,
-            blocked=False,
-            client=config.guard,
         )
+        return _PreAbort(str(failure))
+
+    # "success" is the decision's outcome — the call was allowed to proceed —
+    # not the tool's. A hook cannot observe the body: CrewAI turns a failing
+    # tool into a result string, and a later hook may still abort the call.
+    _emit_capture(
+        client=config.guard,
+        action=action,
+        outcome="success",
+        correlation_id=correlation_id,
+        decision=decision,
+        metadata=metadata,
     )
     return None
 
 
-def capture_post_tool_call(ctx: Any) -> None:
-    """Record a tool that was allowed to run. Never denies, never rewrites.
-
-    ``HookAborted.reason`` is telemetry only; the agent-facing string is
-    CrewAI's ``Tool execution blocked by hook. Tool: {name}``. POST still
-    fires on that path — returning a string here would replace it, so this
-    returns ``None`` (via the hook wrapper) and emits nothing if PRE already
-    recorded a block.
-    """
-    pending = _pending.get()
-    _pending.set(None)
-    if pending is None or pending.blocked:
-        return
-    result = getattr(ctx, "tool_result", None)
-    if isinstance(result, str) and result.startswith(_BLOCKED_PREFIX):
-        # Another hook blocked the call after we allowed it. The tool did
-        # not run; do not record a success.
-        return
-    _emit_capture(
-        client=pending.client,
-        action=pending.action,
-        outcome="success",
-        correlation_id=pending.correlation_id,
-        decision=pending.decision,
-        metadata=pending.metadata,
-    )
-
-
-class _Abort(Exception):
-    """Internal: ``_classify_decision`` factories cannot return HookAborted."""
-
-    reason: str
-    outcome: Outcome
-    decision: Optional[Decision]
-
-    def __init__(
-        self,
-        reason: str,
-        *,
-        outcome: Outcome,
-        decision: Optional[Decision] = None,
-    ) -> None:
-        super().__init__(reason)
-        self.reason = reason
-        self.outcome = outcome
-        self.decision = decision
-
-
-def _denied(action: str, decision: Decision) -> BaseException:
-    raise _Abort(
-        str(ArcjetDeniedError(action, decision)),
-        outcome="denied",
-        decision=decision,
-    )
-
-
-def _unavailable(action: str, cause: Optional[BaseException]) -> BaseException:
-    raise _Abort(
-        str(ArcjetUnavailableError(action, cause=cause)),
-        outcome="unavailable",
-        decision=None,
-    )
-
-
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ArcjetCrewAIHooks:
-    """Handle for a pair of hooks registered by :func:`register_arcjet_hooks`.
+    """Handle for the hook registered by :func:`register_arcjet_hooks`.
 
-    Not a policy API. ``unregister()`` removes both hooks so a test (or a
-    process that registered at startup and wants to stop) can take them down.
+    Not a policy API. ``unregister()`` takes the hook down again, which is
+    what lets a test — or a process that wants to re-register with different
+    policies — start over. Unregistering twice is a no-op.
     """
 
-    _pre: Any
-    _post: Any
+    _hook: Any
     _hooks: Any
 
     def unregister(self) -> None:
-        """Remove the PRE and POST hooks this handle registered."""
+        """Remove the hook this handle registered."""
+        global _registered
         self._hooks.unregister_hook(
-            self._hooks.InterceptionPoint.PRE_TOOL_CALL, self._pre
+            self._hooks.InterceptionPoint.PRE_TOOL_CALL, self._hook
         )
-        self._hooks.unregister_hook(
-            self._hooks.InterceptionPoint.POST_TOOL_CALL, self._post
-        )
+        if _registered is self:
+            _registered = None
+
+
+#: The live registration, if any. CrewAI's registry is process-wide and
+#: appends, so registering twice would evaluate every tool call twice —
+#: double-charging a rate limit — while the second set of policies silently
+#: replaced nothing.
+_registered: Optional[ArcjetCrewAIHooks] = None
 
 
 def register_arcjet_hooks(
@@ -531,9 +449,16 @@ def register_arcjet_hooks(
     The agent always sees ``Tool execution blocked by hook. Tool: {name}``.
     ``HookAborted.reason`` is telemetry only.
 
-    The hook path is synchronous and needs a blocking client
-    (``launch_arcjet_sync`` / :class:`~arcjet.guard.ArcjetGuardSync`). Do not
-    pass :class:`~arcjet.guard.ArcjetGuard`.
+    Registered once per process. CrewAI's hook registry is global and
+    appends, so a second registration would evaluate every tool call twice;
+    this refuses one instead. Call ``unregister()`` on the handle first to
+    replace a registration.
+
+    The hook path is synchronous, so *guard* must have a blocking ``guard()``
+    (``launch_arcjet_sync`` / :class:`~arcjet.guard.ArcjetGuardSync`). An
+    async client is refused here rather than per call, because a hook cannot
+    report a wiring mistake: under ``on_guard_error="allow"`` it would
+    silently allow every tool call.
 
     Correlation is caller-owned: pass *correlation_id* or open
     :func:`~arcjet.guard.arcjet_sequence`. Crew, task, and agent names are
@@ -549,8 +474,8 @@ def register_arcjet_hooks(
         action: Checkpoint label, or a callable of the hook context. Defaults
             to ``"{sanitized_tool_name}.invoked"``.
         actor: Who is acting, or a callable of ``(arguments, ctx)``.
-        inputs: Policy inputs, or a callable of ``(arguments, ctx)``. The
-            arguments mapping has opaque ids stripped.
+        inputs: Policy inputs, or a callable of ``(arguments, ctx)``.
+            *arguments* is the tool's own argument mapping, unfiltered.
         rules: Local rules, or a callable of ``(arguments, ctx)``.
         metadata: Capture metadata, or a callable of ``(arguments, ctx)``.
         correlation_id: Caller-owned Sequence id. Validated like
@@ -563,27 +488,41 @@ def register_arcjet_hooks(
             tools pass through.
 
     Returns:
-        A handle whose :meth:`ArcjetCrewAIHooks.unregister` removes the hooks.
+        A handle whose :meth:`ArcjetCrewAIHooks.unregister` removes the hook.
+
+    Raises:
+        ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or
+            ``"deny"``, *guard* has no blocking ``guard()``, or a
+            registration is already live.
+        ValueError: *correlation_id* is not printable ASCII within 256 bytes.
     """
+    global _registered
+
     if on_guard_error not in ("allow", "deny"):
         raise ArcjetMisconfiguration(
             f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "
             f"It decides whether a call runs when policy could not be "
             f"evaluated, so there is no safe value to guess."
         )
+    if guard is not None and _blocking(guard, "guard_sync", "guard") is None:
+        raise ArcjetMisconfiguration(
+            "CrewAI tool hooks are synchronous, so they need a client with a "
+            "blocking guard() — launch_arcjet_sync() or ArcjetGuardSync. The "
+            "client given has only an awaitable guard(), which no hook can "
+            "wait on."
+        )
     if correlation_id is not None:
         _validated(correlation_id)
+    if _registered is not None:
+        raise ArcjetMisconfiguration(
+            "Arcjet CrewAI hooks are already registered in this process. "
+            "CrewAI's hook registry is global and appends, so registering "
+            "again would evaluate every tool call twice. Call unregister() "
+            "on the handle from the first call to replace it."
+        )
 
     hooks = load_crewai_hooks()
-    normalized_policies = {
-        sanitize_tool_name(name): policy for name, policy in (policies or {}).items()
-    }
-    normalized_tools = (
-        frozenset(sanitize_tool_name(name) for name in tools)
-        if tools is not None
-        else None
-    )
-    config = _HookConfig(
+    config = _hook_config(
         guard=guard,
         action=action,
         actor=actor,
@@ -592,8 +531,8 @@ def register_arcjet_hooks(
         metadata=metadata,
         correlation_id=correlation_id,
         on_guard_error=on_guard_error,
-        policies=normalized_policies,
-        tools=normalized_tools,
+        policies=policies,
+        tools=tools,
     )
 
     def pre_tool_call(ctx: Any) -> None:
@@ -601,15 +540,11 @@ def register_arcjet_hooks(
         if abort is not None:
             raise hooks.HookAborted(reason=abort.reason, source=_HOOK_SOURCE)
 
-    def post_tool_call(ctx: Any) -> None:
-        capture_post_tool_call(ctx)
-        return None
-
     hooks.register_hook(hooks.InterceptionPoint.PRE_TOOL_CALL, pre_tool_call)
-    hooks.register_hook(hooks.InterceptionPoint.POST_TOOL_CALL, post_tool_call)
-    return ArcjetCrewAIHooks(_pre=pre_tool_call, _post=post_tool_call, _hooks=hooks)
+    _registered = ArcjetCrewAIHooks(_hook=pre_tool_call, _hooks=hooks)
+    return _registered
 
 
 def unregister_arcjet_hooks(handle: ArcjetCrewAIHooks) -> None:
-    """Remove the hooks *handle* registered."""
+    """Remove the hook *handle* registered."""
     handle.unregister()

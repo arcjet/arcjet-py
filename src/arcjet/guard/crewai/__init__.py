@@ -19,7 +19,9 @@ There is no inbound helper and no approval helper. Screen user text with
 the core :func:`~arcjet.guard.guard` / :func:`~arcjet.guard.guard_sync`
 call before ``crew.kickoff``. ``human_input`` is HITL, not a policy gate.
 
-POST_TOOL_CALL is capture only and is not exported as a policy API. The
+Only PRE is registered. POST_TOOL_CALL is never a policy surface — it fires
+on blocked calls too — and this module does not register it at all, so it
+cannot deny or rewrite a result. The decision is captured in PRE. The
 agent-facing block message is always ``Tool execution blocked by hook.
 Tool: {name}``; ``HookAborted.reason`` is telemetry only.
 

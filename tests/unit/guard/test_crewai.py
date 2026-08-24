@@ -7,8 +7,10 @@ These tests import ``arcjet.guard.crewai`` helpers that do not load the peer.
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from guard_doubles import (
@@ -20,17 +22,20 @@ from guard_doubles import (
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import ArcjetDeniedError, ArcjetUnavailableError, arcjet_sequence
+from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._types import RuleResultError
 from arcjet.guard.crewai._hooks import (
     ToolPolicy,
-    _HookConfig,
-    _pending,
-    capture_post_tool_call,
+    _hook_config,
     evaluate_pre_tool_call,
     register_arcjet_hooks,
 )
 from arcjet.guard.crewai._import import crewai_present, load_crewai_hooks
-from arcjet.guard.crewai._names import free_text_arguments, sanitize_tool_name
+from arcjet.guard.crewai._names import (
+    _sanitize,
+    free_text_arguments,
+    sanitize_tool_name,
+)
 from arcjet.guard.crewai._tool import guard_tool
 
 CREWAI_SRC = Path(__file__).resolve().parents[3] / "src" / "arcjet" / "guard" / "crewai"
@@ -50,47 +55,29 @@ def _ctx(**kwargs: object) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-def _config(**kwargs: object) -> _HookConfig:
-    values: dict[str, object] = {
-        "guard": StubGuardClient(decision=make_allow_decision()),
-        "action": None,
-        "actor": None,
-        "inputs": None,
-        "rules": (),
-        "metadata": None,
-        "correlation_id": None,
-        "on_guard_error": "deny",
-        "policies": {},
-        "tools": None,
-    }
-    values.update(kwargs)
-    return _HookConfig(**values)  # type: ignore[arg-type]
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    token = _pending.set(None)
-    try:
-        yield
-    finally:
-        _pending.reset(token)
-
-
 class TestSanitizeToolName:
+    """The fallback copy of CrewAI's algorithm, exercised without the extra."""
+
     def test_matches_crewai_examples(self) -> None:
-        assert sanitize_tool_name("Send Email") == "send_email"
-        assert sanitize_tool_name("send_email") == "send_email"
-        assert sanitize_tool_name("sendEmail") == "send_email"
-        assert sanitize_tool_name("HTTPRequest") == "http_request"
+        assert _sanitize("Send Email") == "send_email"
+        assert _sanitize("send_email") == "send_email"
+        assert _sanitize("sendEmail") == "send_email"
+        assert _sanitize("HTTPRequest") == "http_request"
 
     def test_truncates_with_hash_suffix(self) -> None:
-        long = "a" * 80
-        sanitized = sanitize_tool_name(long)
+        sanitized = _sanitize("a" * 80)
         assert len(sanitized) <= 64
         assert sanitized.startswith("a")
 
+    def test_public_helper_agrees_with_the_fallback(self) -> None:
+        """Whether or not it delegated, both spellings answer the same."""
+        for name in ("Send Email", "sendEmail", "HTTPRequest", "already_sane"):
+            assert sanitize_tool_name(name) == _sanitize(name)
+
 
 class TestFreeTextArguments:
+    """An opt-in helper. Nothing applies it to a resolver's arguments."""
+
     def test_drops_opaque_ids(self) -> None:
         filtered = free_text_arguments(
             {
@@ -110,7 +97,7 @@ class TestFreeTextArguments:
         )
         assert filtered == {"payload": {"body": "hi"}, "count": 2}
 
-    def test_non_dict_is_empty(self) -> None:
+    def test_non_mapping_is_empty(self) -> None:
         assert free_text_arguments("plain") == {}
         assert free_text_arguments(None) == {}
 
@@ -139,7 +126,7 @@ class TestEvaluatePreToolCall:
         client = StubGuardClient(decision=make_deny_decision())
         ctx = _ctx()
         abort = evaluate_pre_tool_call(
-            ctx, _config(guard=client, correlation_id="session-99")
+            ctx, _hook_config(guard=client, correlation_id="session-99")
         )
         assert abort is not None
         assert "echo.invoked" in abort.reason
@@ -151,18 +138,30 @@ class TestEvaluatePreToolCall:
         assert client.captures[0]["metadata"]["task"] == "research"
         assert client.captures[0]["metadata"]["agent"] == "researcher"
 
-    def test_allow_does_not_abort(self, reset_sequence_context) -> None:
+    def test_allow_does_not_abort_and_captures_the_decision(
+        self, reset_sequence_context
+    ) -> None:
         client = StubGuardClient(decision=make_allow_decision())
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client))
+        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client))
         assert abort is None
-        assert client.captures == []
-        pending = _pending.get()
-        assert pending is not None
-        assert pending.blocked is False
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_each_call_is_captured_on_its_own_action(
+        self, reset_sequence_context
+    ) -> None:
+        """A tool that runs a nested crew must not lose the outer event."""
+        client = StubGuardClient(decision=make_allow_decision())
+        config = _hook_config(guard=client)
+        evaluate_pre_tool_call(_ctx(tool_name="outer"), config)
+        evaluate_pre_tool_call(_ctx(tool_name="inner"), config)
+        assert [capture["action"] for capture in client.captures] == [
+            "outer.invoked",
+            "inner.invoked",
+        ]
 
     def test_guard_error_fail_closed(self, reset_sequence_context) -> None:
         client = StubGuardClient(exception=RuntimeError("down"))
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client))
+        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client))
         assert abort is not None
         assert "could not be evaluated" in abort.reason
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
@@ -170,7 +169,7 @@ class TestEvaluatePreToolCall:
     def test_guard_error_allow_proceeds(self, reset_sequence_context) -> None:
         client = StubGuardClient(exception=RuntimeError("down"))
         abort = evaluate_pre_tool_call(
-            _ctx(), _config(guard=client, on_guard_error="allow")
+            _ctx(), _hook_config(guard=client, on_guard_error="allow")
         )
         assert abort is None
 
@@ -179,17 +178,17 @@ class TestEvaluatePreToolCall:
             results=(RuleResultError(code="TIMEOUT", message="deadline"),)
         )
         client = StubGuardClient(decision=decision)
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client))
+        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client))
         assert abort is not None
         assert "could not be evaluated" in abort.reason
 
     def test_policy_factory_throw_fail_closed(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
 
-        def boom(_arguments: object, _ctx: object) -> object:
+        def boom(_arguments: Mapping[str, Any], _ctx: Any) -> PolicyInputMap:
             raise RuntimeError("resolver exploded")
 
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client, inputs=boom))
+        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client, inputs=boom))
         assert abort is not None
         assert "could not be evaluated" in abort.reason
         # Guard still saw the call — resolver failure is degraded, not skipped.
@@ -201,32 +200,26 @@ class TestEvaluatePreToolCall:
         def boom(_ctx: object) -> str:
             raise RuntimeError("no action")
 
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client, action=boom))
-        assert abort is not None
-        assert "could not be evaluated" in abort.reason
-
-    def test_async_client_fail_closed(self, reset_sequence_context) -> None:
-        client = AsyncOnlyStubGuardClient(decision=make_allow_decision())
-        abort = evaluate_pre_tool_call(_ctx(), _config(guard=client))
+        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client, action=boom))
         assert abort is not None
         assert "could not be evaluated" in abort.reason
 
     def test_ambient_sequence_is_used(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())
         with arcjet_sequence(correlation_id="from-sequence"):
-            evaluate_pre_tool_call(_ctx(), _config(guard=client))
+            evaluate_pre_tool_call(_ctx(), _hook_config(guard=client))
         assert client.guards[0]["correlation_id"] == "from-sequence"
 
     def test_never_mints_from_crew_or_task_id(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
-        evaluate_pre_tool_call(_ctx(), _config(guard=client))
+        evaluate_pre_tool_call(_ctx(), _hook_config(guard=client))
         assert client.guards[0]["correlation_id"] is None
 
     def test_policies_and_tools_are_sanitized(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())
         abort = evaluate_pre_tool_call(
             _ctx(tool_name="send_email"),
-            _config(
+            _hook_config(
                 guard=client,
                 policies={"Send Email": ToolPolicy(action="email.sent")},
                 tools=["Send Email"],
@@ -239,52 +232,39 @@ class TestEvaluatePreToolCall:
         client = StubGuardClient(decision=make_deny_decision())
         abort = evaluate_pre_tool_call(
             _ctx(tool_name="search"),
-            _config(guard=client, tools=["Send Email"]),
+            _hook_config(guard=client, tools=["Send Email"]),
         )
         assert abort is None
         assert client.guards == []
 
-    def test_scans_free_text_not_opaque_ids(self, reset_sequence_context) -> None:
-        seen: list[object] = []
+    def test_resolver_sees_the_tools_own_arguments(
+        self, reset_sequence_context
+    ) -> None:
+        """Including an id-shaped argument the policy itself needs."""
+        seen: list[Mapping[str, Any]] = []
 
-        def inputs(arguments: object, _ctx: object) -> object:
-            seen.append(arguments)
-            return None
+        def actor(arguments: Mapping[str, Any], _ctx: Any) -> str:
+            seen.append(dict(arguments))
+            return str(arguments["user_id"])
 
         client = StubGuardClient(decision=make_allow_decision())
-        evaluate_pre_tool_call(
-            _ctx(tool_input={"query": "hello", "tool_call_id": "call_1", "id": "x"}),
-            _config(guard=client, inputs=inputs),
+        abort = evaluate_pre_tool_call(
+            _ctx(tool_input={"user_id": "u_1", "body": "hello"}),
+            _hook_config(guard=client, actor=actor),
         )
-        assert seen == [{"query": "hello"}]
-
-
-class TestPostCapture:
-    def test_allowed_call_emits_success(self, reset_sequence_context) -> None:
-        client = StubGuardClient(decision=make_allow_decision())
-        evaluate_pre_tool_call(_ctx(), _config(guard=client))
-        capture_post_tool_call(_ctx(tool_result="ok"))
-        assert client.captures[0]["metadata"]["outcome"] == "success"
-
-    def test_blocked_call_does_not_emit_success(self, reset_sequence_context) -> None:
-        client = StubGuardClient(decision=make_deny_decision())
-        evaluate_pre_tool_call(_ctx(), _config(guard=client))
-        before = list(client.captures)
-        capture_post_tool_call(
-            _ctx(tool_result="Tool execution blocked by hook. Tool: echo")
-        )
-        assert client.captures == before
-        assert _pending.get() is None
-
-    def test_does_not_rewrite_result(self, reset_sequence_context) -> None:
-        client = StubGuardClient(decision=make_allow_decision())
-        evaluate_pre_tool_call(_ctx(), _config(guard=client))
-        ctx = _ctx(tool_result="original")
-        assert capture_post_tool_call(ctx) is None
-        assert ctx.tool_result == "original"
+        assert abort is None
+        assert seen == [{"user_id": "u_1", "body": "hello"}]
+        assert client.guards[0]["actor"] == "u_1"
 
 
 class TestRegistrarValidation:
+    """Wiring mistakes are refused where they are made, not per call.
+
+    A hook cannot report one: CrewAI swallows everything except
+    ``HookAborted``, so under ``on_guard_error="allow"`` a bad client would
+    silently allow every tool call.
+    """
+
     def test_invalid_on_guard_error_is_refused(self) -> None:
         with pytest.raises(ArcjetMisconfiguration, match="on_guard_error"):
             register_arcjet_hooks(on_guard_error="maybe")  # type: ignore[arg-type]
@@ -292,6 +272,12 @@ class TestRegistrarValidation:
     def test_invalid_correlation_id_is_refused(self) -> None:
         with pytest.raises(ValueError, match="printable ASCII"):
             register_arcjet_hooks(correlation_id="not\nvalid")
+
+    def test_async_client_is_refused(self) -> None:
+        with pytest.raises(ArcjetMisconfiguration, match="blocking guard"):
+            register_arcjet_hooks(
+                guard=AsyncOnlyStubGuardClient(decision=make_allow_decision())
+            )
 
     def test_guard_tool_invalid_on_guard_error_is_refused(self) -> None:
         with pytest.raises(ArcjetMisconfiguration, match="on_guard_error"):

@@ -1355,16 +1355,38 @@ crew.kickoff(inputs={"topic": user_text})
 ```
 
 `policies=` keys and `tools=` filters are sanitized the way CrewAI sanitizes
-tool names (`Send Email` and `send_email` match). Crew, task, and agent
-*names* are attached as metadata. Their ids are never read and never used as
-a correlation id — pass `correlation_id` or open `arcjet_sequence()`.
+tool names (`Send Email` and `send_email` match) — by CrewAI's own function,
+so matching cannot drift from it. Crew, task, and agent *names* are attached
+as metadata. Their ids are never read and never used as a correlation id —
+pass `correlation_id` or open `arcjet_sequence()`.
 
-The hook path is synchronous and needs `launch_arcjet_sync`.
+A resolver receives the tool's arguments as the model sent them, unfiltered,
+because a policy reading `arguments["user_id"]` is reading the tool's own
+argument. When you want to offer only free text to a scanning rule, apply
+`free_text_arguments()`, which drops id-shaped keys (`tool_call_id`,
+`trace_id`, `*_id`):
+
+```py
+from arcjet.guard.crewai import free_text_arguments
+```
+
+Register once per process. CrewAI's hook registry is global and appends, so a
+second `register_arcjet_hooks()` would evaluate every tool call twice and
+double-charge a rate limit; it raises `ArcjetMisconfiguration` instead. Call
+`unregister()` on the returned handle to replace a registration.
+
+The hook path is synchronous, so the client must have a blocking `guard()`
+(`launch_arcjet_sync`). An async client is refused at registration rather
+than per call — a hook cannot report a wiring mistake, so under
+`on_guard_error="allow"` it would silently allow every tool call.
+
 `HookAborted.reason` is telemetry only; the agent always sees
-`Tool execution blocked by hook. Tool: {name}`. `POST_TOOL_CALL` is
-registered only to capture an allowed call. It is not a policy API and never
-rewrites the tool result. `human_input` / `request_human_input` is HITL, not
-a deny path.
+`Tool execution blocked by hook. Tool: {name}`. Only `PRE_TOOL_CALL` is
+registered. `POST_TOOL_CALL` is not a policy surface — it fires on blocked
+calls too — so this integration does not register it at all and cannot deny
+or rewrite a result there. The capture records the *decision*: a hook cannot
+observe the tool body, because CrewAI turns a failing tool into a result
+string. `human_input` / `request_human_input` is HITL, not a deny path.
 
 `BaseTool.run` does not dispatch `PRE_TOOL_CALL`. If you call a CrewAI tool
 yourself, wrap it:
@@ -1382,8 +1404,14 @@ guarded_send.run(to="a@example.com", body="…")
 ```
 
 A wrapped tool raises `ArcjetDeniedError` / `ArcjetUnavailableError` — the
-only CrewAI surface that uses those types. A tool that is both wrapped and
-executed by a hooked crew is evaluated once.
+only CrewAI surface that uses those types. `guard_tool` returns a *copy*
+carrying the checkpoint, and one call evaluates once however deep the tool's
+own entrypoints delegate. Give the crew the copy: the hook skips it, so a
+wrapped tool a crew executes is evaluated once. The original is deliberately
+left unwrapped, so handing *it* to a crew is still covered by the hook rather
+than silently unguarded. A tool the crew reaches without CrewAI recording an
+`_original_tool` is evaluated by both surfaces, which is fail-closed but
+charges twice — wrap or hook such a tool, not both.
 
 ### Sync usage
 
