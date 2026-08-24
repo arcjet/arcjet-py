@@ -18,6 +18,7 @@ string, so POST could not tell success from failure either.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast
@@ -411,8 +412,9 @@ class ArcjetCrewAIHooks:
         self._hooks.unregister_hook(
             self._hooks.InterceptionPoint.PRE_TOOL_CALL, self._hook
         )
-        if _registered is self:
-            _registered = None
+        with _registration_lock:
+            if _registered is self:
+                _registered = None
 
 
 #: The live registration, if any. CrewAI's registry is process-wide and
@@ -420,6 +422,12 @@ class ArcjetCrewAIHooks:
 #: double-charging a rate limit — while the second set of policies silently
 #: replaced nothing.
 _registered: Optional[ArcjetCrewAIHooks] = None
+
+# Guards the check-then-set below, for the same reason `register_arcjet` holds
+# one: assignment is atomic under the GIL, so the lock is not protecting the
+# variable but the decision — two threads registering at startup must not both
+# observe an empty slot and both believe they won.
+_registration_lock = threading.Lock()
 
 
 def register_arcjet_hooks(
@@ -513,13 +521,6 @@ def register_arcjet_hooks(
         )
     if correlation_id is not None:
         _validated(correlation_id)
-    if _registered is not None:
-        raise ArcjetMisconfiguration(
-            "Arcjet CrewAI hooks are already registered in this process. "
-            "CrewAI's hook registry is global and appends, so registering "
-            "again would evaluate every tool call twice. Call unregister() "
-            "on the handle from the first call to replace it."
-        )
 
     hooks = load_crewai_hooks()
     config = _hook_config(
@@ -540,9 +541,19 @@ def register_arcjet_hooks(
         if abort is not None:
             raise hooks.HookAborted(reason=abort.reason, source=_HOOK_SOURCE)
 
-    hooks.register_hook(hooks.InterceptionPoint.PRE_TOOL_CALL, pre_tool_call)
-    _registered = ArcjetCrewAIHooks(_hook=pre_tool_call, _hooks=hooks)
-    return _registered
+    # The claim and the registration are made together, so two threads racing
+    # at startup cannot both put a hook on CrewAI's registry.
+    with _registration_lock:
+        if _registered is not None:
+            raise ArcjetMisconfiguration(
+                "Arcjet CrewAI hooks are already registered in this process. "
+                "CrewAI's hook registry is global and appends, so registering "
+                "again would evaluate every tool call twice. Call unregister() "
+                "on the handle from the first call to replace it."
+            )
+        hooks.register_hook(hooks.InterceptionPoint.PRE_TOOL_CALL, pre_tool_call)
+        _registered = ArcjetCrewAIHooks(_hook=pre_tool_call, _hooks=hooks)
+        return _registered
 
 
 def unregister_arcjet_hooks(handle: ArcjetCrewAIHooks) -> None:
