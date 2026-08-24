@@ -258,7 +258,9 @@ class TestGuardRaisesSync:
         assert call_count == 1
         assert result == "value"
         # Capture the success, not unavailable
-        assert client.captures[0]["metadata"]["outcome"] == "success"
+        # Not `unavailable`, which would mean the action was blocked, and
+        # not `success`, which would claim policy judged it.
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
 
 
 class TestGuardRaisesAsync:
@@ -343,7 +345,9 @@ class TestFailedOpenSync:
 
         assert call_count == 1
         assert result == "value"
-        assert client.captures[0]["metadata"]["outcome"] == "success"
+        # The action ran only because on_guard_error is 'allow', and the
+        # decision failed open, so policy judged none of it.
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
 
 
 class TestErrorOutcomeSync:
@@ -1677,7 +1681,9 @@ class TestFailedOpenAsync:
             assert result == "success"
             assert call_count == 1
             assert len(client.captures) >= 1
-            assert client.captures[0]["metadata"]["outcome"] == "success"
+            # The action ran only because on_guard_error is 'allow', and the
+            # decision failed open, so policy judged none of it.
+            assert client.captures[0]["metadata"]["outcome"] == "degraded"
 
         asyncio.run(test())
 
@@ -1800,6 +1806,148 @@ class TestGuardRaiseAllowProceedsAsync:
             assert result == "success"
             # Should capture success, not unavailable
             assert len(client.captures) == 1
-            assert client.captures[0]["metadata"]["outcome"] == "success"
+            # Not `unavailable`, which would mean the action was blocked, and
+            # not `success`, which would claim policy judged it.
+            assert client.captures[0]["metadata"]["outcome"] == "degraded"
+
+        asyncio.run(test())
+
+
+class TestDegradedOutcome:
+    """`success` claims policy judged the action, so a partial judgement is not one.
+
+    Covers the conditions from the capture-outcome ADR that reach the capture
+    with the action already run. The fail-closed halves of the same conditions
+    are covered by the `unavailable` tests above.
+    """
+
+    def test_degraded_inputs_carry_a_decision_id(self, reset_sequence_context):
+        """Policy judged the action in part: it ran, and a real decision exists."""
+        client = StubGuardClient(decision=make_allow_decision(id="gdec_partial"))
+
+        def prepare() -> ResolvedInputs:
+            return ResolvedInputs(
+                actor="user-1", degraded=RuntimeError("inputs unreadable")
+            )
+
+        result = run_checkpoint_sync(
+            lambda: "value",
+            action="thing.done",
+            guard=client,
+            prepare=prepare,
+            on_guard_error="allow",
+        )
+
+        assert result == "value"
+        capture = client.captures[0]
+        assert capture["metadata"]["outcome"] == "degraded"
+        # The half of the three-state reading that says "judged in part".
+        assert capture["decision_id"] == "gdec_partial"
+
+    def test_a_failed_open_decision_carries_no_decision_id(
+        self, reset_sequence_context
+    ):
+        """Policy judged none of it, which the absent decision ID reports."""
+        decision = make_allow_decision(
+            id="", results=(RuleResultError(code="ERR_UNKNOWN", message="broke"),)
+        )
+        client = StubGuardClient(decision=decision)
+
+        run_checkpoint_sync(
+            lambda: "value",
+            action="thing.done",
+            guard=client,
+            on_guard_error="allow",
+        )
+
+        capture = client.captures[0]
+        assert capture["metadata"]["outcome"] == "degraded"
+        assert not capture["decision_id"]
+
+    def test_an_unreadable_decision_is_degraded(self, reset_sequence_context):
+        """A client that answered with something that is not a decision.
+
+        Policy was not evaluated, so the action ran only because
+        `on_guard_error` is 'allow' — the record must say so.
+        """
+        client = StubGuardClient(decision=object())  # type: ignore[arg-type]
+
+        result = run_checkpoint_sync(
+            lambda: "value",
+            action="thing.done",
+            guard=client,
+            on_guard_error="allow",
+        )
+
+        assert result == "value"
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+
+    def test_a_clean_allow_is_still_success(self, reset_sequence_context):
+        """The control: nothing degraded, so the claim of a judgement stands."""
+        client = StubGuardClient(decision=make_allow_decision())
+
+        run_checkpoint_sync(
+            lambda: "value",
+            action="thing.done",
+            guard=client,
+            on_guard_error="allow",
+        )
+
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_a_throwing_action_reports_error_over_degraded(
+        self, reset_sequence_context
+    ):
+        """`outcome` holds one value, and the ADR gives `error` precedence.
+
+        A count of `degraded` events therefore excludes the degraded actions
+        that also threw, which is stated in the ADR rather than fixed here.
+        """
+        decision = make_allow_decision(
+            id="", results=(RuleResultError(code="ERR_UNKNOWN", message="broke"),)
+        )
+        client = StubGuardClient(decision=decision)
+
+        def fn() -> str:
+            raise ValueError("the action itself failed")
+
+        with pytest.raises(ValueError):
+            run_checkpoint_sync(
+                fn,
+                action="thing.done",
+                guard=client,
+                on_guard_error="allow",
+            )
+
+        assert client.captures[0]["metadata"]["outcome"] == "error"
+
+    def test_degraded_inputs_are_degraded_on_the_async_path(
+        self, reset_sequence_context
+    ):
+        """Both flavours share the engine, so both report it the same way."""
+
+        async def test() -> None:
+            client = StubGuardClient(decision=make_allow_decision(id="gdec_partial"))
+
+            async def prepare() -> ResolvedInputs:
+                return ResolvedInputs(
+                    actor="user-1", degraded=RuntimeError("inputs unreadable")
+                )
+
+            async def fn() -> str:
+                return "value"
+
+            result = await run_checkpoint(
+                fn,
+                action="thing.done",
+                guard=client,
+                prepare=prepare,
+                on_guard_error="allow",
+            )
+
+            assert result == "value"
+            capture = client.captures[0]
+            assert capture["metadata"]["outcome"] == "degraded"
+            assert capture["decision_id"] == "gdec_partial"
 
         asyncio.run(test())
