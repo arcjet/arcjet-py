@@ -104,7 +104,7 @@ dev = [
   "ruff==0.16.3",
   "tomli>=2.0.0; python_version < '3.11'",
   "ty==0.0.23",
-  "types-protobuf==7.34.1.20260518",
+  "types-protobuf==7.34.1.20260816",
 ]
 
 [tool.pytest.ini_options]
