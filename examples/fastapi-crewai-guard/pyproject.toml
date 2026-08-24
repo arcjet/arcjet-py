@@ -1,0 +1,20 @@
+[project]
+name = "example-fastapi-crewai-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + CrewAI Guard Application"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "arcjet[crewai]",
+    "crewai>=1.15.3,<2",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Unpublished adapter: `arcjet.guard.crewai` is not on a released version
+# yet. Pin the extra to the adapter SHA rather than a path to this
+# checkout (main does not ship it) or a PyPI release that lacks the extra.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "cc7dd09260cabe3bfac7aff8fa07e085c209b1db" }
