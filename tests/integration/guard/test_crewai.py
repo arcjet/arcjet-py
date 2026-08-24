@@ -370,23 +370,48 @@ def test_guard_tool_fails_closed_when_arguments_cannot_be_named() -> None:
     assert len(client.guards) == 1
 
 
-def test_hook_never_lets_an_internal_error_fail_open() -> None:
-    """CrewAI swallows everything but HookAborted, so a bug must still block."""
+def test_hook_never_lets_an_internal_error_fail_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CrewAI swallows everything but HookAborted, so a bug must still block.
+
+    The failure is injected into ``evaluate_pre_tool_call`` rather than staged
+    with a hostile context object: what matters is that *any* escape from that
+    function becomes a ``HookAborted``, not which attribute access happened to
+    fail.
+    """
     client = StubGuardClient(decision=make_allow_decision())
     register_arcjet_hooks(guard=client, action="echo.invoked")
+
+    def boom(_ctx: Any, _config: Any) -> Any:
+        raise RuntimeError("a bug in this package")
+
+    monkeypatch.setattr(hooks_module, "evaluate_pre_tool_call", boom)
+    hook = get_hooks(InterceptionPoint.PRE_TOOL_CALL)[0]
+
+    with pytest.raises(HookAborted) as exc_info:
+        hook(_context())
+    assert exc_info.value.source == "arcjet"
+    assert "a bug in this package" in exc_info.value.reason
+
+
+def test_internal_error_proceeds_under_on_guard_error_allow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``allow`` opts out of failing closed, including on an internal error."""
+    client = StubGuardClient(decision=make_allow_decision())
+    register_arcjet_hooks(guard=client, on_guard_error="allow")
+
+    def boom(_ctx: Any, _config: Any) -> Any:
+        raise RuntimeError("a bug in this package")
+
+    monkeypatch.setattr(hooks_module, "evaluate_pre_tool_call", boom)
     ran: list[str] = []
 
-    # A context that raises on every attribute read is not a shape any code
-    # path expects, which is the point: the gate must hold anyway.
-    class _Hostile:
-        def __getattr__(self, name: str) -> Any:
-            raise RuntimeError(f"boom: {name}")
+    result = _execute(_context(), lambda: ran.append("ran") or "ok")
 
-    hook = get_hooks(InterceptionPoint.PRE_TOOL_CALL)[0]
-    with pytest.raises(HookAborted) as exc_info:
-        hook(_Hostile())
-    assert exc_info.value.source == "arcjet"
-    assert ran == []
+    assert ran == ["ran"]
+    assert result == "ok"
 
 
 def test_guard_tool_leaves_the_original_unwrapped() -> None:
