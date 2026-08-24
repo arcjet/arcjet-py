@@ -195,16 +195,11 @@ wheels = [
 [[package]]
 name = "arcjet"
 version = "0.10.0b1"
-source = { git = "https://github.com/arcjet/arcjet-py?rev=cc7dd09260cabe3bfac7aff8fa07e085c209b1db#cc7dd09260cabe3bfac7aff8fa07e085c209b1db" }
+source = { git = "https://github.com/arcjet/arcjet-py?rev=b1253640ce676b948594beed5fe62450d0e1c77d#b1253640ce676b948594beed5fe62450d0e1c77d" }
 dependencies = [
     { name = "connect-python" },
     { name = "pyqwest" },
     { name = "wasmtime" },
-]
-
-[package.optional-dependencies]
-crewai = [
-    { name = "crewai" },
 ]
 
 [[package]]
@@ -788,14 +783,14 @@ name = "example-fastapi-crewai-guard"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "arcjet", extra = ["crewai"] },
+    { name = "arcjet" },
     { name = "crewai" },
     { name = "fastapi", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "arcjet", extras = ["crewai"], git = "https://github.com/arcjet/arcjet-py?rev=cc7dd09260cabe3bfac7aff8fa07e085c209b1db" },
+    { name = "arcjet", git = "https://github.com/arcjet/arcjet-py?rev=b1253640ce676b948594beed5fe62450d0e1c77d" },
     { name = "crewai", specifier = ">=1.15.3,<2" },
     { name = "fastapi", extras = ["standard"], specifier = "==0.141.1" },
 ]

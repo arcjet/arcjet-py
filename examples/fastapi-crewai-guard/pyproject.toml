@@ -5,7 +5,7 @@ description = "Arcjet Python SDK Example FastAPI + CrewAI Guard Application"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "arcjet[crewai]",
+    "arcjet",
     "crewai>=1.15.3,<2",
     "fastapi[standard]==0.141.1",
 ]
@@ -13,8 +13,8 @@ dependencies = [
 [tool.uv]
 exclude-newer = "7 days"
 
-# Unpublished adapter: `arcjet.guard.crewai` is not on a released version
-# yet. Pin the extra to the adapter SHA rather than a path to this
-# checkout (main does not ship it) or a PyPI release that lacks the extra.
+# CrewAI adapter shipped on main in #224; not a PyPI release yet. Pin the
+# core package (there is no `arcjet[crewai]` extra — chromadb CVE) to the
+# #224 merge commit. Install `crewai` as a direct example dependency.
 [tool.uv.sources]
-arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "cc7dd09260cabe3bfac7aff8fa07e085c209b1db" }
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "b1253640ce676b948594beed5fe62450d0e1c77d" }

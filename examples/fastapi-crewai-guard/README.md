@@ -3,11 +3,12 @@
 A FastAPI server with a CrewAI crew that uses Arcjet to protect the HTTP
 request, screen inbound user text, and authorize the crew's tool calls.
 
-The CrewAI adapter is unpublished. This example pins `arcjet[crewai]` to SHA
-`cc7dd09260cabe3bfac7aff8fa07e085c209b1db` on `david/cursor/guard-crewai-hooks`
-— not a PyPI release, and not a path to this checkout, which does not ship the
-extra yet. The extra depends on `crewai>=1.15.3,<2` and requires Python
-`>=3.10,<3.14`. The hook path is sync-only (`launch_arcjet_sync`).
+The CrewAI adapter shipped on main in [arcjet-py#224](https://github.com/arcjet/arcjet-py/pull/224).
+This example pins `arcjet` (the core package — there is no `arcjet[crewai]`
+extra) to SHA `b1253640ce676b948594beed5fe62450d0e1c77d` on main, and
+installs `crewai>=1.15.3,<2` as a direct example dependency. That is not a
+PyPI release. Requires Python `>=3.10,<3.14`. The hook path is sync-only
+(`launch_arcjet_sync`).
 
 ## Setup
 
