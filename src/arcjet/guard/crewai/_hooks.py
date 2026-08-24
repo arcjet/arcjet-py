@@ -370,10 +370,15 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
         return _PreAbort(str(ArcjetUnavailableError(action, cause=exc)))
 
     if failure is not None:
+        # Read defensively. Everything else in this function is inside the
+        # `try` above precisely because an exception escaping a hook is a
+        # fail-open, and a decision of an unexpected shape must not be the one
+        # thing that gets out.
+        denied = getattr(decision, "conclusion", None) == "DENY"
         _emit_capture(
             client=config.guard,
             action=action,
-            outcome="denied" if decision.conclusion == "DENY" else "unavailable",
+            outcome="denied" if denied else "unavailable",
             correlation_id=correlation_id,
             decision=decision,
             metadata=metadata,
@@ -407,14 +412,21 @@ class ArcjetCrewAIHooks:
     _hooks: Any
 
     def unregister(self) -> None:
-        """Remove the hook this handle registered."""
+        """Remove the hook this handle registered. Idempotent.
+
+        The claim is released and the hook removed under one lock, so two
+        threads calling this cannot both reach CrewAI's ``unregister_hook``.
+        Whether that call is idempotent is CrewAI's business; this keeps the
+        question local.
+        """
         global _registered
-        self._hooks.unregister_hook(
-            self._hooks.InterceptionPoint.PRE_TOOL_CALL, self._hook
-        )
         with _registration_lock:
-            if _registered is self:
-                _registered = None
+            if _registered is not self:
+                return
+            self._hooks.unregister_hook(
+                self._hooks.InterceptionPoint.PRE_TOOL_CALL, self._hook
+            )
+            _registered = None
 
 
 #: The live registration, if any. CrewAI's registry is process-wide and
@@ -537,7 +549,26 @@ def register_arcjet_hooks(
     )
 
     def pre_tool_call(ctx: Any) -> None:
-        abort = evaluate_pre_tool_call(ctx, config)
+        try:
+            abort = evaluate_pre_tool_call(ctx, config)
+        except Exception as exc:
+            # `evaluate_pre_tool_call` is written not to raise, so reaching
+            # here is a bug in this package. It still must not fail open:
+            # CrewAI swallows anything that is not HookAborted and runs the
+            # tool, so an internal error would silently disable the gate.
+            if config.on_guard_error == "allow":
+                logger.warning(
+                    "arcjet: the CrewAI PRE_TOOL_CALL hook failed; the tool "
+                    "proceeds because on_guard_error is 'allow'",
+                    exc_info=exc,
+                )
+                return
+            logger.error(
+                "arcjet: the CrewAI PRE_TOOL_CALL hook failed; blocking the "
+                "tool because on_guard_error is 'deny'",
+                exc_info=exc,
+            )
+            abort = _PreAbort(f"Arcjet could not evaluate this tool call ({exc})")
         if abort is not None:
             raise hooks.HookAborted(reason=abort.reason, source=_HOOK_SOURCE)
 

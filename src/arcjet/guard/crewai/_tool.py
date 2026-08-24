@@ -46,6 +46,18 @@ InputResolver = (
 )
 
 
+#: Stands in for a call whose arguments could not be named. A sentinel rather
+#: than an empty mapping, because the two mean opposite things to a resolver:
+#: "this call had no arguments" versus "the arguments could not be read". The
+#: empty mapping made a resolver quietly return ``None`` and the checkpoint
+#: report a clean evaluation of nothing.
+_UNREADABLE: Any = object()
+
+
+class _UnreadableArguments(Exception):
+    """A resolver was configured and could not be shown what it asked for."""
+
+
 def _arguments_from_call(
     args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> Mapping[str, Any]:
@@ -54,6 +66,12 @@ def _arguments_from_call(
     Keyword arguments describe themselves, and so does a single mapping
     argument. A single positional value cannot be named from here — the tool's
     own schema is what names it — so it is offered under ``"input"``.
+
+    Several positional arguments cannot be named at all, and CrewAI validates
+    keyword calls (``BaseTool.run`` parses ``kwargs`` against ``args_schema``),
+    so this is an unusual call shape. It yields :data:`_UNREADABLE` rather than
+    an empty mapping, which routes it through ``on_guard_error`` — fail closed
+    by default — instead of evaluating a policy against nothing.
     """
     if kwargs:
         return dict(kwargs)
@@ -61,7 +79,9 @@ def _arguments_from_call(
         return dict(args[0])
     if len(args) == 1:
         return {"input": args[0]}
-    return {}
+    if not args:
+        return {}
+    return _UNREADABLE
 
 
 def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:
@@ -148,6 +168,20 @@ def guard_tool(
         degraded: Optional[BaseException] = None
         resolved_actor: Optional[str] = None
         resolved_inputs: Optional[PolicyInputMap] = None
+
+        if arguments is _UNREADABLE:
+            # Only a resolver reads the arguments, so a policy that does not
+            # configure one is unaffected and the call proceeds.
+            if callable(actor) or callable(inputs):
+                return ResolvedInputs(
+                    degraded=_UnreadableArguments(
+                        "the call's arguments could not be named: it passed "
+                        "several positional values, which the tool's own "
+                        "schema names rather than this checkpoint"
+                    )
+                )
+            return ResolvedInputs()
+
         try:
             resolved_actor = _resolve(actor, arguments)
         except Exception as exc:

@@ -176,7 +176,8 @@ def test_post_tool_call_is_not_registered() -> None:
     client = StubGuardClient(decision=make_allow_decision())
     register_arcjet_hooks(guard=client, action="echo.invoked")
     assert get_hooks(InterceptionPoint.POST_TOOL_CALL) == []
-    assert _execute(_context(), lambda: "kept") == "kept"
+    kept = _execute(_context(), lambda: "kept")
+    assert kept == "kept"
 
 
 def test_correlation_is_caller_owned() -> None:
@@ -257,9 +258,12 @@ def test_hook_skips_the_wrapped_tool_but_not_the_original() -> None:
     register_arcjet_hooks(guard=hook_client, action="echo.invoked")
 
     ran: list[str] = []
-    assert _execute(
+    # Assigned, not asserted inline: an `assert` with a side effect does
+    # nothing under `python -O`, which would stop running the tool here.
+    allowed = _execute(
         _context(tool=_Structured(wrapped)), lambda: ran.append("w") or "ok"
     )
+    assert allowed == "ok"
     assert ran == ["w"], "the hook must not evaluate an already-wrapped tool"
     assert hook_client.guards == []
 
@@ -339,6 +343,50 @@ def test_guard_tool_guards_a_tools_own_func() -> None:
     with pytest.raises(ArcjetDeniedError):
         guarded.run(value="hello")
     assert calls == []
+
+
+def test_guard_tool_fails_closed_when_arguments_cannot_be_named() -> None:
+    """A resolver must not be shown an empty mapping and believed."""
+
+    class _TwoArgs(BaseTool):
+        name: str = "two"
+        description: str = "takes two values"
+
+        def _run(self, first: str, second: str) -> str:
+            _ECHO_CALLS.append(first)
+            return first
+
+    client = StubGuardClient(decision=make_allow_decision())
+    guarded = guard_tool(
+        guard=client,
+        tool=_TwoArgs(),
+        action="two.invoked",
+        actor=lambda arguments: str(arguments["first"]),
+    )
+    with pytest.raises(ArcjetUnavailableError):
+        guarded._run("a", "b")
+    assert _ECHO_CALLS == []
+    # Guard still saw the call: unreadable arguments are degraded, not skipped.
+    assert len(client.guards) == 1
+
+
+def test_hook_never_lets_an_internal_error_fail_open() -> None:
+    """CrewAI swallows everything but HookAborted, so a bug must still block."""
+    client = StubGuardClient(decision=make_allow_decision())
+    register_arcjet_hooks(guard=client, action="echo.invoked")
+    ran: list[str] = []
+
+    # A context that raises on every attribute read is not a shape any code
+    # path expects, which is the point: the gate must hold anyway.
+    class _Hostile:
+        def __getattr__(self, name: str) -> Any:
+            raise RuntimeError(f"boom: {name}")
+
+    hook = get_hooks(InterceptionPoint.PRE_TOOL_CALL)[0]
+    with pytest.raises(HookAborted) as exc_info:
+        hook(_Hostile())
+    assert exc_info.value.source == "arcjet"
+    assert ran == []
 
 
 def test_guard_tool_leaves_the_original_unwrapped() -> None:

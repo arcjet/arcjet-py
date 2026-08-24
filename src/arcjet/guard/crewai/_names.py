@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import re
+import threading
 import unicodedata
 from collections.abc import Mapping
 from typing import Any, Callable, Final, Optional, cast
@@ -48,16 +49,24 @@ _OPAQUE_ID_KEYS: Final[frozenset[str]] = frozenset(
 _UNRESOLVED: Final[Any] = object()
 _upstream: Any = _UNRESOLVED
 
+# The import runs at most once. Two threads racing here are harmless under the
+# GIL — both compute the same function object — but a free-threaded build has
+# no such guarantee, and a partially initialized module is exactly what the
+# second thread would read.
+_upstream_lock = threading.Lock()
+
 
 def _upstream_sanitizer() -> Optional[Callable[[str], str]]:
     """CrewAI's own ``sanitize_tool_name``, or ``None`` without the extra."""
     global _upstream
     if _upstream is _UNRESOLVED:
-        try:
-            module = importlib.import_module("crewai.utilities.string_utils")
-            _upstream = module.sanitize_tool_name
-        except (ImportError, AttributeError):
-            _upstream = None
+        with _upstream_lock:
+            if _upstream is _UNRESOLVED:
+                try:
+                    module = importlib.import_module("crewai.utilities.string_utils")
+                    _upstream = module.sanitize_tool_name
+                except (ImportError, AttributeError):
+                    _upstream = None
     return cast(Optional[Callable[[str], str]], _upstream)
 
 
@@ -104,6 +113,12 @@ def free_text_arguments(tool_input: object) -> dict[str, object]:
     ``tool_call_id``, ``trace_id`` and friends are not content, so scanning
     them finds nothing. Nested mappings are walked, and a list keeps its items
     with each mapping filtered the same way.
+
+    Drops **any** key ending in ``_id``, not only the enumerated ones, so an
+    argument like ``invoice_id`` or ``document_id`` does not survive either.
+    That is the right rule for feeding a scanner and the wrong one if the
+    policy needs an id-shaped argument — read those from the mapping a
+    resolver is handed, which is unfiltered.
 
     Nothing applies this for you. A resolver is handed the tool's arguments
     whole, because a resolver reading ``arguments["user_id"]`` is reading the
