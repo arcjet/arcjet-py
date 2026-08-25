@@ -1,0 +1,19 @@
+[project]
+name = "example-fastapi-openai-agents-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + OpenAI Agents Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[openai-agents]",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# OpenAI Agents adapter is unpublished. Pin `arcjet[openai-agents]` to the
+# adapter SHA on `david/cursor/guard-openai-agents-py` (openai-agents>=0.19.0,<1).
+# That is not a PyPI release. No chromadb.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "978670d073f077eb9324654ec383150db4168c39" }
