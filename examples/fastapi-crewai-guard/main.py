@@ -134,20 +134,20 @@ def chat(request: Request, body: ChatRequest) -> Any:
     # cookie, a verified token claim — never from a field the caller controls.
     correlation_id = body.session_id
 
-    decision = aj.protect(
-        request,
-        requested=5,
-        characteristics={"userId": body.session_id},
-        correlation_id=correlation_id,
-    )
-    if decision.is_denied():
-        status = 429 if decision.reason.is_rate_limit() else 403
-        return JSONResponse(
-            {"error": "Denied", "reason": decision.reason.to_dict()},
-            status_code=status,
-        )
-
     with arcjet_sequence(correlation_id=correlation_id):
+        decision = aj.protect(
+            request,
+            requested=5,
+            characteristics={"userId": body.session_id},
+            correlation_id=correlation_id,
+        )
+        if decision.is_denied():
+            status = 429 if decision.reason.is_rate_limit() else 403
+            return JSONResponse(
+                {"error": "Denied", "reason": decision.reason.to_dict()},
+                status_code=status,
+            )
+
         # Screen inbound user text yourself. There is no `guard_inbound`
         # helper. Core `guard()` fails open — an unevaluated policy is an
         # ALLOW with `has_failed_open()` — so this route refuses to start
@@ -235,6 +235,8 @@ def chat(request: Request, body: ChatRequest) -> Any:
         )
         crew = Crew(agents=[agent], tasks=[task], verbose=False)
 
+        # CrewAI hooks are process-global; only register/unregister around
+        # kickoff so the lock does not cover agent construction.
         with _hooks_lock:
             # Register immediately before kickoff. Fail closed: if policy
             # cannot be evaluated at all, the tool does not run. This is the
@@ -260,4 +262,4 @@ def chat(request: Request, body: ChatRequest) -> Any:
 
         reply = str(result)
 
-    return {"reply": reply, "session_id": body.session_id}
+        return {"reply": reply, "session_id": body.session_id}
