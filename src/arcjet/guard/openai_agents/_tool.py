@@ -17,10 +17,12 @@ Hosted tools, MCP, Computer/Shell/ApplyPatch, handoffs, and
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Literal, Optional, Union, cast
 
 from arcjet._errors import ArcjetMisconfiguration
@@ -33,6 +35,7 @@ from .._checkpoint import (
     _emit_capture,
     _guard_async,
     _guard_sync,
+    _outcome_for_completed_action,
     _resolve_correlation_id,
 )
 from .._context import _validated
@@ -202,28 +205,21 @@ async def _decide(
 ) -> Any:
     """Evaluate through the async client when there is one, else the sync one.
 
-    The runner is async; a blocking client is still accepted so a
-    ``launch_arcjet_sync`` app can wrap tools.
+    The runner is async. A blocking ``guard_sync()`` client is offloaded with
+    ``asyncio.to_thread`` so the event loop is not wedged for the Guard round
+    trip.
     """
+    kwargs = {
+        "rules": rules,
+        "label": action,
+        "metadata": metadata,
+        "correlation_id": correlation_id,
+        "actor": prepared.actor,
+        "inputs": prepared.inputs,
+    }
     if _awaitable(config.guard, "guard") is not None or config.guard is None:
-        return await _guard_async(
-            config.guard,
-            rules=rules,
-            label=action,
-            metadata=metadata,
-            correlation_id=correlation_id,
-            actor=prepared.actor,
-            inputs=prepared.inputs,
-        )
-    return _guard_sync(
-        config.guard,
-        rules=rules,
-        label=action,
-        metadata=metadata,
-        correlation_id=correlation_id,
-        actor=prepared.actor,
-        inputs=prepared.inputs,
-    )
+        return await _guard_async(config.guard, **kwargs)
+    return await asyncio.to_thread(partial(_guard_sync, config.guard, **kwargs))
 
 
 async def evaluate_tool_input(data: Any, config: _ToolConfig) -> ToolInputVerdict:
@@ -300,7 +296,9 @@ async def evaluate_tool_input(data: Any, config: _ToolConfig) -> ToolInputVerdic
     _emit_capture(
         client=config.guard,
         action=action,
-        outcome="success",
+        outcome=_outcome_for_completed_action(
+            decision, degraded=prepared.degraded
+        ),
         correlation_id=correlation_id,
         decision=decision,
         metadata=metadata,

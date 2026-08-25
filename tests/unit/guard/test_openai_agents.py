@@ -34,6 +34,7 @@ from arcjet.guard.openai_agents._denial import (
     UNAVAILABLE_RETRY_AFTER_SECONDS,
     denial_result,
     dumps_denial,
+    retry_after_seconds,
     unavailable_result,
 )
 from arcjet.guard.openai_agents._import import (
@@ -167,6 +168,16 @@ class TestOpenaiAgentsContext:
         ctx = openai_agents_context({"sessionId": "sess", "conversationId": "conv"})
         assert ctx.correlation_id == "sess"
 
+    def test_invalid_correlation_id_does_not_hide_session_id_alias(
+        self, reset_sequence_context
+    ) -> None:
+        ctx = openai_agents_context(
+            {"correlation_id": "not\nvalid", "sessionId": "sess-from-alias"}
+        )
+        assert ctx.correlation_id == "sess-from-alias"
+        assert ctx.metadata is not None
+        assert ctx.metadata["openai-agents.session"] == "sess-from-alias"
+
     def test_never_reads_trace_id(self, reset_sequence_context) -> None:
         ctx = openai_agents_context({"trace_id": "tr_minted", "traceId": "tr2"})
         assert ctx.correlation_id is None
@@ -250,6 +261,39 @@ class TestDenialPayload:
         raw = dumps_denial(unavailable_result())
         parsed = json.loads(raw)
         assert parsed["arcjetDenied"] is True
+
+    def test_retry_after_ignores_allow_results_with_reset_at(self) -> None:
+        decision = make_deny_decision(
+            reason="RATE_LIMIT",
+            results=(
+                RuleResultTokenBucket(
+                    conclusion="ALLOW",
+                    reset_at_unix_seconds=9_999_999_999,
+                ),
+                RuleResultTokenBucket(
+                    conclusion="DENY",
+                    reset_at_unix_seconds=2_000_000_000,
+                ),
+            ),
+        )
+        retry_after = retry_after_seconds(decision)
+        assert retry_after is not None
+        payload = denial_result(decision)
+        assert payload.get("retryAfterSeconds") == retry_after
+
+    def test_non_rate_limit_deny_ignores_reset_at_on_allow_results(self) -> None:
+        decision = make_deny_decision(
+            reason="PROMPT_INJECTION",
+            results=(
+                RuleResultTokenBucket(
+                    conclusion="ALLOW",
+                    reset_at_unix_seconds=9_999_999_999,
+                ),
+            ),
+        )
+        assert retry_after_seconds(decision) is None
+        payload = denial_result(decision)
+        assert "retryAfterSeconds" not in payload
 
 
 class TestEvaluateToolInput:

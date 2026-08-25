@@ -1,0 +1,15 @@
+[project]
+name = "example-openai-agents-guard-verify"
+version = "0.1.0"
+description = "End-to-end verification harness for arcjet.guard.openai_agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[openai-agents]",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
