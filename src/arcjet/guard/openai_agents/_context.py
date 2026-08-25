@@ -110,10 +110,11 @@ def _valid_id(value: Any) -> Optional[str]:
         return None
 
 
-def _first_string(*values: Any) -> Optional[str]:
+def _first_valid_id(*values: Any) -> Optional[str]:
     for value in values:
-        if isinstance(value, str) and value:
-            return value
+        valid = _valid_id(value)
+        if valid is not None:
+            return valid
     return None
 
 
@@ -188,7 +189,7 @@ def openai_agents_context(
         )
 
     derived: dict[str, Any] = {}
-    session = _first_string(
+    session = _first_valid_id(
         _read(app, "session_id"),
         _read(app, "sessionId"),
         _read(envelope, "session_id"),
@@ -197,7 +198,7 @@ def openai_agents_context(
     )
     if session is not None:
         derived["openai-agents.session"] = session
-    conversation = _first_string(
+    conversation = _first_valid_id(
         _read(app, "conversation_id"),
         _read(app, "conversationId"),
         _read(envelope, "conversation_id"),
@@ -205,7 +206,7 @@ def openai_agents_context(
     )
     if conversation is not None:
         derived["openai-agents.conversation"] = conversation
-    group = _first_string(
+    group = _first_valid_id(
         _read(app, "group_id"),
         _read(app, "groupId"),
         _read(envelope, "group_id"),

@@ -178,6 +178,13 @@ class TestOpenaiAgentsContext:
         assert ctx.metadata is not None
         assert ctx.metadata["openai-agents.session"] == "sess-from-alias"
 
+    def test_invalid_session_id_is_not_recorded_in_metadata(
+        self, reset_sequence_context
+    ) -> None:
+        ctx = openai_agents_context({"session_id": "not\nvalid"})
+        assert ctx.correlation_id is None
+        assert ctx.metadata is None
+
     def test_never_reads_trace_id(self, reset_sequence_context) -> None:
         ctx = openai_agents_context({"trace_id": "tr_minted", "traceId": "tr2"})
         assert ctx.correlation_id is None

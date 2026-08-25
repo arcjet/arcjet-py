@@ -29,7 +29,9 @@ def _release(raw: str) -> tuple[int, ...]:
     """The numeric release segment of *raw*, e.g. ``"0.22.0rc1"`` → ``(0, 22, 0)``.
 
     Local parsing rather than ``packaging.version``: that is not an Arcjet
-    dependency, and a three-part release is all this comparison needs.
+    dependency, and a three-part release is all this comparison needs. Pre-
+    release suffixes (``rc1``) are stripped; post-releases (``0.22.0.post1``)
+    also compare as ``(0, 22, 0)`` because only the leading digit run is kept.
     """
     parts: list[int] = []
     for chunk in raw.split(".")[:3]:

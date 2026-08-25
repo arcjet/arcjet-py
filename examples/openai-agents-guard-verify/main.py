@@ -293,14 +293,23 @@ class ScenarioResult:
     detail: str
 
 
+def _capture_outcome(guard: ScenarioGuard) -> str:
+    assert guard.captures, "expected a guard capture after the tool path ran"
+    metadata = guard.captures[0].get("metadata") or {}
+    outcome = metadata.get("outcome")
+    assert outcome is not None, "expected capture metadata.outcome"
+    return str(outcome)
+
+
 async def run_allow() -> ScenarioResult:
     _ECHO_CALLS.clear()
     guard = ScenarioGuard(decision=_allow())
     await _run_tool_scenario(
         guard, session_id="sess-allow", tool_arguments='{"value":"hello"}'
     )
-    ok = _ECHO_CALLS == ["hello"] and guard.captures[0]["metadata"]["outcome"] == "success"
-    return ScenarioResult("allow", ok, f"echo_calls={_ECHO_CALLS!r}, outcome={guard.captures[0]['metadata']['outcome']}")
+    outcome = _capture_outcome(guard)
+    ok = _ECHO_CALLS == ["hello"] and outcome == "success"
+    return ScenarioResult("allow", ok, f"echo_calls={_ECHO_CALLS!r}, outcome={outcome}")
 
 
 async def run_deny() -> ScenarioResult:
@@ -310,12 +319,13 @@ async def run_deny() -> ScenarioResult:
         guard, session_id="sess-deny", tool_arguments='{"value":"blocked"}'
     )
     payload = _denial_in_result(result)
+    outcome = _capture_outcome(guard)
     ok = (
         _ECHO_CALLS == []
         and payload is not None
         and payload.get("arcjetDenied") is True
         and payload.get("reason") == "RATE_LIMIT"
-        and guard.captures[0]["metadata"]["outcome"] == "denied"
+        and outcome == "denied"
     )
     return ScenarioResult("deny", ok, f"echo_calls={_ECHO_CALLS!r}, denial={payload}")
 
@@ -327,12 +337,13 @@ async def run_unavailable() -> ScenarioResult:
         guard, session_id="sess-unavail", tool_arguments='{"value":"x"}'
     )
     payload = _denial_in_result(result)
+    outcome = _capture_outcome(guard)
     ok = (
         _ECHO_CALLS == []
         and payload is not None
         and payload.get("reason") == "ERROR"
         and payload.get("retryable") is True
-        and guard.captures[0]["metadata"]["outcome"] == "unavailable"
+        and outcome == "unavailable"
     )
     return ScenarioResult("unavailable", ok, f"denial={payload}")
 

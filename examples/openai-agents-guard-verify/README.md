@@ -24,6 +24,9 @@ uv sync
 uv run python main.py
 ```
 
+This example does not commit a `uv.lock` — `uv sync` resolves from
+`pyproject.toml` against the editable root package.
+
 Run one scenario:
 
 ```bash

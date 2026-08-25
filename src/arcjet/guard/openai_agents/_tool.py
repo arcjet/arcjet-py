@@ -296,9 +296,7 @@ async def evaluate_tool_input(data: Any, config: _ToolConfig) -> ToolInputVerdic
     _emit_capture(
         client=config.guard,
         action=action,
-        outcome=_outcome_for_completed_action(
-            decision, degraded=prepared.degraded
-        ),
+        outcome=_outcome_for_completed_action(decision, degraded=prepared.degraded),
         correlation_id=correlation_id,
         decision=decision,
         metadata=metadata,
