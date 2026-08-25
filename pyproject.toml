@@ -67,6 +67,13 @@ langchain-agents = [
   "langchain-core>=1.2.5,<2",
   "langgraph>=1.2,<2",
 ]
+# Authored FunctionTool wrap. Separate extra so installing `arcjet` never
+# pulls the OpenAI Agents SDK; `arcjet.guard.openai_agents` imports `agents`
+# lazily. The floor is the first release whose FunctionTool.tool_input_guardrails
+# + ToolGuardrailFunctionOutput.reject_content skip invoke before
+# on_invoke_tool. Verified on 0.22.0. No chromadb — unlike CrewAI this extra
+# is safe to declare.
+openai-agents = ["openai-agents>=0.19.0,<1"]
 # There is deliberately no `crewai` extra, and CrewAI is in no dependency
 # group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
 # 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /
@@ -107,6 +114,7 @@ dev = [
   "httpx==0.28.1",                         # Used by FastAPI tests
   "langchain>=1,<2",                       # For testing agent middleware
   "langchain-core>=1.2.5,<2",              # For testing integration with LangChain
+  "openai-agents>=0.19.0,<1",              # For testing OpenAI Agents guard_tool
   "pyright==1.1.411",
   "hypothesis>=6.100.0",
   # 9.1 cut inter-test gc.collect() passes (pytest#14441); AnalyzeComponent

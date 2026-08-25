@@ -157,6 +157,16 @@ keeping the existing API surface intact with internal changes.
   *copy* carries the `_arcjet_guarded` brand (branding the original makes the
   hook skip an unguarded tool), and re-entrancy is tracked per tool instance
   (a global flag skips a guarded tool called from inside another one).
+- `src/arcjet/guard/openai_agents/` — Optional OpenAI Agents integration
+  (`arcjet[openai-agents]`, peer `openai-agents>=0.19.0,<1`). Independent of
+  LangChain and CrewAI: it must not import either. `guard_tool` prepends a
+  `ToolInputGuardrail` onto an authored `FunctionTool` so invoke never runs
+  on DENY; the deny is `reject_content` of a JSON `ArcjetDenialResult`, not
+  `raise_exception` and not an Arcjet error raised from `on_invoke_tool`
+  (the SDK `default_tool_error_function` would swallow that into a generic
+  string). `openai_agents_context` reads a caller-owned id and never mints,
+  never reads `trace_id`, and never constructs a session. `needs_approval`
+  is HITL and is not wrapped. Already-branded tools are skipped.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -179,6 +189,8 @@ deliberately kept apart and **must not be merged**:
 - `langchain` → `langchain-core` only. Enough for `guard_tool`.
 - `langchain-agents` → the full `langchain` package, which hard-depends on
   LangGraph. Required only for agent middleware.
+- `openai-agents` → `openai-agents>=0.19.0,<1`. Enough for
+  `arcjet.guard.openai_agents`. No chromadb.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
@@ -195,7 +207,9 @@ is correct — check the import against the extra that ships it.
 
 Nothing outside `src/arcjet/guard/langchain/` may import LangChain. Using
 Arcjet Guard must never require LangChain to be installed. Nothing outside
-`src/arcjet/guard/crewai/` may import CrewAI.
+`src/arcjet/guard/crewai/` may import CrewAI. Nothing outside
+`src/arcjet/guard/openai_agents/` may import the OpenAI Agents SDK
+(`agents`).
 
 ## Coding conventions
 

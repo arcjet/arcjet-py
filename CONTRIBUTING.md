@@ -93,6 +93,13 @@ uv run --no-sync pytest tests/integration/guard/test_crewai.py --no-cov
 on the 3.14 cell that CrewAI does not support. `just test` on a plain `uv sync`
 skips the integration file, which is what CI does.
 
+### OpenAI Agents tests
+
+`arcjet[openai-agents]` is a real extra (`openai-agents>=0.19.0,<1`) and is in
+the `dev` group, so `just test` runs `tests/integration/guard/test_openai_agents.py`.
+`tests/unit/guard/test_openai_agents.py` imports no `agents` and always runs,
+including when the extra is absent.
+
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call
