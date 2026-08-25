@@ -5,8 +5,8 @@ HTTP request, screen inbound user text, and authorize one authored
 `FunctionTool`.
 
 The OpenAI Agents adapter is unpublished. This example pins
-`arcjet[openai-agents]` to SHA `978670d073f077eb9324654ec383150db4168c39` on
-`david/cursor/guard-openai-agents-py`. That is not a PyPI release. The extra
+`arcjet[openai-agents]` to SHA `cafe6a6671ab7fdde1b78b59971c3fe8ca863a4d`
+(arcjet-py#226). That is not a PyPI release. The extra
 pulls `openai-agents>=0.19.0,<1`. See
 [`/guards/openai-agents-py/`](https://docs.arcjet.com/guards/openai-agents-py/)
 — not the JS page
