@@ -95,10 +95,21 @@ skips the integration file, which is what CI does.
 
 ### OpenAI Agents tests
 
-`arcjet[openai-agents]` is a real extra (`openai-agents>=0.19.0,<1`) and is in
-the `dev` group, so `just test` runs `tests/integration/guard/test_openai_agents.py`.
+`arcjet[openai-agents]` is a real extra (`openai-agents>=0.19.0,<1`) but is in no
+dependency group, so the lockfile does not pull its transitive tree into every
+`uv sync`. Install it alongside the locked environment when you want integration
+coverage:
+
+```sh
+uv sync
+uv pip install "openai-agents>=0.19.0,<1"
+# `--no-sync`, or uv restores the lock and removes openai-agents again
+uv run --no-sync pytest tests/integration/guard/test_openai_agents.py tests/integration/guard/test_openai_agents_runner.py --no-cov
+```
+
 `tests/unit/guard/test_openai_agents.py` imports no `agents` and always runs,
-including when the extra is absent.
+including when the extra is absent. `just test` on a plain `uv sync` skips the
+integration files, which is what CI does.
 
 ## Benchmarks
 

@@ -190,7 +190,9 @@ deliberately kept apart and **must not be merged**:
 - `langchain-agents` → the full `langchain` package, which hard-depends on
   LangGraph. Required only for agent middleware.
 - `openai-agents` → `openai-agents>=0.19.0,<1`. Enough for
-  `arcjet.guard.openai_agents`. No chromadb.
+  `arcjet.guard.openai_agents`. No chromadb. Like CrewAI, it is in no
+  dependency group so `uv.lock` does not pull its transitive tree into every
+  `uv sync`; install it ad hoc for integration tests — see CONTRIBUTING.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and

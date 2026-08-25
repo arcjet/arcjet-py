@@ -114,7 +114,6 @@ dev = [
   "httpx==0.28.1",                         # Used by FastAPI tests
   "langchain>=1,<2",                       # For testing agent middleware
   "langchain-core>=1.2.5,<2",              # For testing integration with LangChain
-  "openai-agents>=0.19.0,<1",              # For testing OpenAI Agents guard_tool
   "pyright==1.1.411",
   "hypothesis>=6.100.0",
   # 9.1 cut inter-test gc.collect() passes (pytest#14441); AnalyzeComponent
@@ -184,6 +183,9 @@ exclude = [
   "tests/mocked/test_rules.py",
   # Optional extra; crewai is not in the default install (Python <3.14).
   "tests/integration/guard/test_crewai.py",
+  # Optional extra; openai-agents is not in the default install.
+  "tests/integration/guard/test_openai_agents.py",
+  "tests/integration/guard/test_openai_agents_runner.py",
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
@@ -207,4 +209,7 @@ exclude = [
   "tests/mocked/test_rules.py",
   # Optional extra; crewai is not in the default install (Python <3.14).
   "tests/integration/guard/test_crewai.py",
+  # Optional extra; openai-agents is not in the default install.
+  "tests/integration/guard/test_openai_agents.py",
+  "tests/integration/guard/test_openai_agents_runner.py",
 ]
