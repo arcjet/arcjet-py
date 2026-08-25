@@ -970,8 +970,8 @@ async def handle_tool_call(user_id: str, message: str):
 ### Guard surfaces, extras, and propagation
 
 Arcjet Guard protects code that has no HTTP request — a tool call, a worker, an
-MCP handler. Four surfaces do that, and which one you want depends on what you
-are holding when the effect happens.
+MCP handler. Which surface you want depends on what you are holding when the
+effect happens.
 
 | You have | Use | Needs | Blocks a call? |
 | --- | --- | --- | --- |
@@ -981,6 +981,7 @@ are holding when the effect happens.
 | A chain or agent you want to *observe* | `ArcjetCaptureHandler` | `arcjet[langchain]` | No — records only |
 | A CrewAI crew / LiteAgent / MCP or crew-injected tool | `register_arcjet_hooks` | your own `crewai` | Yes — via `HookAborted` |
 | A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | your own `crewai` | Yes |
+| An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -999,6 +1000,11 @@ right home for capture and the wrong home for policy.
   `langchain-core` only — no LangGraph.
 - **`arcjet[langchain-agents]`** — adds `ArcjetMiddleware`, and pulls in
   LangChain and LangGraph.
+- **`arcjet[openai-agents]`** — `guard_tool` and `openai_agents_context` for
+  an authored OpenAI Agents `FunctionTool` (`openai-agents>=0.19.0,<1`).
+  Independent of LangChain and CrewAI. Docs:
+  [`/guards/openai-agents-py/`](https://docs.arcjet.com/guards/openai-agents-py/)
+  — not the JS page [`/guards/openai-agents/`](https://docs.arcjet.com/guards/openai-agents/).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1430,6 +1436,88 @@ left unwrapped, so handing *it* to a crew is still covered by the hook rather
 than silently unguarded. A tool the crew reaches without CrewAI recording an
 `_original_tool` is evaluated by both surfaces, which is fail-closed but
 charges twice — wrap or hook such a tool, not both.
+
+### OpenAI Agents function tools
+
+`arcjet.guard.openai_agents` needs `pip install "arcjet[openai-agents]"`
+(`openai-agents>=0.19.0,<1`). Nothing here imports `arcjet.guard.langchain` or
+`arcjet.guard.crewai`, and importing `arcjet.guard` never imports OpenAI Agents.
+The Python page is
+[`/guards/openai-agents-py/`](https://docs.arcjet.com/guards/openai-agents-py/);
+it does not replace the JS page
+[`/guards/openai-agents/`](https://docs.arcjet.com/guards/openai-agents/).
+
+```py
+from arcjet.guard import launch_arcjet, server_input
+from arcjet.guard.openai_agents import guard_tool, openai_agents_context
+from agents import Agent, Runner, function_tool
+
+aj = launch_arcjet(key=arcjet_key)
+
+
+@function_tool
+def send_email(to: str, body: str) -> str:
+    """Send an email."""
+    return "sent"
+
+
+guarded_send = guard_tool(
+    guard=aj,
+    tool=send_email,
+    action="email.sent",
+    on_guard_error="deny",  # default
+)
+
+agent = Agent(name="mailer", tools=[guarded_send])
+app_context = {"session_id": session_id}
+
+# Screen inbound user text yourself. There is no guard_inbound helper.
+ctx = openai_agents_context(app_context)
+decision = await aj.guard(
+    label="chat.inbound",
+    inputs={"content": server_input.string(user_text)},
+    correlation_id=ctx.correlation_id,
+    metadata=ctx.metadata,
+)
+if decision.conclusion == "DENY" or decision.has_failed_open():
+    raise RuntimeError("refusing to start the run")
+
+await Runner.run(agent, user_text, context=app_context)
+```
+
+#### Screen inbound before `Runner.run`
+
+SDK `input_guardrails` on the `Agent` are not Arcjet. Screen user text with
+core `guard()` / `guard_sync()` before `Runner.run`. `protect()` and the
+request path are fail-open — the caller must check `has_failed_open()`. A
+checkpoint on a tool still defaults to `on_guard_error="deny"`.
+
+#### `needs_approval` is not a policy gate
+
+`needs_approval` / `require_approval` / `on_approval` is human-in-the-loop.
+This helper does not wrap it and does not mutate `RunConfig`. Input tool
+guardrails normally run after approval, immediately before invoke. Set
+`RunConfig.tool_execution.pre_approval_tool_input_guardrails=True` yourself if
+you want the check before the HITL pause. That flag is an application opt-in
+only; Arcjet does not set it.
+
+#### Deny with a `ToolInputGuardrail` on `FunctionTool` (`reject_content`)
+
+`guard_tool` returns a copy whose `tool_input_guardrails` start with an Arcjet
+guardrail. Official: those run before `on_invoke_tool` and can skip the call.
+A deny is `ToolGuardrailFunctionOutput.reject_content` of a JSON
+`{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`. It does
+not `raise_exception()` (that halts the run) and it does not raise an Arcjet
+error from `on_invoke_tool` (the SDK `default_tool_error_function` would
+swallow it into a generic string). Already-branded tools are skipped.
+
+Hosted tools, MCP, Computer / Shell / ApplyPatch, handoffs, and
+`Agent.as_tool()` are not on that authored `FunctionTool` path.
+
+`openai_agents_context` reads a caller-owned `correlation_id` / `session_id` /
+`conversation_id` / `group_id`, then the enclosing `arcjet_sequence()`. It
+never mints. It never reads `trace_id`. It never constructs
+`OpenAIConversationsSession()` just to get an id.
 
 ### Sync usage
 
