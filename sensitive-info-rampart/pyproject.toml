@@ -1,6 +1,6 @@
 [project]
 name = "arcjet-sensitive-info-rampart"
-version = "0.10.0b1"
+version = "1.0.0"
 description = "On-device Rampart NER model backend for Arcjet sensitive information detection."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ dependencies = [
   # so it is coupled to the core version — release the two in lockstep. The
   # exact pin keeps this backend from ever resolving against a core whose
   # private internals it may not match; bump both together every release.
-  "arcjet==0.10.0b1",
+  "arcjet==1.0.0",
   "numpy>=1.24",
   # 1.23+ dropped CPython 3.10 wheels; the SDK still supports 3.10.
   # 3.14 needs a newer line (1.24+ added those wheels but dropped 3.10).

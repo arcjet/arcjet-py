@@ -49,6 +49,12 @@ typecheck:
     @echo '{{ h }}typecheck: pyright{{ n }}'
     @uv run pyright
 
+# audit published runtime and optional dependencies from the current lockfile
+[doc('audit locked published dependencies (all extras, excluding dev tools)')]
+audit:
+    @echo '{{ h }}audit: uv{{ n }}'
+    @uv audit --locked --no-dev
+
 # detect breaking changes in the public API against a base ref. Run
 # `git fetch origin main` first if origin/main is stale. Intentional breaking
 # changes need the `breaking` label on the PR.

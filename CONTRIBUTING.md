@@ -201,7 +201,15 @@ version or pin is out of lockstep.
    - `sensitive-info-rampart/pyproject.toml` → `"arcjet==<version>"`
    - `pyproject.toml` → `sensitive-info-rampart = ["arcjet-sensitive-info-rampart==<version>"]`
 
-4. Run `uv lock`, then `just check` and `just test`.
+4. Run `uv lock`, then verify the lockfile and published dependencies before
+   running the normal checks and tests:
+
+   ```sh
+   uv lock --check
+   just audit
+   just check
+   just test
+   ```
 
 5. Commit and push the changes to GitHub, then open a PR.
 

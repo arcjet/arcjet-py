@@ -1,6 +1,6 @@
 [project]
 name = "arcjet"
-version = "0.10.0b1"
+version = "1.0.0"
 description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, sensitive data detection, and WAF for Python apps."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -50,7 +50,7 @@ keywords = [
 # modules, so the two are released in lockstep and must never resolve to
 # different versions (see the reciprocal pin in that package). Bump both
 # together every release.
-sensitive-info-rampart = ["arcjet-sensitive-info-rampart==0.10.0b1"]
+sensitive-info-rampart = ["arcjet-sensitive-info-rampart==1.0.0"]
 langchain = ["langchain-core>=1.2.5,<2"]
 # Agent middleware only. Separate from `langchain` because the full
 # `langchain` package hard-depends on LangGraph, and folding it into the
