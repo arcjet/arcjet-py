@@ -30,11 +30,34 @@ from __future__ import annotations
 import ipaddress
 import os
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Iterable, Mapping, Protocol, Sequence, cast
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 HeaderValue = str | Sequence[str]
+
+
+class ClientIpProvenance(str, Enum):
+    """Where Arcjet obtained a client IP address."""
+
+    DIRECT = "direct"
+    TRUSTED_PROXY = "trusted-proxy"
+    UNVERIFIED_HEADER = "unverified-header"
+    MANUAL = "manual"
+    DEVELOPMENT = "development"
+    REQUEST = "request"
+    NONE = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class ClientIpDetails:
+    """Debug information about Arcjet's client IP selection."""
+
+    ip: str | None
+    provenance: ClientIpProvenance
+    verified: bool
+    header: str | None = None
 
 
 def _is_development(environment: str | None = None) -> bool:
@@ -190,13 +213,39 @@ def _parse_proxies(
     if not proxies:
         return out
     for p in proxies:
+        if not isinstance(p, str) or not p.strip():
+            raise ValueError(f"invalid proxy IP or CIDR: {p!r}")
         try:
             # Support CIDR or single IP; strict=False allows single IPs.
-            net = ipaddress.ip_network(p, strict=False)
+            net = ipaddress.ip_network(p.strip(), strict=False)
             out.append(net)
-        except Exception:
-            continue
+        except ValueError as exc:
+            raise ValueError(f"invalid proxy IP or CIDR: {p!r}") from exc
     return out
+
+
+def validate_ip(value: str, *, name: str = "IP address") -> str:
+    """Validate and normalize a caller-supplied IPv4 or IPv6 address."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a valid IPv4 or IPv6 address")
+    candidate = value.strip()
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} must be a valid IPv4 or IPv6 address: {value!r}"
+        ) from exc
+
+
+def validate_proxies(proxies: Sequence[str]) -> tuple[str, ...]:
+    """Validate proxy IP/CIDR configuration and return stripped values."""
+    _parse_proxies(proxies)
+    return tuple(proxy.strip() for proxy in proxies)
+
+
+def has_trust_all_proxy(proxies: Sequence[str]) -> bool:
+    """Return whether configuration trusts an entire IP address family."""
+    return any(network.prefixlen == 0 for network in _parse_proxies(proxies))
 
 
 def _is_trusted_proxy(
@@ -254,12 +303,12 @@ def _parse_x_forwarded_for_values(values: Sequence[str]) -> list[str]:
     return out
 
 
-def extract_ip_from_headers(
+def extract_ip_details_from_headers(
     headers: Mapping[str, HeaderValue],
     *,
     proxies: Sequence[str] | None = None,
     environment: str | None = None,
-) -> str | None:
+) -> ClientIpDetails:
     """
     Extract a likely client IP from headers with validation and trusted proxies.
 
@@ -275,15 +324,119 @@ def extract_ip_from_headers(
         xaj = _first_header(headers, "x-arcjet-ip")
         if xaj:
             # In development, accept any override to ease local testing.
-            return _normalize_ip_string(xaj)
+            return ClientIpDetails(
+                ip=_normalize_ip_string(xaj),
+                provenance=ClientIpProvenance.DEVELOPMENT,
+                verified=False,
+                header="x-arcjet-ip",
+            )
 
     # X-Forwarded-For may appear multiple times; combine as a single list per MDN.
     xff_values = _all_headers(headers, "x-forwarded-for")
     for item in reversed(_parse_x_forwarded_for_values(xff_values)):
         if _is_global_public_ip(item, proxy_nets):
-            return _normalize_ip_string(item)
+            return ClientIpDetails(
+                ip=_normalize_ip_string(item),
+                provenance=ClientIpProvenance.UNVERIFIED_HEADER,
+                verified=False,
+                header="x-forwarded-for",
+            )
 
-    return None
+    return ClientIpDetails(None, ClientIpProvenance.NONE, False)
+
+
+def extract_ip_from_headers(
+    headers: Mapping[str, HeaderValue],
+    *,
+    proxies: Sequence[str] | None = None,
+    environment: str | None = None,
+) -> str | None:
+    """Extract a likely client IP while preserving the legacy string API."""
+    return extract_ip_details_from_headers(
+        headers, proxies=proxies, environment=environment
+    ).ip
+
+
+def client_ip_details(
+    req: SupportsRequestContext | Any,
+    *,
+    proxies: Sequence[str] | None = None,
+    ip_src: str | None = None,
+    environment: str | None = None,
+) -> ClientIpDetails:
+    """Explain how Arcjet would select the client IP for ``req``."""
+    proxy_nets = _parse_proxies(proxies)
+
+    if ip_src is not None:
+        return ClientIpDetails(
+            validate_ip(ip_src, name="ip_src"), ClientIpProvenance.MANUAL, True
+        )
+
+    if isinstance(req, RequestContext):
+        if req.ip:
+            return ClientIpDetails(req.ip, ClientIpProvenance.REQUEST, True)
+        return ClientIpDetails(None, ClientIpProvenance.NONE, False)
+
+    headers: dict[str, HeaderValue] = {}
+    remote: str | None = None
+
+    if isinstance(req, Mapping):
+        cast_req = cast(Mapping[str, Any], req)
+        if "headers" in req and "type" in req:
+            for k, v in cast_req.get("headers") or []:
+                try:
+                    headers[k.decode("latin-1")] = v.decode("latin-1")
+                except Exception:
+                    continue
+            client = cast_req.get("client")
+            if isinstance(client, (tuple, list)) and client:
+                remote = client[0]
+        else:
+            value = cast_req.get("ip")
+            if isinstance(value, str) and value:
+                return ClientIpDetails(value, ClientIpProvenance.REQUEST, True)
+            return ClientIpDetails(None, ClientIpProvenance.NONE, False)
+    elif hasattr(req, "META") and hasattr(req, "method"):
+        meta = getattr(req, "META", {}) or {}
+        hdrs_obj = getattr(req, "headers", None)
+        headers = dict(hdrs_obj) if hdrs_obj is not None else {}
+        remote = meta.get("REMOTE_ADDR")
+    elif hasattr(req, "headers") and hasattr(req, "method"):
+        try:
+            headers = dict(getattr(req, "headers", {}) or {})
+        except Exception:
+            headers = {}
+        remote = getattr(req, "remote_addr", None)
+    else:
+        raise TypeError(
+            "Unsupported request type for Arcjet client_ip_details(). "
+            "Pass a RequestContext, an ASGI scope dict, a Django HttpRequest, or a plain mapping."
+        )
+
+    if _is_global_public_ip(remote, proxy_nets):
+        return ClientIpDetails(
+            _normalize_ip_string(remote), ClientIpProvenance.DIRECT, True
+        )
+
+    header_details = extract_ip_details_from_headers(
+        headers, proxies=proxies, environment=environment
+    )
+    if header_details.ip is not None:
+        if (
+            header_details.provenance is ClientIpProvenance.UNVERIFIED_HEADER
+            and _is_trusted_proxy(remote, proxy_nets)
+        ):
+            return ClientIpDetails(
+                header_details.ip,
+                ClientIpProvenance.TRUSTED_PROXY,
+                True,
+                header_details.header,
+            )
+        return header_details
+
+    if _is_development(environment=environment):
+        return ClientIpDetails("127.0.0.1", ClientIpProvenance.DEVELOPMENT, False)
+    return ClientIpDetails(None, ClientIpProvenance.NONE, False)
 
 
 def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetails:
@@ -387,20 +540,12 @@ def coerce_request_context(
                     headers[k.decode("latin-1")] = v.decode("latin-1")
                 except Exception:
                     continue
-            ip = None
-            client = cast_req.get("client")
-            if not ip_src:
-                if isinstance(client, (tuple, list)) and client:
-                    # Prefer the direct remote address when it's global and not a trusted proxy.
-                    if _is_global_public_ip(client[0], _parse_proxies(proxies)):
-                        ip = client[0]
-                ip = ip or extract_ip_from_headers(
-                    headers, proxies=proxies, environment=environment
-                )
-                if not ip and _is_development(environment=environment):
-                    ip = "127.0.0.1"
-            else:
-                ip = ip_src
+            ip = client_ip_details(
+                req,
+                proxies=proxies,
+                ip_src=ip_src,
+                environment=environment,
+            ).ip
 
             return RequestContext(
                 ip=ip,
@@ -437,18 +582,12 @@ def coerce_request_context(
             headers = dict(getattr(req, "headers", {}) or {})
         except Exception:
             headers = {}
-        ip = None
-        remote = getattr(req, "remote_addr", None)
-        if not ip_src:
-            if _is_global_public_ip(remote, _parse_proxies(proxies)):
-                ip = remote
-            ip = ip or extract_ip_from_headers(
-                headers, proxies=proxies, environment=environment
-            )
-            if not ip and _is_development(environment=environment):
-                ip = "127.0.0.1"
-        else:
-            ip = ip_src
+        ip = client_ip_details(
+            req,
+            proxies=proxies,
+            ip_src=ip_src,
+            environment=environment,
+        ).ip
         try:
             query_raw = getattr(req, "query_string", None)
             query = (
@@ -481,18 +620,12 @@ def coerce_request_context(
         # Django 2.2+ has request.headers (case-insensitive)
         hdrs_obj = getattr(req, "headers", None)
         headers = dict(hdrs_obj) if hdrs_obj is not None else {}
-        ip = None
-        remote = meta.get("REMOTE_ADDR")
-        if not ip_src:
-            if _is_global_public_ip(remote, _parse_proxies(proxies)):
-                ip = remote
-            ip = ip or extract_ip_from_headers(
-                headers, proxies=proxies, environment=environment
-            )
-            if not ip and _is_development(environment=environment):
-                ip = "127.0.0.1"
-        else:
-            ip = ip_src
+        ip = client_ip_details(
+            req,
+            proxies=proxies,
+            ip_src=ip_src,
+            environment=environment,
+        ).ip
         scheme = (
             "https"
             if meta.get("wsgi.url_scheme") == "https"

@@ -9,8 +9,10 @@ from __future__ import annotations
 import pytest
 
 from arcjet._context import (
+    ClientIpProvenance,
     RequestContext,
     _is_development,
+    client_ip_details,
     coerce_request_context,
     extract_ip_from_headers,
     request_details_from_context,
@@ -32,9 +34,43 @@ def test_extract_ip_xff_skips_multiple_trusted_proxies():
     assert extract_ip_from_headers(headers, proxies=["3.3.3.3", "2.2.2.2"]) == "1.1.1.1"
 
 
-def test_extract_ip_xff_ignores_invalid_proxy_entries():
+def test_extract_ip_xff_rejects_invalid_proxy_entries():
     headers = {"x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3"}
-    assert extract_ip_from_headers(headers, proxies=[1234]) == "3.3.3.3"  # type: ignore
+    with pytest.raises(ValueError, match="invalid proxy IP or CIDR"):
+        extract_ip_from_headers(headers, proxies=[1234])  # type: ignore
+
+
+def test_client_ip_details_marks_unverified_header():
+    details = client_ip_details(
+        {
+            "type": "http",
+            "headers": [(b"x-forwarded-for", b"8.8.8.8")],
+            "client": ("10.0.0.1", 1234),
+        }
+    )
+    assert details.ip == "8.8.8.8"
+    assert details.provenance is ClientIpProvenance.UNVERIFIED_HEADER
+    assert details.verified is False
+    assert details.header == "x-forwarded-for"
+
+
+def test_client_ip_details_marks_configured_direct_proxy():
+    details = client_ip_details(
+        {
+            "type": "http",
+            "headers": [(b"x-forwarded-for", b"8.8.8.8")],
+            "client": ("10.0.0.1", 1234),
+        },
+        proxies=["10.0.0.0/8"],
+    )
+    assert details.ip == "8.8.8.8"
+    assert details.provenance is ClientIpProvenance.TRUSTED_PROXY
+    assert details.verified is True
+
+
+def test_client_ip_details_validates_manual_ip():
+    with pytest.raises(ValueError, match="ip_src must be a valid"):
+        client_ip_details({}, ip_src="not-an-ip")
 
 
 def test_extract_ip_dev_override_wins(dev_environment):

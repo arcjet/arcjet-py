@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._client import Arcjet, ArcjetSync, arcjet, arcjet_sync
+from ._context import ClientIpDetails, ClientIpProvenance
 from ._dataclasses import IpDetails, ThreatIntelligence
 from ._decision import (
     Decision,
@@ -43,6 +44,8 @@ __all__ = [
     "Arcjet",
     "ArcjetSync",
     "BotCategory",
+    "ClientIpDetails",
+    "ClientIpProvenance",
     "Decision",
     "detect_bot",
     "detect_prompt_injection",
