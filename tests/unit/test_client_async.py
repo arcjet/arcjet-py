@@ -236,10 +236,10 @@ def test_proxy_configuration_warnings_are_precise(
 ):
     import logging
 
-    import arcjet as arcjet_module
+    from arcjet import arcjet, arcjet_sync
     from arcjet._rules import Mode, token_bucket
 
-    factory = getattr(arcjet_module, factory_name)
+    factory = {"arcjet": arcjet, "arcjet_sync": arcjet_sync}[factory_name]
     rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
     with caplog.at_level(logging.WARNING, logger="arcjet"):
         factory(key="ajkey_x", rules=rules, proxies=["10.0.0.0/8"])
