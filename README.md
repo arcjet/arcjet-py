@@ -20,6 +20,19 @@ This is the Python SDK for [Arcjet](https://arcjet.com) — use `arcjet` /
 and `arcjet.guard` for **guard protection** (AI agent tool calls, MCP servers,
 background jobs).
 
+> [!WARNING]
+> Arcjet may use `X-Forwarded-For` when it cannot get a public client IP from
+> the framework request. Clients can spoof this header if they can reach your
+> application directly or your proxy preserves client-supplied values. The
+> `proxies` option tells Arcjet which IPs or CIDRs to skip while walking the
+> header; it does not verify that the connection came through those proxies.
+>
+> In production, make the application reachable only through a proxy that
+> overwrites or safely appends `X-Forwarded-For`, and list every trusted hop in
+> `proxies`. If you cannot guarantee the header's provenance, set
+> `disable_automatic_ip_detection=True` and pass a validated `ip_src` to every
+> `protect()` call.
+
 ## Why Arcjet?
 
 Your app's AI features and agents take real actions, calling tools, reading data, hitting APIs. Arcjet runs inside that code and lets you enforce security on each action in real time, then audit what happened.
