@@ -15,6 +15,7 @@ from arcjet._context import (
     _is_development,
     client_ip_details,
     coerce_request_context,
+    extract_ip_details_from_headers,
     extract_ip_from_headers,
     has_trust_all_proxy,
     request_details_from_context,
@@ -69,6 +70,28 @@ def test_client_ip_details_marks_configured_direct_proxy():
     assert details.ip == "8.8.8.8"
     assert details.provenance is ClientIpProvenance.TRUSTED_PROXY
     assert details.verified is True
+
+
+@pytest.mark.parametrize(
+    ("headers", "proxies", "environment"),
+    [
+        ({"x-forwarded-for": "1.1.1.1, 8.8.8.8"}, None, "production"),
+        ({"x-forwarded-for": "1.1.1.1, 10.0.0.1"}, ["10.0.0.0/8"], "production"),
+        ({"x-real-ip": "2001:4860:4860::8888"}, None, "production"),
+        ({"x-arcjet-ip": "10.0.0.1"}, None, "development"),
+        ({}, None, "production"),
+    ],
+)
+def test_legacy_header_ip_api_remains_details_ip_projection(
+    headers, proxies, environment
+):
+    """The diagnostics API must not change the legacy string result."""
+    assert (
+        extract_ip_from_headers(headers, proxies=proxies, environment=environment)
+        == extract_ip_details_from_headers(
+            headers, proxies=proxies, environment=environment
+        ).ip
+    )
 
 
 def test_client_ip_details_validates_manual_ip():
@@ -158,6 +181,26 @@ def test_coerce_request_context_reuses_resolved_ip_for_manual_mode():
     )
     assert mapping.ip == "8.8.8.8"
     assert context.ip == "8.8.8.8"
+
+
+def test_legacy_context_coercion_preserves_identity_and_fields():
+    """New optional diagnostics inputs leave existing coercion calls unchanged."""
+    original = RequestContext(ip="8.8.8.8", method="POST", path="/legacy")
+    assert coerce_request_context(original) is original
+
+    assert coerce_request_context(
+        {
+            "ip": "1.1.1.1",
+            "method": "GET",
+            "path": "/legacy",
+            "extra": {"existing": "value"},
+        }
+    ) == RequestContext(
+        ip="1.1.1.1",
+        method="GET",
+        path="/legacy",
+        extra={"existing": "value"},
+    )
 
 
 def test_extract_ip_dev_override_wins(dev_environment):
