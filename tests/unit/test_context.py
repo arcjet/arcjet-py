@@ -9,13 +9,16 @@ from __future__ import annotations
 import pytest
 
 from arcjet._context import (
+    ClientIpDetails,
     ClientIpProvenance,
     RequestContext,
     _is_development,
     client_ip_details,
     coerce_request_context,
     extract_ip_from_headers,
+    has_trust_all_proxy,
     request_details_from_context,
+    validate_proxies,
 )
 
 
@@ -71,6 +74,90 @@ def test_client_ip_details_marks_configured_direct_proxy():
 def test_client_ip_details_validates_manual_ip():
     with pytest.raises(ValueError, match="ip_src must be a valid"):
         client_ip_details({}, ip_src="not-an-ip")
+
+
+def test_client_ip_details_covers_every_resolution_source():
+    direct = client_ip_details(
+        {"type": "http", "headers": [], "client": ("8.8.8.8", 443)}
+    )
+    assert direct == ClientIpDetails("8.8.8.8", ClientIpProvenance.DIRECT, True)
+
+    manual = client_ip_details({}, ip_src="2001:4860:4860::8888")
+    assert manual == ClientIpDetails(
+        "2001:4860:4860::8888", ClientIpProvenance.MANUAL, True
+    )
+
+    request = client_ip_details(RequestContext(ip="2001:4860:4860:0::8888"))
+    assert request == ClientIpDetails(
+        "2001:4860:4860::8888", ClientIpProvenance.REQUEST, True
+    )
+
+    development_header = client_ip_details(
+        {
+            "type": "http",
+            "headers": [(b"x-arcjet-ip", b"10.0.0.1")],
+            "client": None,
+        },
+        environment="development",
+    )
+    assert development_header == ClientIpDetails(
+        "10.0.0.1",
+        ClientIpProvenance.DEVELOPMENT,
+        False,
+        "x-arcjet-ip",
+    )
+
+    development_fallback = client_ip_details({}, environment="development")
+    assert development_fallback == ClientIpDetails(
+        "127.0.0.1", ClientIpProvenance.DEVELOPMENT, False
+    )
+
+    assert client_ip_details({}, environment="production") == ClientIpDetails(
+        None, ClientIpProvenance.NONE, False
+    )
+    assert client_ip_details(
+        RequestContext(ip="not-an-ip"), environment="production"
+    ) == ClientIpDetails(None, ClientIpProvenance.NONE, False)
+
+
+@pytest.mark.parametrize(
+    "proxies",
+    [
+        [""],
+        ["   "],
+        ["not-an-ip"],
+        ["10.0.0.0/33"],
+        ["2001:db8::/129"],
+        [1234],
+    ],
+)
+def test_validate_proxies_rejects_every_malformed_shape(proxies):
+    with pytest.raises(ValueError, match="invalid proxy IP or CIDR"):
+        validate_proxies(proxies)
+
+
+def test_validate_proxies_normalizes_and_detects_only_trust_all_cidrs():
+    assert validate_proxies([" 10.0.0.0/8 ", "2001:db8::1"]) == (
+        "10.0.0.0/8",
+        "2001:db8::1",
+    )
+    assert has_trust_all_proxy(["0.0.0.0/0"])
+    assert has_trust_all_proxy(["::/0"])
+    assert not has_trust_all_proxy(["0.0.0.0"])
+    assert not has_trust_all_proxy(["::"])
+
+
+def test_coerce_request_context_reuses_resolved_ip_for_manual_mode():
+    resolved = ClientIpDetails("8.8.8.8", ClientIpProvenance.MANUAL, True)
+    mapping = coerce_request_context(
+        {"ip": "1.1.1.1", "method": "GET"}, resolved_ip_details=resolved
+    )
+    context = coerce_request_context(
+        RequestContext(ip="1.1.1.1", method="GET"),
+        resolved_ip_details=resolved,
+    )
+    assert mapping.ip == "8.8.8.8"
+    assert context.ip == "8.8.8.8"
 
 
 def test_extract_ip_dev_override_wins(dev_environment):

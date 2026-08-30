@@ -185,6 +185,57 @@ def test_ip_override_with_ip_src(
     assert d.is_allowed()
 
 
+def test_unverified_header_warning_is_once_per_sync_client(
+    mock_protobuf_modules,
+    make_allow_decision,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    import logging
+
+    from arcjet import arcjet_sync
+    from arcjet._rules import Mode, token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClientSync
+
+    def allow(_req):
+        return mock_protobuf_modules["DecideResponse"](make_allow_decision())
+
+    monkeypatch.setattr(
+        DecideServiceClientSync, "decide_behavior", allow, raising=False
+    )
+    aj = arcjet_sync(
+        key="ajkey_x",
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
+    )
+    request = {
+        "type": "http",
+        "headers": [(b"x-forwarded-for", b"8.8.8.8")],
+        "client": ("10.0.0.1", 1234),
+    }
+
+    # Inspection is silent and does not consume the lifetime warning budget.
+    aj.client_ip_details(request)
+    with caplog.at_level(logging.DEBUG, logger="arcjet"):
+        aj.protect(request)
+        aj.protect(request)
+
+    assert (
+        sum(
+            "unverified forwarding header" in record.getMessage()
+            for record in caplog.records
+        )
+        == 1
+    )
+    assert (
+        sum(
+            getattr(record, "client_ip_provenance", None) == "unverified-header"
+            for record in caplog.records
+            if record.levelno == logging.DEBUG
+        )
+        == 2
+    )
+
+
 def test_disable_automatic_ip_detection_requires_ip_src(mock_protobuf_modules):
     """Test that ip_src is required when automatic IP detection is disabled."""
     from arcjet import arcjet_sync
@@ -205,15 +256,13 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     from arcjet._rules import Mode, token_bucket
 
     rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet_sync(
-        key="ajkey_x",
-        rules=rules,
-        disable_automatic_ip_detection=True,
-        proxies=["3.3.3.3"],
-    )
-
     with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
-        aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8")
+        arcjet_sync(
+            key="ajkey_x",
+            rules=rules,
+            disable_automatic_ip_detection=True,
+            proxies=["3.3.3.3"],
+        )
 
 
 def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_modules):
