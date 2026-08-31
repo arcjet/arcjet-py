@@ -243,15 +243,22 @@ together — if **any** rule denies the request, `decision.is_denied()` returns
 > [!WARNING]
 > Arcjet may use `X-Forwarded-For` when it cannot get a public client IP from
 > the framework request. Clients can spoof this header if they can reach your
-> application directly or your proxy preserves client-supplied values. The
-> `proxies` option tells Arcjet which IPs or CIDRs to skip while walking the
-> header; it does not verify that the connection came through those proxies.
+> application directly or your proxy preserves client-supplied values. Arcjet
+> continues protecting the request, but logs one warning for the lifetime of
+> each Arcjet client instance and marks the source as `unverified-header` in the
+> `client_ip_provenance` debug facet.
 >
 > In production, make the application reachable only through a proxy that
 > overwrites or safely appends `X-Forwarded-For`, and list every trusted hop in
-> `proxies`. If you cannot guarantee the header's provenance, set
-> `disable_automatic_ip_detection=True` and pass a validated `ip_src` to every
-> `protect()` call.
+> `proxies`. Invalid proxy entries and combining `proxies` with manual IP
+> detection are rejected when the client is created; malformed `ip_src` values
+> are rejected before protection. Trusting `0.0.0.0/0` or `::/0` emits a
+> configuration warning. To inspect the
+> selected address before protection, call `aj.client_ip_details(request)` and
+> check its `ip`, `provenance`, `verified`, and `header` fields. If your
+> application determines the address itself, set
+> `disable_automatic_ip_detection=True` and pass that validated value as
+> `ip_src` to both `client_ip_details()` and `protect()`.
 
 Install [from PyPI](https://pypi.org/project/arcjet/) with
 [uv](https://docs.astral.sh/uv/):

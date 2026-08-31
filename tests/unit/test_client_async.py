@@ -152,6 +152,127 @@ def test_ip_override_with_ip_src(
     assert d.is_allowed()
 
 
+def test_client_ip_details_and_unverified_header_warning_once(
+    mock_protobuf_modules,
+    make_allow_decision,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    import asyncio
+    import logging
+
+    from arcjet import ClientIpProvenance, arcjet
+    from arcjet._rules import Mode, token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+
+    def allow(_req):
+        return mock_protobuf_modules["DecideResponse"](make_allow_decision())
+
+    monkeypatch.setattr(DecideServiceClient, "decide_behavior", allow, raising=False)
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
+    )
+    request = {
+        "type": "http",
+        "headers": [(b"x-forwarded-for", b"8.8.8.8")],
+        "client": ("10.0.0.1", 1234),
+    }
+
+    details = aj.client_ip_details(request)
+    assert details.provenance is ClientIpProvenance.UNVERIFIED_HEADER
+    with caplog.at_level(logging.DEBUG, logger="arcjet"):
+        asyncio.run(aj.protect(request))
+        asyncio.run(aj.protect(request))
+
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any(
+        getattr(r, "client_ip_provenance", None) == "unverified-header"
+        for r in debug_records
+    )
+    warning_records = [
+        r for r in caplog.records if "unverified forwarding header" in r.getMessage()
+    ]
+    assert len(warning_records) == 1
+
+
+def test_manual_ip_reaches_decide_for_all_supported_context_shapes(
+    mock_protobuf_modules,
+    make_allow_decision,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import asyncio
+
+    from arcjet import arcjet
+    from arcjet._context import RequestContext
+    from arcjet._rules import Mode, token_bucket
+    from arcjet.proto.decide.v1alpha1.decide_connect import DecideServiceClient
+
+    captured: list[str] = []
+
+    def allow(req):
+        captured.append(req.details.ip)
+        return mock_protobuf_modules["DecideResponse"](make_allow_decision())
+
+    monkeypatch.setattr(DecideServiceClient, "decide_behavior", allow, raising=False)
+    aj = arcjet(
+        key="ajkey_x",
+        rules=[token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)],
+        disable_automatic_ip_detection=True,
+    )
+
+    asyncio.run(aj.protect(RequestContext(ip="1.1.1.1"), ip_src="8.8.8.8"))
+    asyncio.run(aj.protect({"ip": "1.1.1.1"}, ip_src="8.8.8.8"))
+    assert captured == ["8.8.8.8", "8.8.8.8"]
+
+
+@pytest.mark.parametrize("factory_name", ["arcjet", "arcjet_sync"])
+@pytest.mark.parametrize("trust_all", ["0.0.0.0/0", "::/0"])
+def test_proxy_configuration_warnings_are_precise(
+    mock_protobuf_modules,
+    caplog: pytest.LogCaptureFixture,
+    factory_name: str,
+    trust_all: str,
+):
+    import logging
+
+    from arcjet import arcjet, arcjet_sync
+    from arcjet._rules import Mode, token_bucket
+
+    factory = {"arcjet": arcjet, "arcjet_sync": arcjet_sync}[factory_name]
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
+    with caplog.at_level(logging.WARNING, logger="arcjet"):
+        factory(key="ajkey_x", rules=rules, proxies=["10.0.0.0/8"])
+        assert not any(
+            "entire IP address family" in record.getMessage()
+            for record in caplog.records
+        )
+        factory(key="ajkey_x", rules=rules, proxies=[trust_all])
+    assert (
+        sum(
+            "entire IP address family" in record.getMessage()
+            for record in caplog.records
+        )
+        == 1
+    )
+
+
+def test_invalid_proxy_and_manual_ip_are_rejected(mock_protobuf_modules):
+    import asyncio
+
+    from arcjet import arcjet
+    from arcjet._errors import ArcjetMisconfiguration
+    from arcjet._rules import Mode, token_bucket
+
+    rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
+    with pytest.raises(ArcjetMisconfiguration, match="invalid proxy IP or CIDR"):
+        arcjet(key="ajkey_x", rules=rules, proxies=["not-an-ip"])
+
+    aj = arcjet(key="ajkey_x", rules=rules, disable_automatic_ip_detection=True)
+    with pytest.raises(ArcjetMisconfiguration, match="ip_src must be a valid"):
+        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="not-an-ip"))
+
+
 def test_correlation_id_sent_in_decide_request(
     mock_protobuf_modules,
     make_allow_decision,
@@ -206,16 +327,13 @@ def test_disable_automatic_ip_detection_with_proxies(mock_protobuf_modules):
     from arcjet._rules import Mode, token_bucket
 
     rules = [token_bucket(mode=Mode.LIVE, refill_rate=1, interval=1, capacity=1)]
-    aj = arcjet(
-        key="ajkey_x",
-        rules=rules,
-        disable_automatic_ip_detection=True,
-        proxies=["3.3.3.3"],
-    )
-    import asyncio
-
     with pytest.raises(ArcjetMisconfiguration, match="proxies cannot be used"):
-        asyncio.run(aj.protect({"headers": [], "type": "http"}, ip_src="8.8.8.8"))
+        arcjet(
+            key="ajkey_x",
+            rules=rules,
+            disable_automatic_ip_detection=True,
+            proxies=["3.3.3.3"],
+        )
 
 
 def test_ip_src_disallowed_when_automatic_ip_detection_enabled(mock_protobuf_modules):

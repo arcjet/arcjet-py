@@ -38,9 +38,15 @@ from arcjet.proto.decide.v1alpha1.decide_connect import (
 
 from ._cache import DecisionCache, make_cache_key
 from ._context import (
+    ClientIpDetails,
+    ClientIpProvenance,
     RequestContext,
+    _validate_proxy_config,
     coerce_request_context,
     request_details_from_context,
+)
+from ._context import (
+    client_ip_details as resolve_client_ip_details,
 )
 from ._decision import Decision, materialize_cached_decision
 from ._errors import ArcjetMisconfiguration, ArcjetTransportError
@@ -88,6 +94,75 @@ def _fire_and_forget(coro: Any) -> None:
 # Initialized on first use so async-only callers don't pay for thread creation.
 _report_pool: ThreadPoolExecutor | None = None
 _report_pool_lock = threading.Lock()
+
+
+@dataclass(slots=True)
+class _ClientIpWarningState:
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    warned_for_unverified_header: bool = False
+
+
+def _report_client_ip(details: ClientIpDetails, state: _ClientIpWarningState) -> None:
+    """Log provenance and warn once for this Arcjet client's lifetime."""
+    logger.debug(
+        "Arcjet client IP resolved",
+        extra={
+            "event": "arcjet_client_ip",
+            "client_ip_provenance": details.provenance.value,
+            "client_ip_verified": details.verified,
+            "client_ip_header": details.header,
+        },
+    )
+    if details.provenance is not ClientIpProvenance.UNVERIFIED_HEADER:
+        return
+    with state.lock:
+        if state.warned_for_unverified_header:
+            return
+        state.warned_for_unverified_header = True
+    logger.warning(
+        "Arcjet resolved the client IP from an unverified forwarding header. "
+        "Ensure a trusted proxy overwrites or safely appends X-Forwarded-For, "
+        "configure proxies, or use manual IP detection. See "
+        "https://docs.arcjet.com/best-practices#configure-proxies-and-load-balancers",
+        extra={
+            "event": "arcjet_client_ip_warning",
+            "client_ip_provenance": details.provenance.value,
+            "client_ip_header": details.header,
+        },
+    )
+
+
+def _client_ip_details_for_client(
+    request: Any,
+    *,
+    proxies: tuple[str, ...],
+    disable_automatic_ip_detection: bool,
+    environment: str | None,
+    ip_src: str | None,
+) -> ClientIpDetails:
+    if disable_automatic_ip_detection and not ip_src:
+        raise ArcjetMisconfiguration(
+            "ip_src is required when disable_automatic_ip_detection=True. "
+            "Pass ip_src=... to aj.protect(...)."
+        )
+    if disable_automatic_ip_detection and proxies:
+        raise ArcjetMisconfiguration(
+            "proxies cannot be used when disable_automatic_ip_detection=True. "
+            "proxies are ignored with manual IP detection so they have no effect."
+        )
+    if not disable_automatic_ip_detection and ip_src:
+        raise ArcjetMisconfiguration(
+            "ip_src cannot be set when disable_automatic_ip_detection=False."
+        )
+    try:
+        return resolve_client_ip_details(
+            request,
+            proxies=proxies,
+            ip_src=ip_src,
+            environment=environment,
+        )
+    except ValueError as exc:
+        raise ArcjetMisconfiguration(str(exc)) from exc
 
 
 def _get_report_pool() -> ThreadPoolExecutor:
@@ -502,6 +577,46 @@ class Arcjet:
     _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
     _environment: str | None = None
+    _ip_warning_state: _ClientIpWarningState = field(
+        default_factory=_ClientIpWarningState, repr=False
+    )
+
+    def client_ip_details(
+        self, request: Any, *, ip_src: str | None = None
+    ) -> ClientIpDetails:
+        """Explain how this client would resolve the request's IP.
+
+        This is a side-effect-free diagnostic: it does not protect the request,
+        emit logs, or consume the once-per-client-instance warning. Automatic
+        mode applies this client's proxy and environment configuration. Manual
+        mode requires the same independently trusted ``ip_src`` that will be
+        passed to ``protect()``.
+
+        Args:
+            request: The same framework request or ``RequestContext`` accepted
+                by ``protect()``.
+            ip_src: Manual client IP when automatic detection is disabled.
+
+        Returns:
+            A ``ClientIpDetails`` value containing the normalized address,
+            provenance, verification signal, and source header.
+
+        Raises:
+            ArcjetMisconfiguration: If manual-IP configuration is inconsistent
+                or an IP is malformed.
+
+        Example::
+
+            details = aj.client_ip_details(request)
+            print(details.ip, details.provenance, details.verified, details.header)
+        """
+        return _client_ip_details_for_client(
+            request,
+            proxies=self._proxies,
+            disable_automatic_ip_detection=self._disable_automatic_ip_detection,
+            environment=self._environment,
+            ip_src=ip_src,
+        )
 
     async def protect(
         self,
@@ -589,24 +704,14 @@ class Arcjet:
                 return JSONResponse({"error": "Blocked"}, status_code=403)
         """
         t0 = time.perf_counter()
-        if self._disable_automatic_ip_detection and not ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src is required when disable_automatic_ip_detection=True. "
-                "Pass ip_src=... to aj.protect(...)."
-            )
-        if self._disable_automatic_ip_detection and self._proxies:
-            raise ArcjetMisconfiguration(
-                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
-            )
-        if not self._disable_automatic_ip_detection and ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src cannot be set when disable_automatic_ip_detection=False."
-            )
+        ip_details = self.client_ip_details(request, ip_src=ip_src)
+        _report_client_ip(ip_details, self._ip_warning_state)
         ctx = coerce_request_context(
             request,
             proxies=self._proxies,
             ip_src=ip_src,
             environment=self._environment,
+            resolved_ip_details=ip_details,
         )
 
         if email:
@@ -1110,6 +1215,46 @@ class ArcjetSync:
     _disable_automatic_ip_detection: bool = False
     _cache: DecisionCache = field(default_factory=DecisionCache)
     _environment: str | None = None
+    _ip_warning_state: _ClientIpWarningState = field(
+        default_factory=_ClientIpWarningState, repr=False
+    )
+
+    def client_ip_details(
+        self, request: Any, *, ip_src: str | None = None
+    ) -> ClientIpDetails:
+        """Explain how this client would resolve the request's IP.
+
+        This is a side-effect-free diagnostic: it does not protect the request,
+        emit logs, or consume the once-per-client-instance warning. Automatic
+        mode applies this client's proxy and environment configuration. Manual
+        mode requires the same independently trusted ``ip_src`` that will be
+        passed to ``protect()``.
+
+        Args:
+            request: The same framework request or ``RequestContext`` accepted
+                by ``protect()``.
+            ip_src: Manual client IP when automatic detection is disabled.
+
+        Returns:
+            A ``ClientIpDetails`` value containing the normalized address,
+            provenance, verification signal, and source header.
+
+        Raises:
+            ArcjetMisconfiguration: If manual-IP configuration is inconsistent
+                or an IP is malformed.
+
+        Example::
+
+            details = aj.client_ip_details(request)
+            print(details.ip, details.provenance, details.verified, details.header)
+        """
+        return _client_ip_details_for_client(
+            request,
+            proxies=self._proxies,
+            disable_automatic_ip_detection=self._disable_automatic_ip_detection,
+            environment=self._environment,
+            ip_src=ip_src,
+        )
 
     def protect(
         self,
@@ -1138,24 +1283,14 @@ class ArcjetSync:
                 return jsonify(error="Forbidden"), 403
         """
         t0 = time.perf_counter()
-        if self._disable_automatic_ip_detection and not ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src is required when disable_automatic_ip_detection=True. "
-                "Pass ip_src=... to aj.protect(...)."
-            )
-        if self._disable_automatic_ip_detection and self._proxies:
-            raise ArcjetMisconfiguration(
-                "proxies cannot be used when disable_automatic_ip_detection=True. proxies are ignored with manual IP detection so they have no effect."
-            )
-        if not self._disable_automatic_ip_detection and ip_src:
-            raise ArcjetMisconfiguration(
-                "ip_src cannot be set when disable_automatic_ip_detection=False."
-            )
+        ip_details = self.client_ip_details(request, ip_src=ip_src)
+        _report_client_ip(ip_details, self._ip_warning_state)
         ctx = coerce_request_context(
             request,
             proxies=self._proxies,
             ip_src=ip_src,
             environment=self._environment,
+            resolved_ip_details=ip_details,
         )
 
         if email:
@@ -1608,7 +1743,8 @@ def arcjet(
         An ``Arcjet`` async client instance.
 
     Raises:
-        ArcjetMisconfiguration: If ``key`` is empty.
+        ArcjetMisconfiguration: If ``key`` is empty, a proxy entry is invalid,
+            or ``proxies`` is combined with manual IP detection.
 
     Example::
 
@@ -1658,6 +1794,21 @@ def arcjet(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    try:
+        validated_proxies, proxy_networks = _validate_proxy_config(proxies)
+    except ValueError as exc:
+        raise ArcjetMisconfiguration(str(exc)) from exc
+    if disable_automatic_ip_detection and validated_proxies:
+        raise ArcjetMisconfiguration(
+            "proxies cannot be used when disable_automatic_ip_detection=True. "
+            "proxies are ignored with manual IP detection so they have no effect."
+        )
+    if any(network.prefixlen == 0 for network in proxy_networks):
+        logger.warning(
+            "Arcjet proxy configuration trusts an entire IP address family; "
+            "use the narrowest proxy CIDRs possible.",
+            extra={"event": "arcjet_proxy_configuration", "trust_all": True},
+        )
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     transport = build_async_transport()
     client = DecideServiceClient(
@@ -1675,7 +1826,7 @@ def arcjet(
         _needs_email=needs_email,
         _needs_message=needs_message,
         _has_token_bucket=has_token_bucket,
-        _proxies=tuple(proxies),
+        _proxies=validated_proxies,
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,
     )
@@ -1739,7 +1890,8 @@ def arcjet_sync(
         An ``ArcjetSync`` sync client instance.
 
     Raises:
-        ArcjetMisconfiguration: If ``key`` is empty.
+        ArcjetMisconfiguration: If ``key`` is empty, a proxy entry is invalid,
+            or ``proxies`` is combined with manual IP detection.
 
     Example::
 
@@ -1789,6 +1941,21 @@ def arcjet_sync(
     """
     if not key:
         raise ArcjetMisconfiguration("Arcjet key is required.")
+    try:
+        validated_proxies, proxy_networks = _validate_proxy_config(proxies)
+    except ValueError as exc:
+        raise ArcjetMisconfiguration(str(exc)) from exc
+    if disable_automatic_ip_detection and validated_proxies:
+        raise ArcjetMisconfiguration(
+            "proxies cannot be used when disable_automatic_ip_detection=True. "
+            "proxies are ignored with manual IP detection so they have no effect."
+        )
+    if any(network.prefixlen == 0 for network in proxy_networks):
+        logger.warning(
+            "Arcjet proxy configuration trusts an entire IP address family; "
+            "use the narrowest proxy CIDRs possible.",
+            extra={"event": "arcjet_proxy_configuration", "trust_all": True},
+        )
     resolved_rules = _apply_global_characteristics(tuple(rules), tuple(characteristics))
     transport = build_sync_transport()
     client = DecideServiceClientSync(
@@ -1807,7 +1974,7 @@ def arcjet_sync(
         _needs_email=needs_email,
         _needs_message=needs_message,
         _has_token_bucket=has_token_bucket,
-        _proxies=tuple(proxies),
+        _proxies=validated_proxies,
         _disable_automatic_ip_detection=disable_automatic_ip_detection,
         _environment=environment,
     )
