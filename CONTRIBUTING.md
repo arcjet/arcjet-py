@@ -111,6 +111,24 @@ uv run --no-sync pytest tests/integration/guard/test_openai_agents.py tests/inte
 including when the extra is absent. `just test` on a plain `uv sync` skips the
 integration files, which is what CI does.
 
+### Claude Agent SDK tests
+
+`arcjet[claude-agent-sdk]` is a real extra (`claude-agent-sdk>=0.2.127,<1`) but
+is in no dependency group, so the lockfile does not pull its transitive tree
+into every `uv sync`. Install it alongside the locked environment when you want
+integration coverage:
+
+```sh
+uv sync
+uv pip install "claude-agent-sdk>=0.2.127,<1"
+# `--no-sync`, or uv restores the lock and removes claude-agent-sdk again
+uv run --no-sync pytest tests/integration/guard/test_claude_agent_sdk.py --no-cov
+```
+
+`tests/unit/guard/test_claude_agent_sdk.py` imports no `claude_agent_sdk` and
+always runs, including when the extra is absent. `just test` on a plain
+`uv sync` skips the integration file, which is what CI does.
+
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call

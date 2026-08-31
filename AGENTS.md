@@ -167,6 +167,26 @@ keeping the existing API surface intact with internal changes.
   string). `openai_agents_context` reads a caller-owned id and never mints,
   never reads `trace_id`, and never constructs a session. `needs_approval`
   is HITL and is not wrapped. Already-branded tools are skipped.
+- `src/arcjet/guard/claude_agent_sdk/` — Optional Claude Agent SDK
+  integration (`arcjet[claude-agent-sdk]`, peer `claude-agent-sdk>=0.2.127,<1`).
+  Independent of LangChain, CrewAI, and OpenAI Agents: it must not import
+  any of them. `guard_tool` wraps an authored `@tool` / `SdkMcpTool`
+  `.handler`; on DENY it returns
+  `{content: [{type: text, text: json.dumps(ArcjetDenialResult)}], is_error: True}`
+  and does not throw (the SDK swallows into `str(e)`) and does not set
+  `structuredContent` (`create_sdk_mcp_server` drops it).   `guard_hooks`
+  denies unwrapped built-ins / MCP on `PreToolUse`
+  (`permissionDecision: "deny"`), captures on `PostToolUse`
+  (`claude.phase: after`; `exclude` does not skip it), and screens inbound
+  on `UserPromptSubmit` (`{decision: "block"}` via `inbound=` — there is
+  no `guard_inbound`). Tool-hook `rules` / `actor` / `inputs` / `metadata`
+  receive `tool_input` plus `tool_name`. `actor=` / `inputs=` do not
+  register a tool hook by themselves; pass `tools=True` for the default
+  `{tool_name}.invoked` gate. Wrap-time `session_id=` / `correlation_id=`
+  must be a UUID. Wrapped tools are excluded from PreToolUse by the
+  `mcp__{server}__{name}` name. `claude_agent_context` reads a caller-owned
+  UUID `session_id` and never mints, never reads `trace_id`. `can_use_tool`
+  is HITL and is not wrapped. Already-branded tools are skipped.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -193,6 +213,11 @@ deliberately kept apart and **must not be merged**:
   `arcjet.guard.openai_agents`. No chromadb. Like CrewAI, it is in no
   dependency group so `uv.lock` does not pull its transitive tree into every
   `uv sync`; install it ad hoc for integration tests — see CONTRIBUTING.
+- `claude-agent-sdk` → `claude-agent-sdk>=0.2.127,<1`. Enough for
+  `arcjet.guard.claude_agent_sdk`. No chromadb. Same lockfile policy as
+  openai-agents. The floor is 0.2.127 (0.2.83 was mcp CVE + timeout
+  fail-close; 0.2.127 includes that and the background-task PreToolUse
+  stdin fix). Verified on 0.2.148.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
@@ -211,7 +236,8 @@ Nothing outside `src/arcjet/guard/langchain/` may import LangChain. Using
 Arcjet Guard must never require LangChain to be installed. Nothing outside
 `src/arcjet/guard/crewai/` may import CrewAI. Nothing outside
 `src/arcjet/guard/openai_agents/` may import the OpenAI Agents SDK
-(`agents`).
+(`agents`). Nothing outside `src/arcjet/guard/claude_agent_sdk/` may
+import the Claude Agent SDK (`claude_agent_sdk`).
 
 ## Coding conventions
 
