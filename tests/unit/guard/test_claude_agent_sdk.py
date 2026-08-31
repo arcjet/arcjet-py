@@ -47,6 +47,9 @@ from arcjet.guard.claude_agent_sdk._hooks import (
     UserPromptSubmitVerdict,
     _HookConfig,
     _InboundConfig,
+    _tool_call,
+    _tool_hooks_requested,
+    capture_post_tool_use,
     evaluate_pre_tool_use,
     evaluate_user_prompt_submit,
     pre_tool_use_output,
@@ -134,6 +137,21 @@ def _pre_input(**kwargs: object) -> dict[str, object]:
         "session_id": SESSION_ID,
         "tool_name": "Bash",
         "tool_input": {"command": "ls"},
+        "tool_use_id": "tu_1",
+        "transcript_path": "/tmp/t",
+        "cwd": "/tmp",
+    }
+    defaults.update(kwargs)
+    return defaults
+
+
+def _post_input(**kwargs: object) -> dict[str, object]:
+    defaults: dict[str, object] = {
+        "hook_event_name": "PostToolUse",
+        "session_id": SESSION_ID,
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"content": [{"type": "text", "text": "ok"}]},
         "tool_use_id": "tu_1",
         "transcript_path": "/tmp/t",
         "cwd": "/tmp",
@@ -481,6 +499,21 @@ class TestEvaluatePreToolUse:
         assert specific["permissionDecision"] == "deny"
         assert specific["permissionDecision"] != "ask"
         assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["metadata"]["claude.phase"] == "before"
+
+    def test_rules_see_tool_name_and_tool_input(self, reset_sequence_context) -> None:
+        seen: list[Mapping[str, Any]] = []
+
+        def rules(arguments: Mapping[str, Any]) -> list[Any]:
+            seen.append(dict(arguments))
+            return []
+
+        client = StubGuardClient(decision=make_allow_decision())
+        asyncio.run(
+            evaluate_pre_tool_use(_pre_input(), _hook_config(guard=client, rules=rules))
+        )
+        assert seen == [{"command": "ls", "tool_name": "Bash"}]
+        assert client.guards[0]["metadata"]["claude.phase"] == "before"
 
     def test_allow_is_empty_output(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
@@ -568,6 +601,7 @@ class TestEvaluateUserPromptSubmit:
         assert output["decision"] == "block"
         assert "reason" in output
         assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["metadata"]["claude.phase"] == "inbound"
 
     def test_allow_is_empty_output(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
@@ -612,6 +646,47 @@ class TestEvaluateUserPromptSubmit:
         assert seen == [{"prompt": "inject me"}]
 
 
+class TestToolCallEnvelope:
+    def test_includes_tool_name_last(self) -> None:
+        assert _tool_call(
+            {"tool_name": "Bash", "tool_input": {"command": "ls", "tool_name": "nope"}}
+        ) == {"command": "ls", "tool_name": "Bash"}
+
+    def test_empty_without_a_mapping(self) -> None:
+        assert _tool_call({"tool_name": "Bash"}) == {"tool_name": "Bash"}
+
+
+class TestCapturePostToolUse:
+    def test_is_empty_output_and_does_not_re_evaluate(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+        excluded = excluded_names([{"server": "support", "name": "lookup_order"}])
+        output = capture_post_tool_use(
+            _post_input(tool_name="mcp__support__lookup_order"),
+            _hook_config(guard=client, exclude=excluded),
+        )
+        assert output == {}
+        assert client.guards == []
+        assert len(client.captures) == 1
+        assert client.captures[0]["metadata"]["claude.phase"] == "after"
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+        assert (
+            client.captures[0]["metadata"]["claude.tool"]
+            == "mcp__support__lookup_order"
+        )
+
+    def test_never_raises(self, reset_sequence_context) -> None:
+        def boom(_arguments: Mapping[str, Any]) -> dict[str, str]:
+            raise RuntimeError("metadata exploded")
+
+        output = capture_post_tool_use(
+            _post_input(),
+            _hook_config(metadata=boom),
+        )
+        assert output == {}
+
+
 class TestExcludeNames:
     def test_qualifies_server_and_name(self) -> None:
         assert mcp_tool_name("support", "lookup_order") == "mcp__support__lookup_order"
@@ -649,6 +724,15 @@ class TestGuardToolValidation:
                 session_id="not\nvalid",
             )
 
+    def test_non_uuid_session_id_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="UUID"):
+            guard_tool(
+                guard=StubGuardClient(),
+                tool=object(),
+                action="x.done",
+                session_id="run-abc",
+            )
+
 
 class TestGuardHooksValidation:
     def test_invalid_on_guard_error_is_refused(self) -> None:
@@ -659,9 +743,67 @@ class TestGuardHooksValidation:
         with pytest.raises(ArcjetMisconfiguration, match="inbound"):
             guard_hooks()
 
+    def test_actor_alone_does_not_register_tool_hooks(self) -> None:
+        with pytest.raises(ArcjetMisconfiguration, match="inbound"):
+            guard_hooks(actor="user-1")
+
     def test_inbound_without_action_is_refused(self) -> None:
         with pytest.raises(ArcjetMisconfiguration, match="action"):
             guard_hooks(inbound={"rules": ()})
+
+    def test_non_uuid_session_id_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="UUID"):
+            guard_hooks(action="x.done", session_id="run-abc")
+
+    def test_inbound_non_uuid_session_id_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="UUID"):
+            guard_hooks(inbound={"action": "message.received", "session_id": "run-abc"})
+
+    def test_inbound_invalid_session_id_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="printable ASCII"):
+            guard_hooks(
+                inbound={"action": "message.received", "session_id": "not\nvalid"}
+            )
+
+    def test_inbound_non_str_session_id_is_refused(self) -> None:
+        with pytest.raises(TypeError, match="session_id"):
+            guard_hooks(inbound={"action": "message.received", "session_id": 1})
+
+    def test_tools_must_be_bool(self) -> None:
+        with pytest.raises(TypeError, match="tools"):
+            guard_hooks(tools=["Bash"])  # type: ignore[arg-type]
+
+
+class TestToolHooksRequested:
+    def test_actor_and_inputs_are_not_a_tool_signal(self) -> None:
+        assert (
+            _tool_hooks_requested(action=None, rules=(), exclude=None, tools=False)
+            is False
+        )
+
+    def test_tools_true_is_enough(self) -> None:
+        assert (
+            _tool_hooks_requested(action=None, rules=(), exclude=None, tools=True)
+            is True
+        )
+
+    def test_action_or_rules_or_exclude_register(self) -> None:
+        assert (
+            _tool_hooks_requested(
+                action="tool.invoked", rules=(), exclude=None, tools=False
+            )
+            is True
+        )
+        assert (
+            _tool_hooks_requested(
+                action=None, rules=lambda _c: [], exclude=None, tools=False
+            )
+            is True
+        )
+        assert (
+            _tool_hooks_requested(action=None, rules=(), exclude=["Bash"], tools=False)
+            is True
+        )
 
 
 class TestMissingPeer:

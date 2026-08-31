@@ -31,12 +31,11 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
 )
-from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
-from ._context import claude_agent_context
+from ._context import _require_session_id, claude_agent_context
 from ._denial import (
     ArcjetDenialResult,
     denial_tool_result,
@@ -371,8 +370,8 @@ def guard_tool(
             ``"deny"``, or the installed ``claude-agent-sdk`` is below
             0.2.127.
         TypeError: *tool* is not an ``SdkMcpTool``.
-        ValueError: *session_id* / *correlation_id* is not printable ASCII
-            within 256 bytes.
+        ValueError: *session_id* / *correlation_id* is not a UUID (or is
+            not printable ASCII within 256 bytes).
         ImportError: the ``claude-agent-sdk`` extra is not installed.
     """
     if on_guard_error not in ("allow", "deny"):
@@ -383,7 +382,7 @@ def guard_tool(
         )
     owned = session_id if session_id is not None else correlation_id
     if owned is not None:
-        _validated(owned)
+        _require_session_id(owned)
     sdk_mcp_tool = load_sdk_mcp_tool()
     if not isinstance(tool, sdk_mcp_tool):
         raise TypeError(

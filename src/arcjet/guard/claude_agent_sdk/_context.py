@@ -61,21 +61,38 @@ def _read(source: Any, name: str) -> Any:
 def _valid_session_id(value: Any) -> Optional[str]:
     """A caller-owned UUID the CLI will accept as ``session_id``.
 
-    Anything else is skipped, not minted. A non-UUID that happens to be
-    printable ASCII would still fail ``query({options.session_id})``, so it
-    is not used as a Sequence id either.
+    Anything else is skipped, not minted. Used when reading hook input,
+    which may carry garbage; wrap-time arguments use
+    :func:`_require_session_id` so a non-UUID is refused instead of
+    accepted and then dropped here.
     """
     if not isinstance(value, str):
         return None
     try:
-        _validated(value)
+        return _require_session_id(value)
     except (TypeError, ValueError):
         return None
+
+
+def _require_session_id(value: str) -> str:
+    """Raise unless *value* is a caller-owned UUID the CLI will accept.
+
+    Wrap-time counterpart of :func:`_valid_session_id`. ``_validated``
+    accepts any printable-ASCII Sequence id; the Claude CLI additionally
+    requires a UUID for ``ClaudeAgentOptions.session_id``. Refusing here
+    keeps ``guard_tool(..., correlation_id="run-abc")`` from succeeding
+    and then leaving the call uncorrelated.
+    """
+    validated = _validated(value)
     try:
-        uuid.UUID(value)
-    except ValueError:
-        return None
-    return value
+        uuid.UUID(validated)
+    except ValueError as exc:
+        raise ValueError(
+            "session_id must be a UUID the Claude Agent SDK will accept "
+            "(the same value you pass to ClaudeAgentOptions.session_id); "
+            f"got {value!r}"
+        ) from exc
+    return validated
 
 
 def claude_agent_context(

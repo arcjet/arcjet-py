@@ -13,10 +13,14 @@ Three names:
   Do not throw (the SDK swallows into ``str(e)``). Do not set
   ``structuredContent`` (``create_sdk_mcp_server`` drops it).
 * :func:`guard_hooks` — ``PreToolUse`` ``permissionDecision: "deny"`` for
-  unwrapped built-ins / MCP, and ``UserPromptSubmit`` ``{"decision":
+  unwrapped built-ins / MCP, ``PostToolUse`` capture-only
+  (``claude.phase: after``), and ``UserPromptSubmit`` ``{"decision":
   "block"}`` when ``inbound=`` is set. List ``guard_tool`` wrappers in
   ``exclude`` as ``{"server": ..., "name": ...}`` so they are not
-  double-gated under the ``mcp__{server}__{name}`` name.
+  double-gated under the ``mcp__{server}__{name}`` name. ``exclude``
+  does not skip PostToolUse. ``actor=`` / ``inputs=`` do not register
+  a tool hook by themselves; pass ``tools=True`` for the default
+  ``"{tool_name}.invoked"`` gate.
 * :func:`claude_agent_context` — read a caller-owned ``session_id`` from
   hook input or a policy fallback. Never mints. Never reads ``trace_id``.
   An authored handler has no ``extra.session_id`` — use

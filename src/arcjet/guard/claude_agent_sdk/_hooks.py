@@ -13,7 +13,9 @@ is no ``guard_inbound`` helper. A deny is ``{"decision": "block"}``.
 ``PreToolUse`` fires for every tool and the input carries only a name,
 never the brand :func:`guard_tool` applies. List wrapped tools in
 ``exclude`` as ``{"server": ..., "name": ...}`` so they match
-``mcp__{server}__{name}`` exactly.
+``mcp__{server}__{name}`` exactly. ``PostToolUse`` is capture only and
+is not skipped by *exclude*. ``rules`` / ``actor`` / ``inputs`` /
+``metadata`` see ``tool_input`` plus ``tool_name``.
 """
 
 from __future__ import annotations
@@ -37,12 +39,11 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
 )
-from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
-from ._context import claude_agent_context
+from ._context import _require_session_id, claude_agent_context
 from ._denial import payload_from_block, unavailable_message
 from ._import import load_hook_matcher
 from ._names import ExcludeEntry, as_exclude_entry, excluded_names, is_excluded
@@ -122,6 +123,21 @@ def _tool_arguments(source: Mapping[str, Any]) -> Mapping[str, Any]:
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
+def _tool_call(source: Mapping[str, Any]) -> dict[str, Any]:
+    """What ``rules`` / ``actor`` / ``inputs`` / ``metadata`` see for a tool hook.
+
+    The model-produced ``tool_input`` fields plus ``tool_name``, so a
+    per-tool rate limit can key on the name the JS adapter exposes as
+    ``{ toolName, input }``. ``tool_name`` is applied last so a tool
+    argument of the same name cannot hide the hook's name.
+    """
+    call = dict(_tool_arguments(source))
+    name = _tool_name(source)
+    if name:
+        call["tool_name"] = name
+    return call
+
+
 def _prompt(source: Mapping[str, Any]) -> str:
     raw = source.get("prompt")
     return raw if isinstance(raw, str) else ""
@@ -185,11 +201,14 @@ def _merged_metadata(
     session_id: Optional[str],
     source: Mapping[str, Any],
     extra: Optional[Metadata],
+    *,
+    phase: str,
 ) -> Optional[Metadata]:
     derived = claude_agent_context(source, session_id=session_id)
     merged: dict[str, Any] = {}
     if derived.metadata:
         merged.update(derived.metadata)
+    merged["claude.phase"] = phase
     if extra:
         merged.update(extra)
     return merged or None
@@ -249,10 +268,10 @@ async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseV
 
     try:
         action = _resolve_tool_action(config, hook)
-        arguments = _tool_arguments(hook)
+        arguments = _tool_call(hook)
         correlation_id = _correlation(config.session_id, hook)
         extra = _resolved_metadata(config.metadata, arguments)
-        metadata = _merged_metadata(config.session_id, hook, extra)
+        metadata = _merged_metadata(config.session_id, hook, extra, phase="before")
         prepared = _prepared(config.actor, config.inputs, arguments)
         rules = _resolved_rules(config.rules, arguments)
         decision = await _decide(
@@ -330,7 +349,7 @@ async def evaluate_user_prompt_submit(
     try:
         correlation_id = _correlation(config.session_id, hook)
         extra = _resolved_metadata(config.metadata, arguments)
-        metadata = _merged_metadata(config.session_id, hook, extra)
+        metadata = _merged_metadata(config.session_id, hook, extra, phase="inbound")
         prepared = _prepared(config.actor, config.inputs, arguments)
         rules = _resolved_rules(config.rules, arguments)
         decision = await _decide(
@@ -414,6 +433,53 @@ def user_prompt_submit_output(verdict: UserPromptSubmitVerdict) -> dict[str, Any
     }
 
 
+def capture_post_tool_use(source: Any, config: _HookConfig) -> dict[str, Any]:
+    """Observe-only PostToolUse. Never blocks. *exclude* does not skip this.
+
+    ``guard_tool`` already captured the gate; this is the JS adapter's
+    after-call audit trail (``claude.phase: after``). Outcome is
+    ``success`` because PostToolUse cannot distinguish a tool error
+    from a result the model is meant to read.
+    """
+    hook = _hook_mapping(source)
+    action = f"{_tool_name(hook) or 'tool'}.invoked"
+    try:
+        action = _resolve_tool_action(config, hook)
+        arguments = _tool_call(hook)
+        extra = _resolved_metadata(config.metadata, arguments)
+        metadata = _merged_metadata(config.session_id, hook, extra, phase="after")
+        _emit_capture(
+            client=config.guard,
+            action=action,
+            outcome="success",
+            correlation_id=_correlation(config.session_id, hook),
+            decision=None,
+            metadata=metadata,
+        )
+    except Exception:
+        logger.warning(
+            "arcjet: the Claude Agent SDK PostToolUse hook failed; "
+            "the tool result is unchanged"
+        )
+    return {}
+
+
+def _inbound_session_id(
+    inbound: Mapping[str, Any], session_id: Optional[str]
+) -> Optional[str]:
+    if "session_id" not in inbound:
+        return session_id
+    raw = inbound["session_id"]
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise TypeError(
+            "guard_hooks(inbound=...) session_id must be a str UUID, "
+            f"got {type(raw).__name__}"
+        )
+    return _require_session_id(raw)
+
+
 def _inbound_config(
     *,
     guard: Any,
@@ -441,7 +507,7 @@ def _inbound_config(
         inputs=inbound.get("inputs"),
         rules=inbound.get("rules", ()),
         metadata=inbound.get("metadata"),
-        session_id=inbound.get("session_id", session_id),
+        session_id=_inbound_session_id(inbound, session_id),
         on_guard_error=inbound_error,
     )
 
@@ -450,15 +516,20 @@ def _tool_hooks_requested(
     *,
     action: ActionResolver,
     rules: RulesResolver,
-    actor: ActorResolver,
-    inputs: InputResolver,
     exclude: Sequence[ExcludeEntry] | None,
+    tools: bool,
 ) -> bool:
+    """Whether to register PreToolUse / PostToolUse.
+
+    ``actor=`` / ``inputs=`` / ``metadata=`` are policy for a tool hook
+    that was requested some other way — they must not install a global
+    gate next to inbound-only ``guard_hooks(inbound=...)``.
+    """
+    if tools:
+        return True
     if action is not None:
         return True
     if callable(rules) or (isinstance(rules, Sequence) and len(rules) > 0):
-        return True
-    if actor is not None or inputs is not None:
         return True
     return bool(exclude)
 
@@ -475,6 +546,7 @@ def guard_hooks(
     correlation_id: Optional[str] = None,
     on_guard_error: OnGuardError = "deny",
     exclude: Sequence[ExcludeEntry] | None = None,
+    tools: bool = False,
     inbound: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, list[Any]]:
     """Build Claude Agent SDK hooks that fail closed.
@@ -488,29 +560,40 @@ def guard_hooks(
       *exclude* as ``{"server": ..., "name": ...}`` (qualified to
       ``mcp__{server}__{name}``) or as the exact reported name. A bare
       authored name does not match every server.
+    * ``PostToolUse`` — capture only (``claude.phase: after``). Never
+      blocks. *exclude* does not skip this.
     * ``UserPromptSubmit`` — when *inbound* is set, ``{"decision":
       "block"}`` is the inbound path. There is no ``guard_inbound``.
 
     ``can_use_tool`` is not wrapped. ``permissionDecision: "ask"`` is
     never returned.
 
+    Tool-hook ``rules`` / ``actor`` / ``inputs`` / ``metadata`` callables
+    receive ``tool_input`` plus ``tool_name``. ``action`` still receives
+    the full hook input.
+
     Args:
         guard: The Arcjet client. An async client is preferred; a blocking
             client is accepted.
         action: Checkpoint label, or a callable of the hook input. Defaults
             to ``"{tool_name}.invoked"`` when a tool hook is registered.
-        actor: Who is acting, or a callable of the tool arguments (or
-            ``{"prompt": ...}`` on inbound).
-        inputs: Policy inputs, or a callable of those arguments.
-        rules: Local rules, or a callable of those arguments. Empty still
+        actor: Who is acting, or a callable of the tool-call envelope (or
+            ``{"prompt": ...}`` on inbound). Does not register a tool hook
+            by itself — put it on *inbound* for inbound-only setups.
+        inputs: Policy inputs, or a callable of that envelope.
+        rules: Local rules, or a callable of that envelope. Empty still
             contacts Guard.
-        metadata: Capture metadata, or a callable of those arguments.
+        metadata: Capture metadata, or a callable of that envelope.
         session_id: Caller-owned UUID fallback. Hook ``session_id`` is
             preferred. Never minted.
         correlation_id: Alias of *session_id*. Ignored when *session_id*
             is set.
         on_guard_error: ``"deny"`` (default) or ``"allow"``.
         exclude: Tools already wrapped by ``guard_tool``.
+        tools: Register PreToolUse / PostToolUse with the default
+            ``"{tool_name}.invoked"`` action and empty rules. Use this
+            when you want every unwrapped tool gated and have no local
+            *action* / *rules* / *exclude*.
         inbound: UserPromptSubmit policy. Requires ``action``. Optional
             ``rules``, ``actor``, ``inputs``, ``metadata``,
             ``on_guard_error``, ``session_id``.
@@ -519,8 +602,9 @@ def guard_hooks(
         ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or
             ``"deny"``, *inbound* is missing ``action``, or neither a
             tool hook nor inbound was requested.
-        ValueError: *session_id* / *correlation_id* is not printable
-            ASCII, or an exclude entry cannot be qualified.
+        TypeError: *tools* is not a bool, or *inbound* is not a mapping.
+        ValueError: *session_id* / *correlation_id* is not a UUID, or an
+            exclude entry cannot be qualified.
         ImportError: the ``claude-agent-sdk`` extra is not installed.
     """
     if on_guard_error not in ("allow", "deny"):
@@ -529,9 +613,15 @@ def guard_hooks(
             f"It decides whether a call runs when policy could not be "
             f"evaluated, so there is no safe value to guess."
         )
+    if not isinstance(tools, bool):
+        raise TypeError(
+            "guard_hooks(tools=) is True to register PreToolUse / PostToolUse "
+            "with the default {tool_name}.invoked action; it is not a tool "
+            f"list. got {type(tools).__name__}"
+        )
     owned = session_id if session_id is not None else correlation_id
     if owned is not None:
-        _validated(owned)
+        _require_session_id(owned)
     if inbound is not None and not isinstance(inbound, Mapping):
         raise TypeError(
             "guard_hooks(inbound=...) is a mapping with at least action=; "
@@ -541,15 +631,14 @@ def guard_hooks(
     want_tools = _tool_hooks_requested(
         action=action,
         rules=rules,
-        actor=actor,
-        inputs=inputs,
         exclude=exclude,
+        tools=tools,
     )
     if not want_tools and inbound is None:
         raise ArcjetMisconfiguration(
-            "guard_hooks() needs a tool policy (action= / rules=) and/or "
-            "inbound= for UserPromptSubmit. There is no guard_inbound "
-            "helper and no guard_can_use_tool."
+            "guard_hooks() needs a tool policy (action= / rules= / "
+            "tools=True / exclude=) and/or inbound= for UserPromptSubmit. "
+            "There is no guard_inbound helper and no guard_can_use_tool."
         )
 
     inbound_config = (
@@ -598,7 +687,13 @@ def guard_hooks(
                 )
             return pre_tool_use_output(verdict)
 
+        async def post_tool_use(
+            input_data: Any, _tool_use_id: Optional[str], _context: Any
+        ) -> dict[str, Any]:
+            return capture_post_tool_use(input_data, config)
+
         hooks["PreToolUse"] = [hook_matcher(matcher=None, hooks=[pre_tool_use])]
+        hooks["PostToolUse"] = [hook_matcher(matcher=None, hooks=[post_tool_use])]
 
     if inbound_config is not None:
 

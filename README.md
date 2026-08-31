@@ -1559,7 +1559,7 @@ it does not replace the JS page
 [`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
 
 ```py
-from arcjet.guard import DetectPromptInjection, launch_arcjet
+from arcjet.guard import DetectPromptInjection, TokenBucket, launch_arcjet
 from arcjet.guard.claude_agent_sdk import (
     claude_agent_context,
     guard_hooks,
@@ -1569,6 +1569,7 @@ from claude_agent_sdk import tool
 
 aj = launch_arcjet(key=arcjet_key)
 session_id = conversation_id  # a UUID the app already minted
+mcp_limit = TokenBucket(refill_rate=20, interval_seconds=60, max_tokens=20)
 
 
 @tool("send_email", "Send an email", {"to": str, "body": str})
@@ -1588,6 +1589,7 @@ hooks = guard_hooks(
     guard=aj,
     session_id=session_id,
     action=lambda hook: f"{hook['tool_name']}.invoked",
+    rules=lambda call: [mcp_limit(key=call["tool_name"], requested=1)],
     exclude=[{"server": "mail", "name": "send_email"}],
     inbound={
         "action": "message.received",
@@ -1619,15 +1621,21 @@ rules on `guard_hooks(..., inbound=...)`. A deny is `{"decision": "block"}`.
 #### Deny unwrapped tools on `PreToolUse`
 
 Built-ins (Bash, Write, …) and MCP tools not passed through `guard_tool`
-are gated here. `PreToolUse` returns `permissionDecision: "deny"`. List
-every `guard_tool` wrapper in `exclude` as `{"server": ..., "name": ...}`
-so the reported `mcp__{server}__{name}` name is not double-gated. A bare
-authored name does not match every server's tool of that name.
+are gated here. `PreToolUse` returns `permissionDecision: "deny"`.
+`rules` / `actor` / `inputs` / `metadata` callables receive `tool_input`
+plus `tool_name` so a local rate limit can key on the name. List every
+`guard_tool` wrapper in `exclude` as `{"server": ..., "name": ...}` so the
+reported `mcp__{server}__{name}` name is not double-gated. A bare authored
+name does not match every server's tool of that name. `PostToolUse` is
+capture-only (`claude.phase: after`) and is not skipped by `exclude`.
+`actor=` / `inputs=` next to `inbound=` do not install a tool gate; pass
+`tools=True` for the default `{tool_name}.invoked` gate with empty rules.
 
 `claude_agent_context` reads hook `session_id` first, then the
 caller-owned `session_id=` fallback, then `arcjet_sequence()`. It never
-mints. It never reads `trace_id`. The value must be a UUID the app already
-minted if you also pass it to `query()`.
+mints. It never reads `trace_id`. Wrap-time `session_id=` /
+`correlation_id=` (including `inbound["session_id"]`) must be a UUID the
+app already minted — the same value you pass to `query()`.
 
 ### Sync usage
 

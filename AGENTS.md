@@ -174,14 +174,19 @@ keeping the existing API surface intact with internal changes.
   `.handler`; on DENY it returns
   `{content: [{type: text, text: json.dumps(ArcjetDenialResult)}], is_error: True}`
   and does not throw (the SDK swallows into `str(e)`) and does not set
-  `structuredContent` (`create_sdk_mcp_server` drops it). `guard_hooks`
+  `structuredContent` (`create_sdk_mcp_server` drops it).   `guard_hooks`
   denies unwrapped built-ins / MCP on `PreToolUse`
-  (`permissionDecision: "deny"`) and screens inbound on `UserPromptSubmit`
-  (`{decision: "block"}` via `inbound=` — there is no `guard_inbound`).
-  Wrapped tools are excluded from PreToolUse by the `mcp__{server}__{name}`
-  name. `claude_agent_context` reads a caller-owned UUID `session_id` and
-  never mints, never reads `trace_id`. `can_use_tool` is HITL and is not
-  wrapped. Already-branded tools are skipped.
+  (`permissionDecision: "deny"`), captures on `PostToolUse`
+  (`claude.phase: after`; `exclude` does not skip it), and screens inbound
+  on `UserPromptSubmit` (`{decision: "block"}` via `inbound=` — there is
+  no `guard_inbound`). Tool-hook `rules` / `actor` / `inputs` / `metadata`
+  receive `tool_input` plus `tool_name`. `actor=` / `inputs=` do not
+  register a tool hook by themselves; pass `tools=True` for the default
+  `{tool_name}.invoked` gate. Wrap-time `session_id=` / `correlation_id=`
+  must be a UUID. Wrapped tools are excluded from PreToolUse by the
+  `mcp__{server}__{name}` name. `claude_agent_context` reads a caller-owned
+  UUID `session_id` and never mints, never reads `trace_id`. `can_use_tool`
+  is HITL and is not wrapped. Already-branded tools are skipped.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.

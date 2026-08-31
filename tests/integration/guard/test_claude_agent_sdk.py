@@ -94,8 +94,9 @@ def test_guard_hooks_builds_real_matchers() -> None:
         inbound={"action": "message.received"},
         session_id=SESSION_ID,
     )
-    assert set(hooks) == {"PreToolUse", "UserPromptSubmit"}
+    assert set(hooks) == {"PreToolUse", "PostToolUse", "UserPromptSubmit"}
     assert isinstance(hooks["PreToolUse"][0], HookMatcher)
+    assert isinstance(hooks["PostToolUse"][0], HookMatcher)
     assert isinstance(hooks["UserPromptSubmit"][0], HookMatcher)
 
     pre = hooks["PreToolUse"][0].hooks[0]
@@ -148,6 +149,43 @@ def test_guard_hooks_builds_real_matchers() -> None:
         )
     )
     assert blocked["decision"] == "block"
+
+    post = hooks["PostToolUse"][0].hooks[0]
+    observed = asyncio.run(
+        post(
+            {
+                "hook_event_name": "PostToolUse",
+                "session_id": SESSION_ID,
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls"},
+                "tool_response": {"content": [{"type": "text", "text": "ok"}]},
+                "tool_use_id": "tu_1",
+                "transcript_path": "/tmp/t",
+                "cwd": "/tmp",
+            },
+            None,
+            {"signal": None},
+        )
+    )
+    assert observed == {}
+    assert client.captures[-1]["metadata"]["claude.phase"] == "after"
+
+
+def test_inbound_plus_actor_does_not_register_tool_hooks() -> None:
+    client = StubGuardClient(decision=make_allow_decision())
+    hooks = guard_hooks(
+        guard=client,
+        actor="user-1",
+        inbound={"action": "message.received"},
+        session_id=SESSION_ID,
+    )
+    assert set(hooks) == {"UserPromptSubmit"}
+
+
+def test_tools_true_registers_default_tool_hooks() -> None:
+    client = StubGuardClient(decision=make_allow_decision())
+    hooks = guard_hooks(guard=client, tools=True, session_id=SESSION_ID)
+    assert set(hooks) == {"PreToolUse", "PostToolUse"}
 
 
 def test_claude_agent_context_reads_hook_session_id() -> None:
