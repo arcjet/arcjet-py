@@ -74,6 +74,16 @@ langchain-agents = [
 # on_invoke_tool. Verified on 0.22.0. No chromadb — unlike CrewAI this extra
 # is safe to declare.
 openai-agents = ["openai-agents>=0.19.0,<1"]
+# Authored @tool / SdkMcpTool wrap plus PreToolUse / UserPromptSubmit hooks.
+# Separate extra so installing `arcjet` never pulls the Claude Agent SDK;
+# `arcjet.guard.claude_agent_sdk` imports `claude_agent_sdk` lazily. The
+# floor is 0.2.127 (0.2.83 was the mcp CVE + timeout fail-close line;
+# 0.2.127 includes that and the background-task PreToolUse stdin fix, so
+# this adapter does not have to caveat that path). Verified on 0.2.148.
+# No chromadb — unlike CrewAI this extra is safe to declare. Like
+# openai-agents it is in no dependency group so the lockfile does not
+# pull its transitive tree into every `uv sync`.
+claude-agent-sdk = ["claude-agent-sdk>=0.2.127,<1"]
 # There is deliberately no `crewai` extra, and CrewAI is in no dependency
 # group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
 # 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /
@@ -186,6 +196,8 @@ exclude = [
   # Optional extra; openai-agents is not in the default install.
   "tests/integration/guard/test_openai_agents.py",
   "tests/integration/guard/test_openai_agents_runner.py",
+  # Optional extra; claude-agent-sdk is not in the default install.
+  "tests/integration/guard/test_claude_agent_sdk.py",
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
@@ -212,4 +224,6 @@ exclude = [
   # Optional extra; openai-agents is not in the default install.
   "tests/integration/guard/test_openai_agents.py",
   "tests/integration/guard/test_openai_agents_runner.py",
+  # Optional extra; claude-agent-sdk is not in the default install.
+  "tests/integration/guard/test_claude_agent_sdk.py",
 ]

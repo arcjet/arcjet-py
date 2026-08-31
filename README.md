@@ -1002,6 +1002,8 @@ effect happens.
 | A CrewAI crew / LiteAgent / MCP or crew-injected tool | `register_arcjet_hooks` | your own `crewai` | Yes — via `HookAborted` |
 | A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | your own `crewai` | Yes |
 | An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
+| A Claude Agent SDK authored `@tool` / `SdkMcpTool` | `guard_tool` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — via `is_error` tool result |
+| Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -1025,6 +1027,12 @@ right home for capture and the wrong home for policy.
   Independent of LangChain and CrewAI. Docs:
   [`/guards/openai-agents-py/`](https://docs.arcjet.com/guards/openai-agents-py/)
   — not the JS page [`/guards/openai-agents/`](https://docs.arcjet.com/guards/openai-agents/).
+- **`arcjet[claude-agent-sdk]`** — `guard_tool`, `guard_hooks`, and
+  `claude_agent_context` for the Claude Agent SDK
+  (`claude-agent-sdk>=0.2.127,<1`). Independent of LangChain, CrewAI, and
+  OpenAI Agents. Docs:
+  [`/guards/claude-agent-sdk-py/`](https://docs.arcjet.com/guards/claude-agent-sdk-py/)
+  — not the JS page [`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1051,7 +1059,7 @@ from arcjet.guard.langchain import (
 )
 ```
 
-**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `ArcjetMiddleware`, `register_arcjet_hooks`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
+**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `guard_hooks`, `ArcjetMiddleware`, `register_arcjet_hooks`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
 
 - **`on_guard_error="deny"`** (default) — If Guard is unavailable or evaluation fails, the guarded action blocks with `ArcjetUnavailableError`.
 - **`on_guard_error="allow"`** — Opt out: if Guard is unavailable, the action runs anyway. Use this only where availability matters more than enforcement.
@@ -1538,6 +1546,88 @@ Hosted tools, MCP, Computer / Shell / ApplyPatch, handoffs, and
 `conversation_id` / `group_id`, then the enclosing `arcjet_sequence()`. It
 never mints. It never reads `trace_id`. It never constructs
 `OpenAIConversationsSession()` just to get an id.
+
+### Claude Agent SDK tools and hooks
+
+`arcjet.guard.claude_agent_sdk` needs `pip install "arcjet[claude-agent-sdk]"`
+(`claude-agent-sdk>=0.2.127,<1`). Nothing here imports
+`arcjet.guard.langchain`, `arcjet.guard.crewai`, or
+`arcjet.guard.openai_agents`, and importing `arcjet.guard` never imports the
+Claude Agent SDK. The Python page is
+[`/guards/claude-agent-sdk-py/`](https://docs.arcjet.com/guards/claude-agent-sdk-py/);
+it does not replace the JS page
+[`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
+
+```py
+from arcjet.guard import DetectPromptInjection, launch_arcjet
+from arcjet.guard.claude_agent_sdk import (
+    claude_agent_context,
+    guard_hooks,
+    guard_tool,
+)
+from claude_agent_sdk import tool
+
+aj = launch_arcjet(key=arcjet_key)
+session_id = conversation_id  # a UUID the app already minted
+
+
+@tool("send_email", "Send an email", {"to": str, "body": str})
+async def send_email(args):
+    return {"content": [{"type": "text", "text": "sent"}]}
+
+
+guarded_send = guard_tool(
+    guard=aj,
+    tool=send_email,
+    action="email.sent",
+    session_id=session_id,  # authored handler has no extra.session_id
+    on_guard_error="deny",  # default
+)
+
+hooks = guard_hooks(
+    guard=aj,
+    session_id=session_id,
+    action=lambda hook: f"{hook['tool_name']}.invoked",
+    exclude=[{"server": "mail", "name": "send_email"}],
+    inbound={
+        "action": "message.received",
+        "rules": lambda arguments: [DetectPromptInjection()(arguments["prompt"])],
+    },
+)
+```
+
+On DENY the authored handler returns exactly
+`{"content": [{"type": "text", "text": <json.dumps(ArcjetDenialResult)>}], "is_error": True}`.
+It does not throw (the SDK swallows into `str(e)`) and it does not set
+`structuredContent` (`create_sdk_mcp_server` drops it). Already-branded
+tools are skipped.
+
+#### Screen inbound on `UserPromptSubmit`
+
+There is no `guard_inbound` helper. Put prompt-injection and other inbound
+rules on `guard_hooks(..., inbound=...)`. A deny is `{"decision": "block"}`.
+`protect()` and the request path are fail-open — the caller must check
+`has_failed_open()`. These helpers default to `on_guard_error="deny"`.
+
+#### `can_use_tool` is not a policy gate
+
+`can_use_tool` is ask-only HITL. `allowed_tools`, allow rules, and
+`bypassPermissions` / `acceptEdits` skip it. There is no
+`guard_can_use_tool`. `permissionDecision: "ask"` is HITL, not deny. Use
+`guard_tool` for authored tools or `PreToolUse` for unwrapped ones.
+
+#### Deny unwrapped tools on `PreToolUse`
+
+Built-ins (Bash, Write, …) and MCP tools not passed through `guard_tool`
+are gated here. `PreToolUse` returns `permissionDecision: "deny"`. List
+every `guard_tool` wrapper in `exclude` as `{"server": ..., "name": ...}`
+so the reported `mcp__{server}__{name}` name is not double-gated. A bare
+authored name does not match every server's tool of that name.
+
+`claude_agent_context` reads hook `session_id` first, then the
+caller-owned `session_id=` fallback, then `arcjet_sequence()`. It never
+mints. It never reads `trace_id`. The value must be a UUID the app already
+minted if you also pass it to `query()`.
 
 ### Sync usage
 
