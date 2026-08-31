@@ -72,7 +72,7 @@ def test_allow_runs_handler() -> None:
     guarded = guard_tool(guard=client, tool=echo, action="echo.invoked")
     result = asyncio.run(guarded.handler({"value": "hello"}))
     assert _ECHO_CALLS == ["hello"]
-    assert result["is_error"] is not True
+    assert result.get("is_error") is not True
     assert result["content"][0]["text"] == "hello"
 
 

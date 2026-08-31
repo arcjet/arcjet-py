@@ -27,28 +27,29 @@ def exclude_name(entry: ExcludeEntry) -> str:
     is used as-is (a built-in such as ``"Bash"``, or an already-qualified
     ``mcp__support__lookup_order``).
     """
-    if isinstance(entry, Mapping):
-        server = entry.get("server")
-        name = entry.get("name")
-        if not isinstance(server, str) or not server:
+    if isinstance(entry, str):
+        if not entry:
             raise ValueError(
-                "exclude mapping needs a non-empty 'server' string "
-                "(the mcp_servers key), so the PreToolUse name can be "
-                f"qualified as mcp__{{server}}__{{name}}; got {entry!r}"
+                "exclude entry must be a non-empty tool name or "
+                "{'server': ..., 'name': ...}; got an empty string"
             )
-        if not isinstance(name, str) or not name:
-            raise ValueError(
-                "exclude mapping needs a non-empty 'name' string "
-                "(the @tool name), so the PreToolUse name can be "
-                f"qualified as mcp__{{server}}__{{name}}; got {entry!r}"
-            )
-        return mcp_tool_name(server, name)
-    if not isinstance(entry, str) or not entry:
+        return entry
+    fields = dict(entry)
+    server = fields.get("server")
+    name = fields.get("name")
+    if not isinstance(server, str) or not server:
         raise ValueError(
-            "exclude entry must be a non-empty tool name or "
-            f"{{'server': ..., 'name': ...}}; got {entry!r}"
+            "exclude mapping needs a non-empty 'server' string "
+            "(the mcp_servers key), so the PreToolUse name can be "
+            f"qualified as mcp__{{server}}__{{name}}; got {entry!r}"
         )
-    return entry
+    if not isinstance(name, str) or not name:
+        raise ValueError(
+            "exclude mapping needs a non-empty 'name' string "
+            "(the @tool name), so the PreToolUse name can be "
+            f"qualified as mcp__{{server}}__{{name}}; got {entry!r}"
+        )
+    return mcp_tool_name(server, name)
 
 
 def excluded_names(entries: Sequence[ExcludeEntry] | None) -> frozenset[str]:

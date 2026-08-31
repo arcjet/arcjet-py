@@ -675,7 +675,7 @@ class TestMissingPeer:
         if claude_agent_sdk_present():
             pytest.skip("claude-agent-sdk is installed in this environment")
         with pytest.raises(ImportError, match=r"arcjet\[claude-agent-sdk\]"):
-            guard_hooks(action="x.done")
+            guard_hooks(guard=StubGuardClient(), action="x.done")
 
     def test_load_sdk_mcp_tool_names_what_to_install(self) -> None:
         if claude_agent_sdk_present():

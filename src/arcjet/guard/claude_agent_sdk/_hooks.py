@@ -465,7 +465,7 @@ def _tool_hooks_requested(
 
 def guard_hooks(
     *,
-    guard: Any,
+    guard: Any = None,
     action: ActionResolver = None,
     actor: ActorResolver = None,
     inputs: InputResolver = None,
