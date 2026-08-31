@@ -115,14 +115,14 @@ def dumps_denial(payload: ArcjetDenialResult) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
-def payload_from_block(
-    _action: str, decision: Optional[Decision]
-) -> ArcjetDenialResult:
-    """DENY uses the decision; everything else is an unavailability envelope."""
+def payload_from_block(decision: Optional[Decision]) -> ArcjetDenialResult:
+    """DENY uses the decision; everything else is an unavailability envelope.
+
+    Action is kept on the capture, not in this envelope: the model-facing
+    shape is shared with JS and has no action field.
+    """
     if decision is not None and getattr(decision, "conclusion", None) == "DENY":
         return denial_result(decision)
-    # *_action* is kept on the capture, not in this envelope: the model-facing
-    # shape is shared with JS and has no action field.
     return unavailable_result()
 
 

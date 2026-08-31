@@ -318,7 +318,7 @@ async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseV
             decision=decision,
             metadata=metadata,
         )
-        payload = payload_from_block(action, decision)
+        payload = payload_from_block(decision)
         return PreToolUseVerdict(deny=True, reason=payload["message"])
 
     _emit_capture(
@@ -396,7 +396,7 @@ async def evaluate_user_prompt_submit(
             decision=decision,
             metadata=metadata,
         )
-        payload = payload_from_block(action, decision)
+        payload = payload_from_block(decision)
         return UserPromptSubmitVerdict(block=True, reason=payload["message"])
 
     _emit_capture(
@@ -442,7 +442,6 @@ def capture_post_tool_use(source: Any, config: _HookConfig) -> dict[str, Any]:
     from a result the model is meant to read.
     """
     hook = _hook_mapping(source)
-    action = f"{_tool_name(hook) or 'tool'}.invoked"
     try:
         action = _resolve_tool_action(config, hook)
         arguments = _tool_call(hook)
@@ -467,6 +466,12 @@ def capture_post_tool_use(source: Any, config: _HookConfig) -> dict[str, Any]:
 def _inbound_session_id(
     inbound: Mapping[str, Any], session_id: Optional[str]
 ) -> Optional[str]:
+    """Inbound ``session_id`` overrides the top-level fallback when the key is present.
+
+    ``{"session_id": None}`` is an explicit clear: inbound stays
+    uncorrelated rather than inheriting *session_id*. Omit the key to
+    inherit.
+    """
     if "session_id" not in inbound:
         return session_id
     raw = inbound["session_id"]
@@ -596,7 +601,10 @@ def guard_hooks(
             *action* / *rules* / *exclude*.
         inbound: UserPromptSubmit policy. Requires ``action``. Optional
             ``rules``, ``actor``, ``inputs``, ``metadata``,
-            ``on_guard_error``, ``session_id``.
+            ``on_guard_error``, ``session_id``. An explicit
+            ``session_id`` key, including ``None``, overrides the
+            top-level fallback (``None`` leaves inbound uncorrelated
+            rather than inheriting).
 
     Raises:
         ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or

@@ -39,6 +39,10 @@ def _release(raw: str) -> tuple[int, ...]:
     dependency, and a three-part release is all this comparison needs. Pre-
     release suffixes (``rc1``) are stripped; post-releases (``0.2.148.post1``)
     also compare as ``(0, 2, 148)`` because only the leading digit run is kept.
+    A short or non-numeric release such as ``"0.2"`` or ``"0.2.post1"``
+    collapses to ``(0, 2)``, which compares less than the three-part floor
+    and is refused — not treated as unknown and skipped. An empty parse
+    (``"weird"``) is the skip path.
     """
     parts: list[int] = []
     for chunk in raw.split(".")[:3]:

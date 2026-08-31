@@ -46,6 +46,7 @@ from arcjet.guard.claude_agent_sdk._hooks import (
     PreToolUseVerdict,
     UserPromptSubmitVerdict,
     _HookConfig,
+    _inbound_session_id,
     _InboundConfig,
     _tool_call,
     _tool_hooks_requested,
@@ -68,6 +69,7 @@ from arcjet.guard.claude_agent_sdk._names import (
 from arcjet.guard.claude_agent_sdk._tool import (
     _GUARD_BRAND,
     _arguments_from_handler,
+    _brand,
     _ToolConfig,
     evaluate_handler,
     handler_denial_result,
@@ -769,6 +771,10 @@ class TestGuardHooksValidation:
         with pytest.raises(TypeError, match="session_id"):
             guard_hooks(inbound={"action": "message.received", "session_id": 1})
 
+    def test_inbound_none_session_id_clears_the_fallback(self) -> None:
+        assert _inbound_session_id({"session_id": None}, session_id=SESSION_ID) is None
+        assert _inbound_session_id({"action": "x"}, session_id=SESSION_ID) == SESSION_ID
+
     def test_tools_must_be_bool(self) -> None:
         with pytest.raises(TypeError, match="tools"):
             guard_hooks(tools=["Bash"])  # type: ignore[arg-type]
@@ -833,6 +839,11 @@ class TestVersionFloor:
         assert _release("0.2.148rc1") == (0, 2, 148)
         assert _release("1.0.0") == (1, 0, 0)
         assert _release("weird") == ()
+        # Short / non-numeric third chunks collapse below the floor, they
+        # are not treated as unknown and skipped.
+        assert _release("0.2") == (0, 2)
+        assert _release("0.2.post1") == (0, 2)
+        assert _release("0.2") < import_module.MINIMUM_CLAUDE_AGENT_SDK
 
     def test_below_the_floor_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(import_module, "_installed_version", lambda: "0.2.83")
@@ -890,6 +901,14 @@ def test_public_exports_are_only_the_locked_names() -> None:
 
 def test_brand_constant_is_stable() -> None:
     assert _GUARD_BRAND == "_arcjet_guarded"
+
+
+def test_brand_slots_without_the_attribute_fail_loudly() -> None:
+    class Slotted:
+        __slots__ = ()
+
+    with pytest.raises(TypeError, match=_GUARD_BRAND):
+        _brand(Slotted())
 
 
 def test_pre_tool_use_ask_is_never_emitted() -> None:

@@ -251,7 +251,7 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
             decision=None,
             metadata=metadata,
         )
-        return HandlerVerdict(deny=True, payload=payload_from_block(action, None))
+        return HandlerVerdict(deny=True, payload=payload_from_block(None))
 
     if failure is not None:
         denied = getattr(decision, "conclusion", None) == "DENY"
@@ -263,7 +263,7 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
             decision=decision,
             metadata=metadata,
         )
-        return HandlerVerdict(deny=True, payload=payload_from_block(action, decision))
+        return HandlerVerdict(deny=True, payload=payload_from_block(decision))
 
     _emit_capture(
         client=config.guard,
@@ -279,13 +279,34 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
 def handler_denial_result(verdict: HandlerVerdict) -> dict[str, Any]:
     """The exact MCP tool result a DENY handler must return."""
     payload = (
-        verdict.payload if verdict.payload is not None else payload_from_block("", None)
+        verdict.payload if verdict.payload is not None else payload_from_block(None)
     )
     return denial_tool_result(payload)
 
 
 def _is_already_guarded(tool: Any) -> bool:
     return bool(getattr(tool, _GUARD_BRAND, False))
+
+
+def _brand(tool: Any) -> None:
+    """Mark the wrapped *copy* so a second wrap does not double-call Guard.
+
+    An attribute rather than a WeakSet of ``id()`` values: CPython reuses
+    the id of a collected object, so an id-keyed registry starts skipping
+    unrelated tools — a silent fail-open. ``object.__setattr__`` works on
+    a frozen dataclass. If ``SdkMcpTool`` grows ``__slots__`` without room
+    for this name, fail loudly at wrap time rather than shipping an
+    unbranded copy.
+    """
+    try:
+        object.__setattr__(tool, _GUARD_BRAND, True)
+    except AttributeError as exc:
+        raise TypeError(
+            "guard_tool() could not brand the SdkMcpTool copy with "
+            f"{_GUARD_BRAND!r}; the SDK type likely uses __slots__ "
+            "without space for this attribute. The wrap cannot proceed "
+            "without the brand — a second wrap would double-call Guard."
+        ) from exc
 
 
 def _copy_tool(tool: Any) -> Any:
@@ -305,7 +326,7 @@ def _wrap_handler(config: _ToolConfig, original: Any) -> Any:
                     config.action,
                 )
                 return await original(arguments)
-            return denial_tool_result(payload_from_block(config.action, None))
+            return denial_tool_result(payload_from_block(None))
         if verdict.deny:
             return handler_denial_result(verdict)
         return await original(arguments)
@@ -411,7 +432,5 @@ def guard_tool(
             f"{type(original).__name__}"
         )
     guarded.handler = _wrap_handler(config, original)
-    # Only the copy is branded. Branding the original as well would make a
-    # later wrap of the unwrapped tool skip it, which is a fail-open.
-    object.__setattr__(guarded, _GUARD_BRAND, True)
+    _brand(guarded)
     return guarded
