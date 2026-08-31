@@ -1,0 +1,20 @@
+[project]
+name = "example-fastapi-claude-agent-sdk-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + Claude Agent SDK Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[claude-agent-sdk]",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Claude Agent SDK adapter is unpublished. Pin `arcjet[claude-agent-sdk]` to
+# SHA 9ea0b06a87bcee77b8df0664338c712c4668b87b (branch
+# david/cursor/claude-agent-sdk-guard-242f). That is not a PyPI release.
+# The extra pulls `claude-agent-sdk>=0.2.127,<1`. No chromadb.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "9ea0b06a87bcee77b8df0664338c712c4668b87b" }
