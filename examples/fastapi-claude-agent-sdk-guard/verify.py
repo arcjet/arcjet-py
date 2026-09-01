@@ -284,20 +284,31 @@ async def scenario_correlation() -> None:
 
 
 async def scenario_session_reject() -> None:
-    os.environ["ARCJET_KEY"] = os.environ.get("ARCJET_KEY") or "ajkey_verify"
-    os.environ["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY") or "sk-verify"
-    import main
+    previous = {
+        name: os.environ.get(name)
+        for name in ("ARCJET_KEY", "ANTHROPIC_API_KEY")
+    }
+    try:
+        os.environ.setdefault("ARCJET_KEY", "ajkey_verify")
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-verify")
+        import main as app_module
 
-    client = TestClient(main.app)
-    response = client.post(
-        "/chat",
-        json={"message": "hi", "session_id": "sess-not-a-uuid"},
-    )
-    assert response.status_code == 400
-    assert response.json()["error"] == "session_id must be a caller-owned UUID"
-    health = client.get("/health")
-    assert health.status_code == 200
-    assert health.json()["status"] == "ok"
+        client = TestClient(app_module.app)
+        response = client.post(
+            "/chat",
+            json={"message": "hi", "session_id": "sess-not-a-uuid"},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "session_id must be a caller-owned UUID"
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["status"] == "ok"
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 async def scenario_no_ask() -> None:
@@ -393,15 +404,7 @@ async def main(names: Sequence[str]) -> int:
         except Exception as exc:
             failed += 1
             print(f"FAIL {name}: {exc}")
-    live_key = os.getenv("ARCJET_KEY", "")
-    if live_key.startswith("ajkey_") and live_key not in {
-        "ajkey_verify",
-        "ajkey_test",
-        "ajkey_dummy",
-        "ajkey_...",
-        "ajkey_yourkey",
-        "replace-me",
-    }:
+    if os.getenv("ARCJET_VERIFY_LIVE") == "1" and os.getenv("ARCJET_KEY"):
         try:
             await scenario_live_local_pii()
             print("ok  live-local-pii")
@@ -409,7 +412,7 @@ async def main(names: Sequence[str]) -> int:
             failed += 1
             print(f"FAIL live-local-pii: {exc}")
     else:
-        print("skip live-local-pii (no live ARCJET_KEY)")
+        print("skip live-local-pii (set ARCJET_VERIFY_LIVE=1 and ARCJET_KEY)")
     return 1 if failed else 0
 
 

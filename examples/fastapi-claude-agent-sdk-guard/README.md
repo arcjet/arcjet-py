@@ -37,6 +37,13 @@ Verify the adapter contracts without starting Claude:
 uv run python verify.py
 ```
 
+The live PII scenario is opt-in. It hits the real Guard API only when both
+`ARCJET_VERIFY_LIVE=1` and a real `ARCJET_KEY` are set:
+
+```sh
+ARCJET_VERIFY_LIVE=1 ARCJET_KEY=ajkey_... uv run python verify.py
+```
+
 ## `POST /chat`
 
 Sends a message to a Claude Agent SDK agent that calls one authored tool

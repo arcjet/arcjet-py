@@ -99,7 +99,7 @@ MCP_SERVER = "support"
 @tool("send_email", "Send an email to a recipient", {"to": str, "body": str})
 async def send_email(args: dict[str, Any]) -> dict[str, Any]:
     to = str(args.get("to", ""))
-    logger.info("sending email to %s", to)
+    logger.info("sending email")
     return {"content": [{"type": "text", "text": f"Email sent to {to}"}]}
 
 
@@ -125,12 +125,11 @@ class ChatRequest(BaseModel):
 
 
 def _caller_owned_session_id(value: str) -> str | None:
-    """Return *value* if it is already a UUID. Never mint a replacement."""
+    """Return the canonical form if *value* is already a UUID. Never mint."""
     try:
-        uuid.UUID(value)
+        return str(uuid.UUID(value))
     except ValueError:
         return None
-    return value
 
 
 @app.post("/chat")
