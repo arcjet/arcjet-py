@@ -1,0 +1,19 @@
+[project]
+name = "example-fastapi-claude-agent-sdk-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + Claude Agent SDK Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[claude-agent-sdk]",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Adapter shipped on main in arcjet-py#233. Use the local checkout so this
+# example tracks the merged SDK. The extra pulls
+# `claude-agent-sdk>=0.2.127,<1`. No chromadb.
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
