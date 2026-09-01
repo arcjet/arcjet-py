@@ -114,6 +114,11 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str
@@ -212,6 +217,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         #
         # The authored handler has no `extra.session_id`. Pass the same
         # caller-owned UUID you give `ClaudeAgentOptions.session_id`.
+        # Tool-path rules judge the call arguments, not the inbound prompt.
         guarded_send_email = guard_tool(
             guard=guard_client,
             tool=send_email,
@@ -221,12 +227,13 @@ async def chat(request: Request, body: ChatRequest) -> Any:
                 "recipient": server_input.string(str(args.get("to", ""))),
                 "body": server_input.string(str(args.get("body", ""))),
             },
-            rules=(
-                detect_injection(body.message),
+            rules=lambda args: (
+                detect_injection(str(args.get("body", ""))),
                 # Sensitive info DENIES; it does not redact. If this
                 # trips, the tool does not run and nothing is rewritten on
                 # the way through.
-                detect_sensitive_info(body.message),
+                detect_sensitive_info(str(args.get("body", ""))),
+                detect_sensitive_info(str(args.get("to", ""))),
             ),
             metadata=security_metadata(
                 user=session_id,
@@ -244,6 +251,13 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         # List the wrapper in `exclude` as `{"server": ..., "name": ...}`
         # so it matches `mcp__{server}__{name}` exactly and is not
         # double-gated. A bare authored name is not an exclude match.
+        # `PostToolUse` is capture-only (`claude.phase: after`) and is
+        # not skipped by `exclude`.
+        #
+        # Hook `rules` / `actor` / `inputs` / `metadata` receive
+        # `tool_input` plus `tool_name`. `action` still receives the full
+        # hook input. `actor=` / `inputs=` do not register a tool hook by
+        # themselves — `action=` / `rules=` / `exclude=` / `tools=True` do.
         #
         # `can_use_tool` / `permissionDecision: "ask"` are HITL, not
         # policy. This example does not set `can_use_tool` and never
@@ -253,13 +267,21 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             guard=guard_client,
             action=lambda hook: f"{hook.get('tool_name', 'tool')}.invoked",
             actor=session_id,
-            inputs=lambda args: {
-                key: server_input.string(str(value)) for key, value in args.items()
+            inputs=lambda call: {
+                key: server_input.string(str(value))
+                for key, value in call.items()
+                if key != "tool_name"
             },
-            rules=lambda args: (
-                detect_injection(body.message),
+            rules=lambda call: (
+                detect_injection(
+                    str(call.get("body") or call.get("command") or "")
+                ),
                 detect_sensitive_info(
-                    " ".join(str(value) for value in args.values()) or body.message
+                    " ".join(
+                        str(value)
+                        for key, value in call.items()
+                        if key != "tool_name"
+                    )
                 ),
             ),
             metadata=security_metadata(

@@ -12,9 +12,8 @@ dependencies = [
 [tool.uv]
 exclude-newer = "7 days"
 
-# Claude Agent SDK adapter is unpublished. Pin `arcjet[claude-agent-sdk]` to
-# SHA 9ea0b06a87bcee77b8df0664338c712c4668b87b (branch
-# david/cursor/claude-agent-sdk-guard-242f). That is not a PyPI release.
-# The extra pulls `claude-agent-sdk>=0.2.127,<1`. No chromadb.
+# Adapter shipped on main in arcjet-py#233. Use the local checkout so this
+# example tracks the merged SDK. The extra pulls
+# `claude-agent-sdk>=0.2.127,<1`. No chromadb.
 [tool.uv.sources]
-arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "9ea0b06a87bcee77b8df0664338c712c4668b87b" }
+arcjet = { path = "../../", editable = true }
