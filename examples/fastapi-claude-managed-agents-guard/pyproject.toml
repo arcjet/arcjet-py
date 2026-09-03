@@ -1,0 +1,19 @@
+[project]
+name = "example-fastapi-claude-managed-agents-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + Claude Managed Agents Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[claude-managed-agents]",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Claude Managed Agents adapter is unpublished. Pin `arcjet[claude-managed-agents]`
+# to SHA 40ea4896962a90a24cdbc4cfbfc80729c096da36. That is not a PyPI release.
+# The extra pulls `anthropic>=0.92.0,<2`. No chromadb.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "40ea4896962a90a24cdbc4cfbfc80729c096da36" }
