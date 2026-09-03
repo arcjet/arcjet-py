@@ -340,8 +340,12 @@ def run_coroutine_sync(coro: Coroutine[Any, Any, T]) -> T:
         return asyncio.run(coro)
 
     copied = contextvars.copy_context()
+
+    def _in_copied_context() -> T:
+        return copied.run(_runner)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(copied.run, _runner).result()
+        return pool.submit(_in_copied_context).result()
 
 
 def adopt_wrapper(wrapper: Any, wrapped: Any) -> Any:
