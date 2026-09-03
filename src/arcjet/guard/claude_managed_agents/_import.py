@@ -119,6 +119,30 @@ _TOOL_ERROR_MODULES: Final[tuple[str, ...]] = (
 )
 
 
+#: Transient SDK errors a hosted deny ``send`` may retry. ``APIError`` is
+#: omitted — a 4xx is not transient.
+_RETRYABLE_API_ERROR_NAMES: Final[tuple[str, ...]] = (
+    "APIConnectionError",
+    "APITimeoutError",
+)
+
+
+def load_retryable_api_errors() -> tuple[type[BaseException], ...]:
+    """Anthropic connection / timeout error types, if the extra is installed."""
+    if not anthropic_present():
+        return ()
+    try:
+        module = importlib.import_module("anthropic")
+    except ImportError:
+        return ()
+    found: list[type[BaseException]] = []
+    for name in _RETRYABLE_API_ERROR_NAMES:
+        candidate = getattr(module, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            found.append(candidate)
+    return tuple(found)
+
+
 def load_tool_error() -> Optional[type[BaseException]]:
     """Anthropic's ``ToolError``, if the extra is installed.
 

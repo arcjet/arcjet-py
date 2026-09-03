@@ -770,7 +770,9 @@ class TestVersionFloor:
     def test_release_parsing(self) -> None:
         assert _release("0.92.0") == (0, 92, 0)
         assert _release("0.92.0rc1") == (0, 92, 0)
+        assert _release("0.92.0.post1") == (0, 92, 0)
         assert _release("0.92") == (0, 92)
+        assert _release("0.92.post1") == (0, 92)
         assert _release("1.3.0") == (1, 3, 0)
         assert _release("weird") == ()
 
@@ -782,7 +784,7 @@ class TestVersionFloor:
     def test_at_or_above_the_floor_is_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        for installed in ("0.92.0", "0.97.0", "1.3.0"):
+        for installed in ("0.92.0", "0.92.0.post1", "0.97.0", "1.3.0"):
             monkeypatch.setattr(
                 import_module, "_installed_version", lambda v=installed: v
             )
@@ -793,6 +795,13 @@ class TestVersionFloor:
     ) -> None:
         monkeypatch.setattr(import_module, "_installed_version", lambda: None)
         import_module._require_anthropic()
+
+    def test_short_post_release_of_the_floor_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(import_module, "_installed_version", lambda: "0.92.post1")
+        with pytest.raises(ArcjetMisconfiguration, match="needs anthropic >= 0.92.0"):
+            import_module._require_anthropic()
 
 
 class TestReviewFixes:
@@ -999,6 +1008,49 @@ class TestReviewFixes:
         )
         _run(handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1"))
         assert send.n == 3
+
+    def test_denial_send_does_not_retry_programmer_errors(
+        self, reset_sequence_context, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(tool_module, "DENIAL_SEND_BACKOFF_SECONDS", (0, 0))
+
+        class BadSend:
+            def __init__(self) -> None:
+                self.n = 0
+
+            def __call__(
+                self, session_id: Any, *, events: Any = None, **kwargs: Any
+            ) -> str:
+                self.n += 1
+                raise TypeError("send() missing events")
+
+        send = BadSend()
+        handle = guard_custom_tool(
+            guard=StubGuardClient(decision=make_deny_decision()),
+            run=lambda _e: "x",
+            action="email.sent",
+        )
+        with pytest.raises(TypeError, match="missing events"):
+            _run(handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1"))
+        assert send.n == 1
+
+    def test_positional_second_arg_is_not_treated_as_events(
+        self, reset_sequence_context
+    ) -> None:
+        class LooseSend:
+            def __init__(self) -> None:
+                self.calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+            def __call__(self, *args: Any, **kwargs: Any) -> str:
+                self.calls.append((args, kwargs))
+                return "sent"
+
+        client = StubGuardClient(decision=make_deny_decision())
+        send = LooseSend()
+        wrapped = guard_events(guard=client, send=send, action="message.received")
+        assert _run(wrapped("ses_1", [_user_message("inject")])) == "sent"
+        assert client.guards == []
+        assert len(send.calls) == 1
 
     def test_denial_send_retries_then_raises(
         self, reset_sequence_context, monkeypatch: pytest.MonkeyPatch

@@ -349,6 +349,8 @@ def adopt_wrapper(wrapper: Any, wrapped: Any) -> Any:
     try:
         functools.update_wrapper(wrapper, wrapped)
     except AttributeError:
+        # Instances used as callables often lack ``__name__`` / ``__doc__``.
+        # Copying wrapper metadata is best-effort and must not fail the wrap.
         pass
     return wrapper
 

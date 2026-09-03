@@ -148,18 +148,14 @@ async def evaluate_user_message(event: Any, config: _EventsConfig) -> InboundVer
     return InboundVerdict(deny=False)
 
 
-def _extract_inbound(args: tuple[Any, ...], kwargs: dict[str, Any]) -> list[Any]:
+def _extract_inbound(_args: tuple[Any, ...], kwargs: dict[str, Any]) -> list[Any]:
     """``user.message`` values from a send / create call.
 
-    Real SDK shape is keyword-only ``events=`` / ``initial_events=``. A
-    positional second argument is accepted for duck-typed send callables.
+    Matches the real SDK: ``events=`` / ``initial_events=`` are
+    keyword-only. A positional second argument is not treated as events
+    — ``send(session_id, *, events=...)`` would reject that shape.
     """
-    events = kwargs.get("events")
-    initial = kwargs.get("initial_events")
-    if events is None and args:
-        if len(args) >= 2 and not isinstance(args[1], (str, bytes, bytearray)):
-            events = args[1]
-    return inbound_events(events, initial)
+    return inbound_events(kwargs.get("events"), kwargs.get("initial_events"))
 
 
 async def _gate_inbound(

@@ -47,7 +47,7 @@ from ._denial import (
     payload_from_block,
     raise_worker_denial,
 )
-from ._import import _require_anthropic
+from ._import import _require_anthropic, load_retryable_api_errors
 
 #: How many times a hosted deny ``send`` is attempted before giving up.
 DENIAL_SEND_ATTEMPTS = 3
@@ -194,9 +194,9 @@ async def _send_denial(
         try:
             return await maybe_await(send(anthropic_session_id, events=[body]))
         except Exception as exc:
-            last_error = exc
-            if attempt + 1 >= attempts:
+            if not _is_retryable_send_error(exc) or attempt + 1 >= attempts:
                 raise
+            last_error = exc
             delay_index = min(attempt, len(DENIAL_SEND_BACKOFF_SECONDS) - 1)
             if delay_index >= 0 and DENIAL_SEND_BACKOFF_SECONDS:
                 await asyncio.sleep(DENIAL_SEND_BACKOFF_SECONDS[delay_index])
@@ -205,12 +205,15 @@ async def _send_denial(
     return None
 
 
-def _positional_param_names(fn: Any) -> Optional[list[str]]:
-    """Positional / named-positional parameter names, or ``None`` if unknown."""
+def _signature(fn: Any) -> Optional[inspect.Signature]:
     try:
-        signature = inspect.signature(fn)
+        return inspect.signature(fn)
     except (TypeError, ValueError):
         return None
+
+
+def _positional_param_names(signature: inspect.Signature) -> list[str]:
+    """Positional / named-positional parameter names."""
     names: list[str] = []
     for param in signature.parameters.values():
         if param.kind in (
@@ -228,22 +231,47 @@ def _positional_param_names(fn: Any) -> Optional[list[str]]:
     return names
 
 
+def _binds(signature: inspect.Signature, *args: Any) -> bool:
+    try:
+        signature.bind(*args)
+    except TypeError:
+        return False
+    return True
+
+
+def _is_retryable_send_error(exc: BaseException) -> bool:
+    """True for transient transport failures, not programmer errors."""
+    if isinstance(exc, (OSError, TimeoutError, asyncio.TimeoutError)):
+        return True
+    retryable = load_retryable_api_errors()
+    return bool(retryable) and isinstance(exc, retryable)
+
+
 def _invoke_run(run: Any, event: Any) -> Any:
     """Call a hosted ``run`` from its signature. Never catches a body error.
 
-    Contracts, in order:
+    Contracts, in order, each confirmed with ``Signature.bind`` before call:
 
     * ``(name, input)`` / ``(tool_name, arguments)``
     * a single ``input`` / ``arguments`` mapping
     * the ``agent.custom_tool_use`` event (the default)
     """
-    names = _positional_param_names(run)
-    if names is not None and len(names) >= 2:
+    signature = _signature(run)
+    if signature is None:
+        return run(event)
+    names = _positional_param_names(signature)
+    if len(names) >= 2:
         first, second = names[0], names[1]
         if first in {"name", "tool_name"} and second in {"input", "arguments"}:
-            return run(_tool_name(event), _arguments_from_event(event))
-    if names is not None and len(names) == 1 and names[0] in {"input", "arguments"}:
-        return run(_arguments_from_event(event))
+            pair = (_tool_name(event), _arguments_from_event(event))
+            if _binds(signature, *pair):
+                return run(*pair)
+    if len(names) == 1 and names[0] in {"input", "arguments"}:
+        single = (_arguments_from_event(event),)
+        if _binds(signature, *single):
+            return run(*single)
+    if _binds(signature, event):
+        return run(event)
     return run(event)
 
 
