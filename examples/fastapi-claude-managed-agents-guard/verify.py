@@ -373,7 +373,8 @@ async def scenario_no_guard_inbound() -> None:
     assert not hasattr(adapter, "guard_inbound")
     assert not hasattr(adapter, "guard_tool")
     assert not hasattr(adapter, "guard_hooks")
-    source = open("main.py", encoding="utf-8").read()
+    with open("main.py", encoding="utf-8") as fh:
+        source = fh.read()
     assert "from arcjet.guard.claude_managed_agents import" in source
     assert "guard_custom_tool" in source
     assert "guard_events" in source
