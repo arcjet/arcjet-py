@@ -33,7 +33,7 @@ from arcjet.guard import (
     security_metadata,
     server_input,
 )
-from arcjet.guard.crewai import ToolPolicy, register_arcjet_hooks
+from arcjet.guard.crewai import register_arcjet_hooks, sanitize_tool_name
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -227,34 +227,27 @@ def chat(request: Request, body: ChatRequest) -> Any:
             logger.error("arcjet inbound policy could not be evaluated; failing closed")
             return JSONResponse({"error": "policy unavailable"}, status_code=503)
 
-        # `"Send Email"` sanitizes to `send_email`, the same way CrewAI
-        # matches `tools=` filters. If matching were literal, this key would
-        # miss the tool and it would run unguarded — that is the typo check.
-        #
-        # `ToolPolicy.rules` is a bound sequence, not a callable of the tool
-        # arguments. Local scanning of the inbound prompt happens above.
-        # The tool path still contacts Guard so remote policy can select on
-        # `email.sent`, and `inputs` offers the call arguments as evidence.
-        # The recipient address is the point of this tool, so EMAIL on `to`
-        # is not a local rule — that would deny every real send.
-        policies = {
-            "Send Email": ToolPolicy(
-                action="email.sent",
-                actor=lambda _args, _ctx: session_id,
-                inputs=lambda args, _ctx: {
-                    "recipient": server_input.string(str(args.get("to", ""))),
-                    "body": server_input.string(str(args.get("body", ""))),
-                },
-                metadata=security_metadata(
+        def _hook_action(ctx: Any) -> str:
+            name = sanitize_tool_name(getattr(ctx, "tool_name", "") or "")
+            if name == "send_email":
+                return "email.sent"
+            return f"{name or 'tool'}.invoked"
+
+        def _hook_metadata(args: dict[str, Any], _ctx: Any) -> dict[str, Any]:
+            if "to" in args and "body" in args:
+                return security_metadata(
                     user=session_id,
                     agent="email-agent",
                     workflow="chat",
                     resource="email",
                     destination="email",
                     reversibility="irreversible",
-                ),
-            ),
-        }
+                )
+            return security_metadata(
+                user=session_id,
+                agent="email-agent",
+                workflow="chat",
+            )
 
         agent = Agent(
             role="Email assistant",
@@ -300,28 +293,35 @@ def chat(request: Request, body: ChatRequest) -> Any:
             # {name}`. HookAborted.reason is telemetry only. POST_TOOL_CALL
             # is not registered — it fires on blocked calls too.
             #
-            # `lookup_account` has no ToolPolicy, so the registrar-level
-            # `rules=` callable is what scans its arguments. EMAIL in that
-            # id still denies. A clean account id can allow.
+            # `tools=["Send Email", ...]` is the typo check: CrewAI sanitizes
+            # that filter the same way it sanitizes hook tool names. The
+            # `action=` resolver uses `sanitize_tool_name` so `email.sent`
+            # still matches `Send Email` at execution time.
+            #
+            # Registrar `rules=` is a callable of the tool arguments, so
+            # `send_email` body and `lookup_account` id are scanned at the
+            # hook. A `ToolPolicy` would pin static `rules=` and could not
+            # do that. The recipient address is the point of `send_email`, so
+            # EMAIL on `to` is not scanned — that would deny every real send.
             handle = register_arcjet_hooks(
                 guard=guard_client,
                 correlation_id=session_id,
                 on_guard_error="deny",
-                policies=policies,
                 tools=["Send Email", "Lookup Account"],
+                action=_hook_action,
                 actor=session_id,
                 inputs=lambda args, _ctx: {
                     key: server_input.string(str(value)) for key, value in args.items()
                 },
                 rules=lambda args, _ctx: (
-                    detect_injection(str(args.get("account_id", ""))),
-                    detect_sensitive_info(str(args.get("account_id", ""))),
+                    detect_injection(
+                        str(args.get("body") or args.get("account_id") or "")
+                    ),
+                    detect_sensitive_info(
+                        str(args.get("body") or args.get("account_id") or "")
+                    ),
                 ),
-                metadata=security_metadata(
-                    user=session_id,
-                    agent="email-agent",
-                    workflow="chat",
-                ),
+                metadata=_hook_metadata,
             )
             try:
                 result = crew.kickoff(inputs={"message": body.message})

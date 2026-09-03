@@ -107,8 +107,18 @@ message. `POST_TOOL_CALL` is not registered.
 
 The recipient address is the point of `Send Email`, so EMAIL on `to` is not a
 tool-path local rule — that would deny every real send. EMAIL in the inbound
-`message` still denies. `Lookup Account` takes an account id, not an email: a
-clean id can allow; an email in that id is denied by the hook.
+`message` or in the tool `body` still denies. `Lookup Account` takes an account
+id, not an email: a clean id can allow; an email in that id is denied by the
+hook.
+
+### Production note
+
+This example registers `register_arcjet_hooks` on every request so it can bind
+that request's correlation id and inbound text. CrewAI's hook registry is
+process-global, so a real service should register once at startup and pass
+per-request context through `correlation_id`, closures, or request-scoped
+config — not register/unregister around every `kickoff`. The `_hooks_lock`
+here serializes concurrent chats; that is fine for a demo, not for throughput.
 
 `human_input` and `Task.guardrail` are HITL / task review, not the deny path.
 
@@ -128,11 +138,11 @@ curl example above). You will see a single Sequence containing:
 - The crew's `PRE_TOOL_CALL` decision for `email.sent` (and its capture)
 - Any hook decision for the unwrapped `lookup_account` tool
 
-`policies=` is keyed `"Send Email"` and `tools=` lists `"Send Email"` and
-`"Lookup Account"`. CrewAI sanitizes those to `send_email` / `lookup_account`
-before matching — if sanitization were skipped, the policy would miss the tool
-and it would run unguarded. That is the typo check: a reviewer can see
-matching is CrewAI-sanitized.
+`tools=` lists `"Send Email"` and `"Lookup Account"`, and the `action=`
+resolver uses `sanitize_tool_name` so `Send Email` becomes `send_email` before
+matching — if sanitization were skipped, `email.sent` would miss the tool and
+it would run unguarded. That is the typo check: a reviewer can see matching
+is CrewAI-sanitized.
 
 The hook path is synchronous and needs `launch_arcjet_sync`. Do not pass the
 async `ArcjetGuard` client unless you have no sync client — an async client

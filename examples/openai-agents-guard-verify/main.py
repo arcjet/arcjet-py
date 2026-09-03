@@ -368,8 +368,23 @@ async def _screen_inbound(
 
 async def run_inbound_deny() -> ScenarioResult:
     guard = ScenarioGuard(decision=_deny())
-    allowed, detail = await _screen_inbound(guard, "hello", "sess-in-deny")
-    ok = not allowed and guard.guards[0]["correlation_id"] == "sess-in-deny"
+    app_context = {"session_id": "sess-in-deny"}
+    ctx = openai_agents_context(app_context)
+    decision = await guard.guard(
+        label="chat.inbound",
+        inputs={"content": server_input.string("hello")},
+        correlation_id=ctx.correlation_id,
+        metadata=ctx.metadata,
+    )
+    ok = (
+        decision.conclusion == "DENY"
+        and not decision.has_failed_open()
+        and guard.guards[0]["correlation_id"] == "sess-in-deny"
+    )
+    detail = (
+        f"conclusion={decision.conclusion}, "
+        f"failed_open={decision.has_failed_open()}"
+    )
     return ScenarioResult("inbound-deny", ok, detail)
 
 
