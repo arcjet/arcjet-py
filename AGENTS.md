@@ -191,14 +191,17 @@ keeping the existing API surface intact with internal changes.
   integration (`arcjet[strands-agents]`, peer `strands-agents>=1.11.0,<2`).
   Independent of LangChain, CrewAI, OpenAI Agents, and the Claude Agent
   SDK: it must not import any of them. `guard_tool` wraps an authored
-  `@tool` / `DecoratedFunctionTool` `._tool_func`; on DENY it returns
-  the plain `ArcjetDenialResult` dict and does not throw (the SDK
-  swallows into `Error: {Type} - {message}`). `guard_hooks` denies
-  unwrapped MCP / vended / built-ins on `BeforeToolCallEvent`
+  `@tool` / `DecoratedFunctionTool.stream`; on DENY it yields an
+  error-status tool result whose text is the JSON `ArcjetDenialResult`
+  and does not throw (the SDK swallows into `Error: {Type} - {message}`).
+  `stream` is the wrap point so caller-owned `invocation_state` is
+  visible; tool kwargs are never a correlation source. `guard_hooks`
+  denies unwrapped MCP / vended / built-ins on `BeforeToolCallEvent`
   (`cancel_tool` = JSON `ArcjetDenialResult`). `BeforeToolsEvent.cancel`
   is not set: official docs say a batch cancel skips per-tool
   `BeforeToolCallEvent` hooks (same choice as the JS adapter).
-  `AfterToolCallEvent` is capture-only (`strands.phase: after`).
+  `AfterToolCallEvent` is capture-only (`strands.phase: after`); a
+  cancel or exception is not recorded as `success`.
   Wrapped tools are brand-skipped on the before path.
   `strands_agent_context` reads a caller-owned `correlationId` /
   `sessionId` / `requestId` from `invocation_state` and never mints,

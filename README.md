@@ -1004,7 +1004,7 @@ effect happens.
 | An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
 | A Claude Agent SDK authored `@tool` / `SdkMcpTool` | `guard_tool` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — via `is_error` tool result |
 | Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block |
-| A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — via a returned `ArcjetDenialResult` |
+| A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — error-status JSON `ArcjetDenialResult` |
 | Unwrapped Strands MCP / vended / built-ins | `guard_hooks` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — `BeforeToolCallEvent.cancel_tool` |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
@@ -1682,6 +1682,7 @@ guarded_send = guard_tool(
     guard=aj,
     tool=send_email,
     action="email.sent",
+    session_id=session_id,  # wrap-time fallback; invocation_state is preferred
     on_guard_error="deny",  # default
 )
 
@@ -1689,6 +1690,7 @@ hooks = guard_hooks(
     guard=aj,
     action=lambda call: f"{call['tool_name']}.invoked",
     rules=lambda call: [mcp_limit(key=call["tool_name"], requested=1)],
+    session_id=session_id,
 )
 
 agent = Agent(
@@ -1697,7 +1699,8 @@ agent = Agent(
 )
 
 # Screen inbound user text yourself. There is no guard_inbound helper.
-ctx = strands_agent_context({"sessionId": session_id})
+invocation_state = {"sessionId": session_id}
+ctx = strands_agent_context(invocation_state)
 decision = await aj.guard(
     label="chat.inbound",
     inputs={"content": server_input.string(user_text)},
@@ -1707,13 +1710,16 @@ decision = await aj.guard(
 if decision.conclusion == "DENY" or decision.has_failed_open():
     raise RuntimeError("refusing to start the run")
 
-agent(user_text, sessionId=session_id)
+agent(user_text, invocation_state=invocation_state)
 ```
 
-On DENY the authored handler returns the plain
-`{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }` dict.
-It does not throw (the SDK swallows into `Error: {Type} - {message}`).
-Already-branded tools are skipped.
+On DENY `guard_tool` yields an error-status tool result whose text is the
+JSON `{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`
+envelope. It does not throw (the SDK swallows into
+`Error: {Type} - {message}`). It wraps `stream()` so caller-owned
+`invocation_state` is visible; tool-handler kwargs are never a
+correlation source. Already-branded tools are skipped on the before
+hook path.
 
 #### Screen inbound before `agent()`
 
@@ -1739,6 +1745,7 @@ gated here. `cancel_tool` set to a string (the JSON
 `tool_name`. Wrapped tools are skipped by the `_arcjet_guarded` brand so
 the two surfaces do not double-call Guard. `AfterToolCallEvent` is
 capture-only (`strands.phase: after`) and is not skipped by the brand.
+A cancel or tool exception is not recorded as `success`.
 
 `BeforeToolsEvent.cancel` is not set. Official Strands docs: a batch
 cancel produces an error result for every tool and skips execution

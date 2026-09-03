@@ -22,12 +22,15 @@ user text with core :func:`~arcjet.guard.guard` / ``guard_sync`` before
 ``event.interrupt()`` is HITL, not a policy gate, and is never called.
 
 ``AfterToolCallEvent`` is capture only (``strands.phase: after``). Brand-skip
-does not skip it. ``retry`` is never set.
+does not skip it. Outcome is ``success`` only when the tool ran;
+``cancel_message`` / ``exception`` are ``denied``, ``unavailable``, or
+``error``. ``retry`` is never set.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -38,6 +41,7 @@ from arcjet._logging import logger
 from arcjet._metadata import Metadata
 
 from .._checkpoint import (
+    Outcome,
     ResolvedInputs,
     _classify_decision,
     _emit_capture,
@@ -348,13 +352,39 @@ def apply_cancel_tool(event: Any, verdict: BeforeToolCallVerdict) -> None:
     event.cancel_tool = verdict.message if verdict.message else True
 
 
+def _after_outcome(source: Any) -> Outcome:
+    """Sequence outcome for AfterToolCallEvent. Never claims success for a cancel.
+
+    ``cancel_message`` is set when ``BeforeToolCallEvent.cancel_tool``
+    skipped the handler. Our JSON envelope's ``reason`` distinguishes a
+    real DENY from an unevaluated / ERROR fail-closed. Any other cancel
+    is ``denied`` (the tool did not run). ``exception`` is ``error``.
+    """
+    exception = getattr(source, "exception", None)
+    if exception is not None:
+        return "error"
+    cancel_message = getattr(source, "cancel_message", None)
+    if not cancel_message:
+        return "success"
+    if isinstance(cancel_message, str):
+        try:
+            parsed = json.loads(cancel_message)
+        except (TypeError, ValueError):
+            return "denied"
+        if isinstance(parsed, Mapping) and parsed.get("arcjetDenied"):
+            if parsed.get("reason") == "ERROR":
+                return "unavailable"
+            return "denied"
+    return "denied"
+
+
 def capture_after_tool_call(source: Any, config: _HookConfig) -> None:
     """Observe-only AfterToolCallEvent. Never blocks. Brand-skip does not apply.
 
     ``guard_tool`` already captured the gate; this is the JS adapter's
-    after-call audit trail (``strands.phase: after``). Outcome is
-    ``success`` because AfterToolCallEvent cannot distinguish a tool error
-    from a result the model is meant to read. ``retry`` is never set.
+    after-call audit trail (``strands.phase: after``). Outcome follows
+    :func:`_after_outcome` so a cancelled or failed tool is not recorded
+    as ``success``. ``retry`` is never set.
     """
     try:
         action = _resolve_tool_action(config, source)
@@ -364,7 +394,7 @@ def capture_after_tool_call(source: Any, config: _HookConfig) -> None:
         _emit_capture(
             client=config.guard,
             action=action,
-            outcome="success",
+            outcome=_after_outcome(source),
             correlation_id=_correlation(config.correlation_id, source),
             decision=None,
             metadata=metadata,
@@ -439,7 +469,9 @@ def guard_hooks(
       :func:`~arcjet.guard.strands_agents.guard_tool` are skipped via the
       ``_arcjet_guarded`` brand so Guard is not called twice.
     * ``AfterToolCallEvent`` — capture only (``strands.phase: after``).
-      Never blocks. Brand-skip does not skip this. ``retry`` is never set.
+      Never blocks. Brand-skip does not skip this. Outcome is
+      ``success`` only when the tool ran; a cancel or exception is not
+      recorded as success. ``retry`` is never set.
 
     ``BeforeToolsEvent.cancel`` is not set. Official docs: a batch cancel
     skips per-tool ``BeforeToolCallEvent`` hooks, so a branded
@@ -477,9 +509,9 @@ def guard_hooks(
             ``"deny"``, or the installed ``strands-agents`` is below
             1.11.0.
         ValueError: a fallback id is not printable ASCII within 256 bytes.
-        ImportError: the ``strands-agents`` extra is not installed. Raised
-            when the returned provider is registered on an agent (the
-            first call that loads ``strands.hooks``).
+        ImportError: the ``strands-agents`` extra is not installed.
+            Raised here at build time, not later inside an agent
+            callback the SDK would propagate.
     """
     if on_guard_error not in ("allow", "deny"):
         raise ArcjetMisconfiguration(

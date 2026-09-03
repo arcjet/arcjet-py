@@ -8,9 +8,12 @@ do not import Strands Agents, and this package does not import
 Three names:
 
 * :func:`guard_tool` — wrap an authored ``@tool`` /
-  ``DecoratedFunctionTool`` so the handler never runs on DENY. The deny
-  is a returned ``ArcjetDenialResult`` dict. Do not throw (the SDK
-  swallows into ``Error: {Type} - {message}``).
+  ``DecoratedFunctionTool.stream`` so the handler never runs on DENY.
+  The deny is an error-status tool result whose text is the JSON
+  ``ArcjetDenialResult``. Do not throw (the SDK swallows into
+  ``Error: {Type} - {message}``). ``stream`` is the wrap point so
+  caller-owned ``invocation_state`` is visible. Tool kwargs are never
+  a correlation source.
 * :func:`guard_hooks` — ``BeforeToolCallEvent.cancel_tool`` set to the
   JSON ``ArcjetDenialResult`` for unwrapped MCP / vended / built-ins.
   ``AfterToolCallEvent`` is capture-only (``strands.phase: after``).

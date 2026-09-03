@@ -1,20 +1,33 @@
-"""Authored ``@tool`` / ``DecoratedFunctionTool`` wrap via a replaced ``_tool_func``.
+"""Authored ``@tool`` / ``DecoratedFunctionTool`` wrap via a replaced ``stream``.
 
-The SDK invokes ``DecoratedFunctionTool._tool_func`` from ``stream()`` and
-from ``__call__``. On DENY the original handler must not run. The deny is a
-returned ``ArcjetDenialResult`` dict — ``_wrap_tool_result`` JSON-serializes
-any other mapping into a success tool-result text block, and an exception
-is swallowed into ``Error: {Type} - {message}``.
+The SDK invokes ``DecoratedFunctionTool.stream(tool_use, invocation_state)``
+from the tool executor. That is the wrap point: ``stream`` is the public
+``AgentTool`` API that sees caller-owned ``invocation_state``. Replacing
+``_tool_func`` would drop that state, run sync tools on the event loop
+(losing ``asyncio.to_thread``), and break sync generators.
 
-This module therefore does **not** wrap ``event.interrupt()`` as a policy
-gate. HITL is not the Arcjet gate.
+On DENY the original ``stream`` (and therefore the handler) never runs.
+The deny is a native Strands tool result::
+
+    {"status": "error", "content": [{"text": <json ArcjetDenialResult>}]}
+
+``_wrap_tool_result`` short-circuits on ``status`` + ``content`` on every
+1.x from 1.11.0, so the model reads JSON rather than ``str(dict)``. Do
+not throw: the SDK swallows into ``Error: {Type} - {message}``.
+
+``__call__`` is a direct Python call and is not the agent tool-use path;
+it is not wrapped. ``event.interrupt()`` is HITL, not a policy gate.
+
+Tool-handler kwargs are never a correlation source — the model controls
+those. Pass ``session_id=`` / ``correlation_id=`` at wrap time, put the
+id on ``agent(..., invocation_state=...)``, or use
+:func:`~arcjet.guard.arcjet_sequence`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
-import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -41,6 +54,7 @@ from .._rules import RuleWithInput
 from ._context import strands_agent_context
 from ._denial import (
     ArcjetDenialResult,
+    dumps_denial,
     payload_from_block,
 )
 from ._import import load_decorated_function_tool
@@ -83,7 +97,7 @@ class _ToolConfig:
 
 @dataclass(frozen=True, slots=True)
 class HandlerVerdict:
-    """What the wrapped handler should return. Unit tests call this without
+    """What the wrapped stream should yield. Unit tests call this without
     constructing a real ``DecoratedFunctionTool``.
     """
 
@@ -102,6 +116,53 @@ def _arguments_from_handler(arguments: Any) -> Mapping[str, Any]:
     if isinstance(arguments, Mapping):
         return dict(arguments)
     return {}
+
+
+def _arguments_from_tool_use(tool_use: Any) -> Mapping[str, Any]:
+    """``tool_use.input`` — policy resolvers see this, never as correlation."""
+    if isinstance(tool_use, Mapping):
+        raw = tool_use.get("input")
+        if isinstance(raw, Mapping):
+            return dict(raw)
+    return {}
+
+
+def _tool_use_id(tool_use: Any) -> str:
+    if isinstance(tool_use, Mapping):
+        raw = tool_use.get("toolUseId") or tool_use.get("tool_use_id")
+        if isinstance(raw, str) and raw:
+            return raw
+    return "unknown"
+
+
+def _caller_owned_source(invocation_state: Any, tool_use: Any) -> dict[str, Any]:
+    """Envelope :func:`strands_agent_context` understands.
+
+    Tool-handler kwargs are never this source — the model controls those.
+    """
+    return {
+        "invocation_state": {} if invocation_state is None else invocation_state,
+        "tool_use": tool_use if isinstance(tool_use, Mapping) else {},
+    }
+
+
+def denial_tool_result(payload: ArcjetDenialResult) -> dict[str, Any]:
+    """Native Strands tool result. ``status`` + ``content`` short-circuits
+    ``_wrap_tool_result`` on every 1.x from 1.11.0, so the model reads JSON.
+    """
+    return {
+        "status": "error",
+        "content": [{"text": dumps_denial(payload)}],
+    }
+
+
+def _yield_denial(tool: Any, tool_use: Any, payload: ArcjetDenialResult) -> Any:
+    """What the wrapped ``stream`` yields on DENY — SDK event when possible."""
+    formatted = denial_tool_result(payload)
+    wrap = getattr(tool, "_wrap_tool_result", None)
+    if callable(wrap):
+        return wrap(_tool_use_id(tool_use), formatted)
+    return {**formatted, "toolUseId": _tool_use_id(tool_use)}
 
 
 def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:
@@ -152,16 +213,34 @@ def _resolved_metadata(
     return metadata
 
 
-def _correlation(config: _ToolConfig, arguments: Mapping[str, Any]) -> Optional[str]:
-    """Caller-owned id from the wrap / tool kwargs, then the enclosing sequence."""
-    derived = strands_agent_context(arguments, correlation_id=config.correlation_id)
+def _correlation(
+    config: _ToolConfig,
+    *,
+    invocation_state: Any,
+    tool_use: Any,
+) -> Optional[str]:
+    """Caller-owned id from invocation_state, then the wrap, then the sequence.
+
+    Tool-handler kwargs are not read.
+    """
+    derived = strands_agent_context(
+        _caller_owned_source(invocation_state, tool_use),
+        correlation_id=config.correlation_id,
+    )
     return _resolve_correlation_id(derived.correlation_id)
 
 
 def _merged_metadata(
-    config: _ToolConfig, arguments: Mapping[str, Any], extra: Optional[Metadata]
+    config: _ToolConfig,
+    *,
+    invocation_state: Any,
+    tool_use: Any,
+    extra: Optional[Metadata],
 ) -> Optional[Metadata]:
-    derived = strands_agent_context(arguments, correlation_id=config.correlation_id)
+    derived = strands_agent_context(
+        _caller_owned_source(invocation_state, tool_use),
+        correlation_id=config.correlation_id,
+    )
     merged: dict[str, Any] = {}
     if derived.metadata:
         merged.update(derived.metadata)
@@ -204,12 +283,18 @@ async def _decide(
     return await asyncio.to_thread(partial(_guard_sync, config.guard, **kwargs))
 
 
-async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdict:
+async def evaluate_handler(
+    arguments: Any,
+    config: _ToolConfig,
+    *,
+    invocation_state: Any = None,
+    tool_use: Any = None,
+) -> HandlerVerdict:
     """Evaluate policy for one authored tool call. Never raises an Arcjet error.
 
-    A raise from this function would leave the handler, and the SDK would
-    swallow it into ``Error: {Type} - {message}``. The deny envelope is the
-    only shape the model can read as a structured ``ArcjetDenialResult``.
+    A raise from this function would leave the wrapped ``stream``, and the
+    SDK would swallow it into ``Error: {Type} - {message}``. Correlation
+    comes from *invocation_state* / wrap-time ids, never from *arguments*.
     """
     action = config.action
     correlation_id = _resolve_correlation_id(None)
@@ -217,9 +302,16 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
 
     try:
         parsed = _arguments_from_handler(arguments)
-        correlation_id = _correlation(config, parsed)
+        correlation_id = _correlation(
+            config, invocation_state=invocation_state, tool_use=tool_use
+        )
         extra = _resolved_metadata(config, parsed)
-        metadata = _merged_metadata(config, parsed, extra)
+        metadata = _merged_metadata(
+            config,
+            invocation_state=invocation_state,
+            tool_use=tool_use,
+            extra=extra,
+        )
         prepared = _prepared(config, parsed)
         rules = _resolved_rules(config, parsed)
         decision = await _decide(
@@ -280,7 +372,7 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
 
 
 def handler_denial_result(verdict: HandlerVerdict) -> ArcjetDenialResult:
-    """The exact payload a DENY handler must return."""
+    """The JSON object placed in the error-status tool-result text."""
     if verdict.payload is not None:
         return verdict.payload
     return payload_from_block(None)
@@ -316,19 +408,28 @@ def _copy_tool(tool: Any) -> Any:
     return copy.copy(tool)
 
 
-def _wrap_tool_func(config: _ToolConfig, original: Any) -> Any:
-    """A replacement ``_tool_func`` that evaluates policy first and never throws.
+def _wrap_stream(config: _ToolConfig, tool: Any, original: Any) -> Any:
+    """A replacement ``stream`` that evaluates policy first and never throws.
 
-    The wrapper is async (or an async generator when *original* is one) so
-    ``stream()`` awaits it. A raise would be swallowed into
+    *original* is the bound ``stream`` captured before this wrapper is
+    installed, so sync tools still go through the SDK ``to_thread`` path
+    and generators still stream. A raise would be swallowed into
     ``Error: {Type} - {message}``.
     """
 
-    async def _verdict_or_none(
-        arguments: Mapping[str, Any],
-    ) -> Optional[HandlerVerdict]:
+    async def guarded_stream(
+        tool_use: Any,
+        invocation_state: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        arguments = _arguments_from_tool_use(tool_use)
         try:
-            verdict = await evaluate_handler(arguments, config)
+            verdict = await evaluate_handler(
+                arguments,
+                config,
+                invocation_state=invocation_state,
+                tool_use=tool_use,
+            )
         except Exception:
             if config.on_guard_error == "allow":
                 logger.warning(
@@ -336,33 +437,17 @@ def _wrap_tool_func(config: _ToolConfig, original: Any) -> Any:
                     "proceeding because on_guard_error is 'allow'",
                     config.action,
                 )
-                return None
-            return HandlerVerdict(deny=True, payload=payload_from_block(None))
-        if verdict.deny:
-            return verdict
-        return None
-
-    if inspect.isasyncgenfunction(original):
-
-        async def guarded_gen(**kwargs: Any) -> Any:
-            denied = await _verdict_or_none(kwargs)
-            if denied is not None:
-                yield handler_denial_result(denied)
+                async for event in original(tool_use, invocation_state, **kwargs):
+                    yield event
                 return
-            async for item in original(**kwargs):
-                yield item
+            verdict = HandlerVerdict(deny=True, payload=payload_from_block(None))
+        if verdict.deny:
+            yield _yield_denial(tool, tool_use, handler_denial_result(verdict))
+            return
+        async for event in original(tool_use, invocation_state, **kwargs):
+            yield event
 
-        return guarded_gen
-
-    async def guarded(**kwargs: Any) -> Any:
-        denied = await _verdict_or_none(kwargs)
-        if denied is not None:
-            return handler_denial_result(denied)
-        if inspect.iscoroutinefunction(original):
-            return await original(**kwargs)
-        return original(**kwargs)
-
-    return guarded
+    return guarded_stream
 
 
 def guard_tool(
@@ -381,14 +466,22 @@ def guard_tool(
 ) -> Any:
     """Wrap an authored ``@tool`` so the handler never runs on DENY.
 
-    Returns a copy of *tool* whose ``_tool_func`` evaluates policy first. A
+    Returns a copy of *tool* whose ``stream`` evaluates policy first. A
     ``DENY`` (or an unevaluated policy under the default
-    ``on_guard_error="deny"``) returns the plain ``ArcjetDenialResult``
-    dict. The tool body does not run. Already-branded tools are returned
+    ``on_guard_error="deny"``) yields a native error-status tool result
+    whose text is the JSON ``ArcjetDenialResult``. The original
+    ``stream`` / handler does not run. Already-branded tools are returned
     unchanged so a second wrap cannot double-call Guard.
 
-    Do not throw: the SDK reports ``Error: {Type} - {message}`` and drops
+    ``stream`` is the wrap point so caller-owned ``invocation_state`` is
+    visible and the SDK's sync / generator dispatch is left intact. Do
+    not throw: the SDK reports ``Error: {Type} - {message}`` and drops
     the envelope. ``event.interrupt()`` is HITL, not a policy gate.
+
+    Tool-handler kwargs are never a correlation source. Prefer putting
+    the id on ``agent(..., invocation_state=...)``. *session_id* /
+    *correlation_id* / *request_id* are wrap-time fallbacks. Falls back
+    to :func:`~arcjet.guard.arcjet_sequence`. Never minted.
 
     Args:
         guard: The Arcjet client. An async client is preferred; a blocking
@@ -401,8 +494,7 @@ def guard_tool(
             still contacts Guard.
         metadata: Capture metadata, or a callable of the call's arguments.
         correlation_id: Caller-owned Sequence id. Preferred over
-            *session_id* / *request_id*. Falls back to
-            :func:`~arcjet.guard.arcjet_sequence`. Never minted.
+            *session_id* / *request_id*.
         session_id: Alias fallback when the application calls the id a
             session. Ignored when *correlation_id* is set.
         request_id: Alias fallback when the application calls the id a
@@ -450,12 +542,12 @@ def guard_tool(
         on_guard_error=on_guard_error,
         tool_name=getattr(tool, "tool_name", "") or "",
     )
-    original = getattr(tool, "_tool_func", None)
+    original = getattr(guarded, "stream", None)
     if not callable(original):
         raise TypeError(
             "guard_tool() wraps a DecoratedFunctionTool with a callable "
-            f"_tool_func, got {type(original).__name__}"
+            f"stream, got {type(original).__name__}"
         )
-    guarded._tool_func = _wrap_tool_func(config, original)
+    guarded.stream = _wrap_stream(config, guarded, original)
     _brand(guarded)
     return guarded

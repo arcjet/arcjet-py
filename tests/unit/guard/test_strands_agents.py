@@ -44,6 +44,7 @@ from arcjet.guard.strands_agents._denial import (
 )
 from arcjet.guard.strands_agents._hooks import (
     BeforeToolCallVerdict,
+    _after_outcome,
     _HookConfig,
     apply_cancel_tool,
     capture_after_tool_call,
@@ -56,10 +57,12 @@ from arcjet.guard.strands_agents._import import (
 )
 from arcjet.guard.strands_agents._tool import (
     _GUARD_BRAND,
+    HandlerVerdict,
     _arguments_from_handler,
     _brand,
     _ToolConfig,
-    _wrap_tool_func,
+    _wrap_stream,
+    denial_tool_result,
     evaluate_handler,
     handler_denial_result,
 )
@@ -467,6 +470,38 @@ class TestEvaluateHandler:
         asyncio.run(evaluate_handler({}, _tool_config(guard=client)))
         assert client.guards[0]["correlation_id"] is None
 
+    def test_tool_arguments_are_not_correlation_ids(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        asyncio.run(
+            evaluate_handler(
+                {
+                    "session_id": "model-controlled",
+                    "correlationId": "also-model",
+                    "requestId": "req-model",
+                },
+                _tool_config(guard=client),
+            )
+        )
+        assert client.guards[0]["correlation_id"] is None
+
+    def test_invocation_state_is_the_correlation_source(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        asyncio.run(
+            evaluate_handler(
+                {"session_id": "model-controlled"},
+                _tool_config(guard=client),
+                invocation_state={"sessionId": "from-invoke"},
+                tool_use={"name": "echo", "input": {"session_id": "model-controlled"}},
+            )
+        )
+        assert client.guards[0]["correlation_id"] == "from-invoke"
+        assert client.guards[0]["metadata"]["strands.session"] == "from-invoke"
+        assert client.guards[0]["metadata"]["strands.tool"] == "echo"
+
     def test_resolver_sees_handler_arguments(self, reset_sequence_context) -> None:
         seen: list[Mapping[str, Any]] = []
 
@@ -486,54 +521,93 @@ class TestEvaluateHandler:
         assert client.guards[0]["actor"] == "u_1"
 
 
-class TestWrapToolFunc:
-    def test_deny_returns_payload_for_sync_and_async(
+class TestWrapStream:
+    def test_deny_yields_error_status_json_and_skips_original(
         self, reset_sequence_context
     ) -> None:
         client = StubGuardClient(decision=make_deny_decision())
         ran: list[str] = []
 
-        def sync_original(*, value: str) -> str:
-            ran.append(value)
-            return value
+        async def original(
+            tool_use: Any, invocation_state: Any = None, **_kw: Any
+        ) -> Any:
+            ran.append("ran")
+            yield {"status": "success", "content": [{"text": "hello"}]}
 
-        async def async_original(*, value: str) -> str:
-            ran.append(value)
-            return value
+        wrapped = _wrap_stream(
+            _tool_config(guard=client), tool=object(), original=original
+        )
+        tool_use = {"name": "echo", "input": {"value": "hello"}, "toolUseId": "tu_1"}
 
-        wrapped_sync = _wrap_tool_func(_tool_config(guard=client), sync_original)
-        wrapped_async = _wrap_tool_func(_tool_config(guard=client), async_original)
-        assert asyncio.run(wrapped_sync(value="hello"))["arcjetDenied"] is True
-        assert asyncio.run(wrapped_async(value="hello"))["arcjetDenied"] is True
+        async def collect() -> list[Any]:
+            return [item async for item in wrapped(tool_use, {"sessionId": "sess"})]
+
+        events = asyncio.run(collect())
         assert ran == []
+        result = events[0]
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "tu_1"
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["arcjetDenied"] is True
+        assert payload["reason"] == "RATE_LIMIT"
+        assert client.guards[0]["correlation_id"] == "sess"
 
     def test_allow_runs_original(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
         ran: list[str] = []
 
-        def original(*, value: str) -> str:
-            ran.append(value)
-            return value
+        async def original(
+            tool_use: Any, invocation_state: Any = None, **_kw: Any
+        ) -> Any:
+            ran.append(str(tool_use["input"]["value"]))
+            yield {"status": "success", "content": [{"text": "hello"}]}
 
-        wrapped = _wrap_tool_func(_tool_config(guard=client), original)
-        assert asyncio.run(wrapped(value="hello")) == "hello"
-        assert ran == ["hello"]
-
-    def test_async_generator_deny_yields_payload(self, reset_sequence_context) -> None:
-        client = StubGuardClient(decision=make_deny_decision())
-        ran: list[str] = []
-
-        async def original(*, value: str) -> Any:
-            ran.append(value)
-            yield value
-
-        wrapped = _wrap_tool_func(_tool_config(guard=client), original)
+        wrapped = _wrap_stream(
+            _tool_config(guard=client), tool=object(), original=original
+        )
 
         async def collect() -> list[Any]:
-            return [item async for item in wrapped(value="hello")]
+            return [
+                item
+                async for item in wrapped(
+                    {"name": "echo", "input": {"value": "hello"}, "toolUseId": "tu_1"}
+                )
+            ]
 
-        assert asyncio.run(collect())[0]["arcjetDenied"] is True
-        assert ran == []
+        assert asyncio.run(collect())[0]["status"] == "success"
+        assert ran == ["hello"]
+
+    def test_deny_uses_tool_wrap_tool_result_when_present(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        class _Tool:
+            def _wrap_tool_result(self, tool_use_id: str, result: Any) -> Any:
+                return {"wrapped": True, "id": tool_use_id, "result": result}
+
+        wrapped = _wrap_stream(_tool_config(guard=client), tool=_Tool(), original=None)
+
+        async def collect() -> list[Any]:
+            return [
+                item
+                async for item in wrapped(
+                    {"name": "echo", "input": {}, "toolUseId": "tu_9"}
+                )
+            ]
+
+        event = asyncio.run(collect())[0]
+        assert event["wrapped"] is True
+        assert event["id"] == "tu_9"
+        assert event["result"]["status"] == "error"
+        json.loads(event["result"]["content"][0]["text"])
+
+    def test_denial_tool_result_is_status_content_json(self) -> None:
+        result = denial_tool_result(
+            handler_denial_result(HandlerVerdict(deny=True, payload=None))
+        )
+        assert result["status"] == "error"
+        assert json.loads(result["content"][0]["text"])["reason"] == "ERROR"
 
 
 class TestArgumentsFromHandler:
@@ -673,11 +747,44 @@ class TestCaptureAfterToolCall:
         assert client.captures[0]["metadata"]["strands.phase"] == "after"
         assert client.captures[0]["metadata"]["outcome"] == "success"
 
+    def test_cancel_message_is_denied_not_success(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        capture_after_tool_call(
+            _event(cancel_message=dumps_denial(denial_result(make_deny_decision()))),
+            _hook_config(guard=client),
+        )
+        assert client.guards == []
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+
+    def test_error_cancel_message_is_unavailable(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        capture_after_tool_call(
+            _event(cancel_message=dumps_denial(unavailable_result())),
+            _hook_config(guard=client),
+        )
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_exception_is_error(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        capture_after_tool_call(
+            _event(exception=RuntimeError("tool crashed")),
+            _hook_config(guard=client),
+        )
+        assert client.captures[0]["metadata"]["outcome"] == "error"
+
     def test_never_raises(self, reset_sequence_context) -> None:
         def boom(_arguments: Mapping[str, Any]) -> dict[str, str]:
             raise RuntimeError("metadata exploded")
 
         capture_after_tool_call(_event(), _hook_config(metadata=boom))
+
+
+class TestAfterOutcome:
+    def test_success_when_tool_ran(self) -> None:
+        assert _after_outcome(_event()) == "success"
+
+    def test_plain_cancel_string_is_denied(self) -> None:
+        assert _after_outcome(_event(cancel_message="cancelled")) == "denied"
 
 
 class TestApplyCancelTool:
