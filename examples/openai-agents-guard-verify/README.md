@@ -4,6 +4,10 @@ Runs **without** `ARCJET_KEY`, `OPENAI_API_KEY`, or network access. A stub model
 and in-memory guard client exercise the same paths a production app uses with
 `launch_arcjet` and a real model provider.
 
+For the runnable FastAPI application that wires those same controls to
+`protect()`, inbound `guard()`, and `Runner.run`, see
+[`examples/fastapi-openai-agents-guard`](../fastapi-openai-agents-guard).
+
 ## What it checks
 
 | Scenario | Guard control |

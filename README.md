@@ -84,7 +84,9 @@ support](https://docs.arcjet.com/support).
 
 - [Documentation](https://docs.arcjet.com) — full reference and guides
 - [Examples](https://github.com/arcjet/arcjet-py/tree/main/examples) — FastAPI
-  and Flask example apps, including LangChain integration
+  and Flask example apps, including
+  [CrewAI Guard](./examples/fastapi-crewai-guard) and
+  [OpenAI Agents Guard](./examples/fastapi-openai-agents-guard) integration
 - [Blueprints](https://docs.arcjet.com/blueprints) — recipes for common security
   patterns
 
@@ -1372,6 +1374,8 @@ yourself with `pip install "crewai>=1.15.3,<2"` (Python `>=3.10,<3.14`).
 There is no Arcjet extra for it, for the ChromaDB reason
 [above](#guard-surfaces-extras-and-propagation). Nothing here imports
 `arcjet.guard.langchain`, and importing `arcjet.guard` never imports CrewAI.
+See the [`examples/fastapi-crewai-guard`](./examples/fastapi-crewai-guard)
+example for end-to-end FastAPI wiring.
 
 > [!NOTE]
 > CrewAI installs `chromadb`, which has an unpatched critical RCE
@@ -1491,6 +1495,10 @@ The Python page is
 [`/guards/openai-agents-py/`](https://docs.arcjet.com/guards/openai-agents-py/);
 it does not replace the JS page
 [`/guards/openai-agents/`](https://docs.arcjet.com/guards/openai-agents/).
+See the
+[`examples/fastapi-openai-agents-guard`](./examples/fastapi-openai-agents-guard)
+example for end-to-end FastAPI wiring (an offline stub-model harness lives at
+[`examples/openai-agents-guard-verify`](./examples/openai-agents-guard-verify)).
 
 ```py
 from arcjet.guard import launch_arcjet, server_input
