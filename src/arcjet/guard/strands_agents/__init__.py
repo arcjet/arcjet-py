@@ -3,7 +3,8 @@
 Install ``arcjet[strands-agents]`` to use this module. Core Guard clients
 do not import Strands Agents, and this package does not import
 :mod:`arcjet.guard.langchain`, :mod:`arcjet.guard.crewai`,
-:mod:`arcjet.guard.openai_agents`, or :mod:`arcjet.guard.claude_agent_sdk`.
+:mod:`arcjet.guard.openai_agents`, :mod:`arcjet.guard.claude_agent_sdk`,
+or :mod:`arcjet.guard.claude_managed_agents`.
 
 Three names:
 

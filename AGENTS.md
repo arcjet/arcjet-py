@@ -185,25 +185,42 @@ keeping the existing API surface intact with internal changes.
   `{tool_name}.invoked` gate. Wrap-time `session_id=` / `correlation_id=`
   must be a UUID. Wrapped tools are excluded from PreToolUse by the
   `mcp__{server}__{name}` name. `claude_agent_context` reads a caller-owned
-  UUID `session_id` and never mints, never reads `trace_id`. `can_use_tool`
+  UUID `session_id` and never mints, never reads `trace_id`.   `can_use_tool`
   is HITL and is not wrapped. Already-branded tools are skipped.
+- `src/arcjet/guard/claude_managed_agents/` — Optional Claude Managed
+  Agents integration (`arcjet[claude-managed-agents]`, peer
+  `anthropic>=0.92.0,<2`). Hosted REST+SSE, beta
+  `managed-agents-2026-04-01`. Independent of LangChain, CrewAI, OpenAI
+  Agents, and the Claude Agent SDK: it must not import any of them.
+  There is no PreToolUse. `guard_custom_tool` runs Guard before the app
+  executes on `agent.custom_tool_use`; on DENY it does not run the tool
+  and sends `user.custom_tool_result` (`is_error` is on that schema).
+  `tool=` wraps Python `@beta_tool` `.call` (not JS `.run`). A worker
+  deny raises `ToolError` so `SessionToolRunner` posts `is_error=True`.
+  `guard_events` is always async and gates `user.message` /
+  `initial_events` before `sessions.events.send`.
+  `claude_managed_agents_context` reads a caller-owned id and never
+  mints, never reads Anthropic session/event `id`, never reads
+  `trace_id`. Default `always_allow` cannot be gated.
+  `web_search` / `web_fetch` always run on Anthropic. Do not export
+  `guard_tool`, `guard_hooks`, or `guard_inbound`.
 - `src/arcjet/guard/strands_agents/` — Optional Strands Agents
   integration (`arcjet[strands-agents]`, peer `strands-agents>=1.11.0,<2`).
-  Independent of LangChain, CrewAI, OpenAI Agents, and the Claude Agent
-  SDK: it must not import any of them. `guard_tool` wraps an authored
-  `@tool` / `DecoratedFunctionTool.stream`; on DENY it yields an
-  error-status tool result whose text is the JSON `ArcjetDenialResult`
-  and does not throw (the SDK swallows into `Error: {Type} - {message}`).
-  `stream` is the wrap point so caller-owned `invocation_state` is
-  visible; tool kwargs are never a correlation source. `guard_hooks`
-  denies unwrapped MCP / vended / built-ins on `BeforeToolCallEvent`
-  (`cancel_tool` = JSON `ArcjetDenialResult`). `BeforeToolsEvent.cancel`
-  is not set: official docs say a batch cancel skips per-tool
-  `BeforeToolCallEvent` hooks (same choice as the JS adapter).
-  `AfterToolCallEvent` is capture-only (`strands.phase: after`); a
-  cancel or exception is not recorded as `success`.
-  Wrapped tools are brand-skipped on the before path.
-  `strands_agent_context` reads a caller-owned `correlationId` /
+  Independent of LangChain, CrewAI, OpenAI Agents, the Claude Agent
+  SDK, and Claude Managed Agents: it must not import any of them.
+  `guard_tool` wraps an authored `@tool` / `DecoratedFunctionTool.stream`;
+  on DENY it yields an error-status tool result whose text is the JSON
+  `ArcjetDenialResult` and does not throw (the SDK swallows into
+  `Error: {Type} - {message}`). `stream` is the wrap point so
+  caller-owned `invocation_state` is visible; tool kwargs are never a
+  correlation source. `guard_hooks` denies unwrapped MCP / vended /
+  built-ins on `BeforeToolCallEvent` (`cancel_tool` = JSON
+  `ArcjetDenialResult`). `BeforeToolsEvent.cancel` is not set: official
+  docs say a batch cancel skips per-tool `BeforeToolCallEvent` hooks
+  (the same choice as the JS adapter). `AfterToolCallEvent` is
+  capture-only (`strands.phase: after`); a cancel or exception is not
+  recorded as `success`. Wrapped tools are brand-skipped on the before
+  path. `strands_agent_context` reads a caller-owned `correlationId` /
   `sessionId` / `requestId` from `invocation_state` and never mints,
   never reads `trace_id`, never reads `agent.id` / SessionManager
   auto-ids. `event.interrupt()` is HITL and is not wrapped. There is no
@@ -239,6 +256,11 @@ deliberately kept apart and **must not be merged**:
   openai-agents. The floor is 0.2.127 (0.2.83 was mcp CVE + timeout
   fail-close; 0.2.127 includes that and the background-task PreToolUse
   stdin fix). Verified on 0.2.148.
+- `claude-managed-agents` → `anthropic>=0.92.0,<2`. Enough for
+  `arcjet.guard.claude_managed_agents`. No chromadb. Same lockfile
+  policy as openai-agents. The floor is 0.92.0 (first
+  `client.beta.agents` / `sessions` / `environments`). This is not the
+  Claude Agent SDK extra.
 - `strands-agents` → `strands-agents>=1.11.0,<2`. Enough for
   `arcjet.guard.strands_agents`. No chromadb (the default extra set
   does not pull it). Same lockfile policy as openai-agents. The floor
@@ -264,6 +286,9 @@ Arcjet Guard must never require LangChain to be installed. Nothing outside
 `src/arcjet/guard/openai_agents/` may import the OpenAI Agents SDK
 (`agents`). Nothing outside `src/arcjet/guard/claude_agent_sdk/` may
 import the Claude Agent SDK (`claude_agent_sdk`). Nothing outside
+`src/arcjet/guard/claude_managed_agents/` may import the Anthropic SDK
+(`anthropic`). `claude_managed_agents` must not import
+`arcjet.guard.claude_agent_sdk`. Nothing outside
 `src/arcjet/guard/strands_agents/` may import Strands Agents (`strands`).
 
 ## Coding conventions
