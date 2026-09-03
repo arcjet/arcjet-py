@@ -195,10 +195,13 @@ keeping the existing API surface intact with internal changes.
   There is no PreToolUse. `guard_custom_tool` runs Guard before the app
   executes on `agent.custom_tool_use`; on DENY it does not run the tool
   and sends `user.custom_tool_result` (`is_error` is on that schema).
-  `guard_events` gates `user.message` / `initial_events` before
-  `sessions.events.send`. `claude_managed_agents_context` reads a
-  caller-owned id and never mints, never reads Anthropic session/event
-  `id`, never reads `trace_id`. Default `always_allow` cannot be gated.
+  `tool=` wraps Python `@beta_tool` `.call` (not JS `.run`). A worker
+  deny raises `ToolError` so `SessionToolRunner` posts `is_error=True`.
+  `guard_events` is always async and gates `user.message` /
+  `initial_events` before `sessions.events.send`.
+  `claude_managed_agents_context` reads a caller-owned id and never
+  mints, never reads Anthropic session/event `id`, never reads
+  `trace_id`. Default `always_allow` cannot be gated.
   `web_search` / `web_fetch` always run on Anthropic. Do not export
   `guard_tool`, `guard_hooks`, or `guard_inbound`.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.

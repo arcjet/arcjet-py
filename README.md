@@ -1681,13 +1681,15 @@ handle = guard_custom_tool(
     on_guard_error="deny",  # default
 )
 
-send(
+await send(
     session.id,
     events=[{"type": "user.message", "content": [{"type": "text", "text": user_text}]}],
 )
 
 # On agent.custom_tool_use:
-await handle(event, send=client.beta.sessions.events.send, session_id=session.id)
+# wrap-time session_id= is caller-owned correlation; anthropic_session_id
+# is Anthropic's ses_... and is only used to post the result.
+await handle(event, send=send, anthropic_session_id=session.id)
 ```
 
 On DENY the custom-tool helper does not run the tool. It sends a real
@@ -1697,8 +1699,10 @@ with JSON `{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`.
 `user.message` / `initial_events` is denied.
 
 For a self-hosted `EnvironmentWorker`, wrap the custom `@beta_tool` /
-`@beta_async_tool` with the same helper (`tool=`) and put it in the
-worker's `tools` factory. The CLI worker cannot register custom tools.
+`@beta_async_tool` with the same helper (`tool=`) — that replaces
+`.call`, which is what `SessionToolRunner` invokes — and put it in the
+worker's `tools` factory. On DENY the wrapper raises `ToolError` so the
+runner posts `is_error=True`. The CLI worker cannot register custom tools.
 
 #### What this extra cannot gate
 
@@ -1714,7 +1718,10 @@ must check `has_failed_open()`. These helpers default to
 `claude_managed_agents_context` reads a caller-owned `correlation_id` /
 `session_id`, then `arcjet_sequence()`. It never mints. It never reads
 `trace_id`. It never treats Anthropic session / event ids as if we
-created them.
+created them. Wrap-time `session_id=` is that caller-owned id.
+`handle(..., anthropic_session_id=)` is Anthropic's `ses_...`, used
+only to post `user.custom_tool_result`. `guard_events` always returns
+an async callable — `await` it even when wrapping the sync client.
 
 ### Sync usage
 

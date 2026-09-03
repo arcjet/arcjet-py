@@ -91,7 +91,7 @@ claude-agent-sdk = ["claude-agent-sdk>=0.2.127,<1"]
 # extra — do not reuse that module or `guard_tool` / PreToolUse.
 # The floor is 0.92.0, the first release whose changelog adds
 # `client.beta.agents` / `sessions` / `environments`. EnvironmentWorker
-# landed later (0.103.0); the adapter duck-types `run` so the extra
+# landed later (0.103.0); the adapter duck-types `call` so the extra
 # floor stays at agents/sessions/environments. No chromadb — unlike
 # CrewAI this extra is safe to declare. Like openai-agents it is in no
 # dependency group so the lockfile does not pull its transitive tree

@@ -16,12 +16,14 @@ Three names:
   **before** the app executes. On DENY the original does not run; the
   helper sends ``user.custom_tool_result`` with error text via the real
   events API (``is_error`` is on that schema). Pass ``tool=`` to wrap a
-  self-hosted ``EnvironmentWorker`` / ``@beta_tool`` ``run`` the same
-  way. The CLI worker cannot register custom tools.
+  self-hosted ``EnvironmentWorker`` / ``@beta_tool`` ``call`` (what
+  ``SessionToolRunner`` invokes). A worker deny raises ``ToolError`` so
+  the runner posts ``is_error=True``. The CLI worker cannot register
+  custom tools.
 * :func:`guard_events` — inbound: gate ``user.message`` /
   ``initial_events`` **before** ``sessions.events.send`` (or
-  ``sessions.create(..., initial_events=)``). There is no
-  ``guard_inbound``.
+  ``sessions.create(..., initial_events=)``). Always returns an async
+  callable. There is no ``guard_inbound``.
 * :func:`claude_managed_agents_context` — read a caller-owned
   ``correlation_id`` / ``session_id``. Never mints. Never treats
   Anthropic session / event ids as if we created them. Never reads

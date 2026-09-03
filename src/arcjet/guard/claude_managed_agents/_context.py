@@ -18,6 +18,10 @@ from arcjet._metadata import Metadata
 
 from .._context import _validated, current_correlation_id
 
+#: Capture metadata key for the caller-owned session id. Reserved — adapters
+#: re-apply it after user metadata so a caller cannot wipe or forge it.
+SESSION_METADATA_KEY = "claude-managed-agents.session"
+
 #: Names read off a caller-owned app object, in preference order. Each
 #: slot lists the Python spelling first and the JS camelCase alias second.
 #: Anthropic-minted ``id`` / ``event_id`` are not in this list.
@@ -158,7 +162,7 @@ def claude_managed_agents_context(
     if owned_session is None:
         owned_session = _valid_id(session_id)
     if owned_session is not None:
-        derived["claude-managed-agents.session"] = owned_session
+        derived[SESSION_METADATA_KEY] = owned_session
 
     merged: dict[str, Any] = {**derived}
     if metadata:

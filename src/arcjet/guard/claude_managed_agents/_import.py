@@ -11,7 +11,7 @@ The floor is 0.92.0 — the first release whose changelog adds Claude
 Managed Agents (``client.beta.agents``, ``client.beta.sessions``,
 ``client.beta.environments``, beta ``managed-agents-2026-04-01``).
 ``EnvironmentWorker`` landed later (0.103.0); this adapter duck-types
-a worker tool's ``run`` so the extra floor stays at agents / sessions
+a worker tool's ``call`` so the extra floor stays at agents / sessions
 / environments, not the worker helper.
 
 ``importlib`` is used rather than static imports so type checkers do not
@@ -73,7 +73,7 @@ def _require_anthropic() -> None:
 
     Below 0.92.0 there is no ``client.beta.agents`` namespace this adapter
     can honestly use. Reported at wrap time. A missing install is left to
-    the import path — the helpers duck-type ``send`` / ``run``.
+    the import path — the helpers duck-type ``send`` / ``call``.
     """
     installed = _installed_version()
     if installed is None:
@@ -109,3 +109,32 @@ def anthropic_present() -> bool:
     except ImportError:
         return False
     return True
+
+
+#: Where the SDK has exported ``ToolError``. Checked in order; the public
+#: ``anthropic.lib.tools`` path is preferred over the private module.
+_TOOL_ERROR_MODULES: Final[tuple[str, ...]] = (
+    "anthropic.lib.tools",
+    "anthropic.lib.tools._beta_functions",
+)
+
+
+def load_tool_error() -> Optional[type[BaseException]]:
+    """Anthropic's ``ToolError``, if the extra is installed.
+
+    ``SessionToolRunner`` sets ``is_error`` on ``user.custom_tool_result``
+    only when the local tool raises. ``ToolError`` keeps the denial JSON as
+    ``content`` instead of ``repr(exc)``.
+    """
+    if not anthropic_present():
+        return None
+    _require_anthropic()
+    for name in _TOOL_ERROR_MODULES:
+        try:
+            module = importlib.import_module(name)
+        except ImportError:
+            continue
+        candidate = getattr(module, "ToolError", None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            return candidate
+    return None

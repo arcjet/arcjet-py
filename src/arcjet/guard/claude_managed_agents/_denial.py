@@ -15,9 +15,10 @@ from __future__ import annotations
 import json
 import math
 import time
-from typing import Any, Optional, TypedDict
+from typing import Any, NoReturn, Optional, TypedDict
 
 from .._types import Decision
+from ._import import load_tool_error
 
 UNAVAILABLE_RETRY_AFTER_SECONDS: int = 5
 
@@ -147,3 +148,30 @@ def custom_tool_result_event(
     if session_thread_id:
         event["session_thread_id"] = session_thread_id
     return event
+
+
+class WorkerToolDenied(Exception):
+    """Raised from a wrapped worker ``call`` when Guard denies.
+
+    Used when ``anthropic.ToolError`` is not importable (unit tests /
+    extra absent). ``SessionToolRunner`` maps any exception to
+    ``is_error=True``; prefer ``ToolError`` so the model sees the
+    envelope as ``content`` rather than ``repr(exc)``.
+    """
+
+    def __init__(self, content: str) -> None:
+        super().__init__(content)
+        self.content = content
+
+
+def raise_worker_denial(payload: ArcjetDenialResult) -> NoReturn:
+    """Fail a worker ``call`` so the runner posts ``is_error=True``.
+
+    Raises Anthropic's ``ToolError`` when the extra is installed, otherwise
+    :class:`WorkerToolDenied`. Both carry the denial JSON as ``content``.
+    """
+    text = dumps_denial(payload)
+    tool_error = load_tool_error()
+    if tool_error is not None:
+        raise tool_error(text)
+    raise WorkerToolDenied(text)

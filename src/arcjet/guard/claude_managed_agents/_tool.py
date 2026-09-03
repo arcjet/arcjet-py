@@ -1,14 +1,15 @@
 """Custom-tool gate for Claude Managed Agents.
 
-On ``agent.custom_tool_use`` Guard runs **before** the app ``run``. On
+On ``agent.custom_tool_use`` Guard runs **before** the app handler. On
 DENY the original does not run and the wrapper sends a real
 ``user.custom_tool_result`` via ``sessions.events.send``. There is no
 PreToolUse.
 
-A ``tool=`` object with ``run`` (the ``@beta_tool`` /
-``@beta_async_tool`` / ``betaTool({ run })`` shape) is wrapped the same
-way for a self-hosted ``EnvironmentWorker``. The CLI worker cannot
-register custom tools.
+A ``tool=`` object with ``call`` (the Python ``@beta_tool`` /
+``@beta_async_tool`` / ``BetaFunctionTool.call`` shape that
+``SessionToolRunner`` invokes) is wrapped the same way for a
+self-hosted ``EnvironmentWorker``. The CLI worker cannot register
+custom tools.
 """
 
 from __future__ import annotations
@@ -16,62 +17,42 @@ from __future__ import annotations
 import asyncio
 import copy
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from functools import partial
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
-from arcjet._metadata import Metadata
 
-from .._checkpoint import (
-    ResolvedInputs,
-    _classify_decision,
-    _emit_capture,
-    _guard_async,
-    _guard_sync,
-    _outcome_for_completed_action,
-    _resolve_correlation_id,
-)
 from .._context import _validated
-from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
-from .._policy_input import PolicyInputMap
-from .._registry import _awaitable
-from .._rules import RuleWithInput
-from ._context import claude_managed_agents_context
+from .._errors import OnGuardError
+from ._common import (
+    TOOL_METADATA_KEY,
+    ActorResolver,
+    InputResolver,
+    MetadataResolver,
+    RulesResolver,
+    _read,
+    adopt_wrapper,
+    brand,
+    evaluate_checkpoint,
+    is_already_guarded,
+    looks_async,
+    maybe_await,
+    run_coroutine_sync,
+)
 from ._denial import (
     ArcjetDenialResult,
     custom_tool_result_event,
-    dumps_denial,
     payload_from_block,
+    raise_worker_denial,
 )
 from ._import import _require_anthropic
 
-ActorResolver = Union[str, Callable[[Mapping[str, Any]], Optional[str]], None]
-InputResolver = Union[
-    PolicyInputMap,
-    Callable[[Mapping[str, Any]], Optional[PolicyInputMap]],
-    None,
-]
-RulesResolver = Union[
-    Sequence[RuleWithInput],
-    Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-]
-MetadataResolver = Union[
-    Metadata, Callable[[Mapping[str, Any]], Optional[Metadata]], None
-]
-
-#: Attribute :func:`guard_custom_tool` puts on the copy it returns, so a
-#: second wrap of the same object does not evaluate the same call twice.
-_GUARD_BRAND = "_arcjet_guarded"
-
-#: Built-in toolset names. ``web_search`` / ``web_fetch`` always run on
-#: Anthropic. Cloud bash/read/write under default ``always_allow`` cannot
-#: be gated. A self-hosted worker *does* execute bash/read/write locally;
-#: wrapping those is the caller's choice via ``tool=``, not an automatic
-#: factory rewrite of the stock toolset.
-_ANTHROPIC_CLOUD_ONLY = frozenset({"web_search", "web_fetch"})
+#: How many times a hosted deny ``send`` is attempted before giving up.
+DENIAL_SEND_ATTEMPTS = 3
+#: Backoff between deny-send retries. Tests monkeypatch this to zeros.
+DENIAL_SEND_BACKOFF_SECONDS: tuple[float, ...] = (0.05, 0.15)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,12 +79,12 @@ class CustomToolVerdict:
     payload: Optional[ArcjetDenialResult] = None
 
 
-def _read(source: Any, name: str) -> Any:
-    if source is None:
-        return None
-    if isinstance(source, Mapping):
-        return source.get(name)
-    return getattr(source, name, None)
+#: Built-in toolset names. ``web_search`` / ``web_fetch`` always run on
+#: Anthropic. Cloud bash/read/write under default ``always_allow`` cannot
+#: be gated. A self-hosted worker *does* execute bash/read/write locally;
+#: wrapping those is the caller's choice via ``tool=``, not an automatic
+#: factory rewrite of the stock toolset.
+_ANTHROPIC_CLOUD_ONLY = frozenset({"web_search", "web_fetch"})
 
 
 def _event_id(event: Any) -> str:
@@ -145,106 +126,12 @@ def _arguments_from_event(event: Any) -> Mapping[str, Any]:
     return {}
 
 
-def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:
-    if source is None or not callable(source):
-        return source
-    return source(arguments)
-
-
-def _prepared(config: _ToolConfig, arguments: Mapping[str, Any]) -> ResolvedInputs:
-    degraded: Optional[BaseException] = None
-    resolved_actor: Optional[str] = None
-    resolved_inputs: Optional[PolicyInputMap] = None
-    try:
-        resolved_actor = _resolve(config.actor, arguments)
-    except Exception as exc:
-        degraded = exc
-    try:
-        resolved_inputs = _resolve(config.inputs, arguments)
-    except Exception as exc:
-        degraded = degraded or exc
-    return ResolvedInputs(
-        actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
-    )
-
-
-def _resolved_rules(
-    config: _ToolConfig, arguments: Mapping[str, Any]
-) -> Sequence[RuleWithInput]:
-    rules = config.rules
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-        rules,
-    )(arguments)
-
-
-def _resolved_metadata(
-    config: _ToolConfig, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    metadata = config.metadata
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
-
-
-def _correlation(config: _ToolConfig) -> Optional[str]:
-    derived = claude_managed_agents_context(
-        correlation_id=config.correlation_id,
-        session_id=config.session_id,
-    )
-    return _resolve_correlation_id(derived.correlation_id)
-
-
-def _merged_metadata(
-    config: _ToolConfig,
-    extra: Optional[Metadata],
-    *,
-    event: Any = None,
-) -> Optional[Metadata]:
-    derived = claude_managed_agents_context(
-        correlation_id=config.correlation_id,
-        session_id=config.session_id,
-    )
-    merged: dict[str, Any] = {}
-    if derived.metadata:
-        merged.update(derived.metadata)
+def _reserved_tool_metadata(event: Any, config: _ToolConfig) -> dict[str, Any]:
+    reserved: dict[str, Any] = {}
     name = _tool_name(event, config.tool_name)
     if name:
-        merged["claude-managed-agents.tool"] = name
-    if extra:
-        merged.update(extra)
-    return merged or None
-
-
-def _unavailable(action: str, cause: Optional[BaseException]) -> BaseException:
-    return ArcjetUnavailableError(action, cause=cause)
-
-
-async def _decide(
-    config: _ToolConfig,
-    *,
-    action: str,
-    correlation_id: Optional[str],
-    metadata: Optional[Metadata],
-    prepared: ResolvedInputs,
-    rules: Sequence[RuleWithInput],
-) -> Any:
-    kwargs = {
-        "rules": rules,
-        "label": action,
-        "metadata": metadata,
-        "correlation_id": correlation_id,
-        "actor": prepared.actor,
-        "inputs": prepared.inputs,
-    }
-    if _awaitable(config.guard, "guard") is not None or config.guard is None:
-        return await _guard_async(config.guard, **kwargs)
-    return await asyncio.to_thread(partial(_guard_sync, config.guard, **kwargs))
+        reserved[TOOL_METADATA_KEY] = name
+    return reserved
 
 
 async def evaluate_custom_tool(event: Any, config: _ToolConfig) -> CustomToolVerdict:
@@ -254,72 +141,25 @@ async def evaluate_custom_tool(event: Any, config: _ToolConfig) -> CustomToolVer
     the session is waiting on. The deny envelope is the only shape the
     model can read as a structured ``ArcjetDenialResult``.
     """
-    action = config.action
-    correlation_id = _resolve_correlation_id(None)
-    metadata: Optional[Metadata] = None
-    decision: Any = None
-
-    try:
-        arguments = _arguments_from_event(event)
-        correlation_id = _correlation(config)
-        extra = _resolved_metadata(config, arguments)
-        metadata = _merged_metadata(config, extra, event=event)
-        prepared = _prepared(config, arguments)
-        rules = _resolved_rules(config, arguments)
-        decision = await _decide(
-            config,
-            action=action,
-            correlation_id=correlation_id,
-            metadata=metadata,
-            prepared=prepared,
-            rules=rules,
-        )
-        failure = _classify_decision(
-            decision,
-            action=action,
-            on_guard_error=config.on_guard_error,
-            denied_error=ArcjetDeniedError,
-            unavailable_error=_unavailable,
-            degraded=prepared.degraded,
-        )
-    except Exception:
-        if config.on_guard_error == "allow":
-            logger.warning(
-                "arcjet: policy for action %r could not be evaluated; proceeding "
-                "because on_guard_error is 'allow'",
-                action,
-            )
-            return CustomToolVerdict(deny=False)
-        _emit_capture(
-            client=config.guard,
-            action=action,
-            outcome="unavailable",
-            correlation_id=correlation_id,
-            decision=None,
-            metadata=metadata,
-        )
-        return CustomToolVerdict(deny=True, payload=payload_from_block(None))
-
-    if failure is not None:
-        denied = getattr(decision, "conclusion", None) == "DENY"
-        _emit_capture(
-            client=config.guard,
-            action=action,
-            outcome="denied" if denied else "unavailable",
-            correlation_id=correlation_id,
-            decision=decision,
-            metadata=metadata,
-        )
-        return CustomToolVerdict(deny=True, payload=payload_from_block(decision))
-
-    _emit_capture(
-        client=config.guard,
-        action=action,
-        outcome=_outcome_for_completed_action(decision, degraded=prepared.degraded),
-        correlation_id=correlation_id,
-        decision=decision,
-        metadata=metadata,
+    outcome = await evaluate_checkpoint(
+        guard=config.guard,
+        action=config.action,
+        actor=config.actor,
+        inputs=config.inputs,
+        rules=config.rules,
+        metadata=config.metadata,
+        correlation_id=config.correlation_id,
+        session_id=config.session_id,
+        on_guard_error=config.on_guard_error,
+        arguments=_arguments_from_event(event),
+        reserved_metadata=_reserved_tool_metadata(event, config),
     )
+    if outcome.proceeded_open:
+        return CustomToolVerdict(deny=False)
+    if outcome.failure is not None:
+        return CustomToolVerdict(
+            deny=True, payload=payload_from_block(outcome.decision)
+        )
     return CustomToolVerdict(deny=False)
 
 
@@ -335,52 +175,78 @@ def denial_event(event: Any, verdict: CustomToolVerdict) -> dict[str, Any]:
     )
 
 
-async def _maybe_await(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
 async def _send_denial(
     *,
     send: Any,
-    session_id: Any,
+    anthropic_session_id: Any,
     event: Any,
     verdict: CustomToolVerdict,
 ) -> Any:
+    """Post the deny result, retrying transient send failures.
+
+    ``SessionToolRunner`` retries result posts; the hosted path must too,
+    or the session stays idle on ``agent.custom_tool_use``.
+    """
     body = denial_event(event, verdict)
-    # Real SDK: ``send(session_id, events=[...])``.
-    result = send(session_id, events=[body])
-    return await _maybe_await(result)
+    last_error: Optional[BaseException] = None
+    attempts = max(1, DENIAL_SEND_ATTEMPTS)
+    for attempt in range(attempts):
+        try:
+            return await maybe_await(
+                send(anthropic_session_id, events=[body])
+            )
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                raise
+            delay_index = min(attempt, len(DENIAL_SEND_BACKOFF_SECONDS) - 1)
+            if delay_index >= 0 and DENIAL_SEND_BACKOFF_SECONDS:
+                await asyncio.sleep(DENIAL_SEND_BACKOFF_SECONDS[delay_index])
+    if last_error is not None:  # pragma: no cover - loop always raises
+        raise last_error
+    return None
 
 
-def _is_already_guarded(tool: Any) -> bool:
-    return bool(getattr(tool, _GUARD_BRAND, False))
-
-
-def _brand(tool: Any) -> None:
+def _positional_param_names(fn: Any) -> Optional[list[str]]:
+    """Positional / named-positional parameter names, or ``None`` if unknown."""
     try:
-        object.__setattr__(tool, _GUARD_BRAND, True)
-    except AttributeError as exc:
-        raise TypeError(
-            "guard_custom_tool() could not brand the tool copy with "
-            f"{_GUARD_BRAND!r}; the SDK type likely uses __slots__ "
-            "without space for this attribute. The wrap cannot proceed "
-            "without the brand — a second wrap would double-call Guard."
-        ) from exc
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return None
+    names: list[str] = []
+    for param in signature.parameters.values():
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        if param.name in {"self", "cls"}:
+            continue
+        if param.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            names.append(param.name)
+    return names
 
 
 def _invoke_run(run: Any, event: Any) -> Any:
-    """Call a user ``run`` with the custom-tool event or its input.
+    """Call a hosted ``run`` from its signature. Never catches a body error.
 
-    Hosted handlers typically take ``(name, input)`` or the event. A
-    worker ``@beta_tool`` ``run`` takes the validated input mapping.
-    Try the event first; if that TypeError-s on arity, pass input.
+    Contracts, in order:
+
+    * ``(name, input)`` / ``(tool_name, arguments)``
+    * a single ``input`` / ``arguments`` mapping
+    * the ``agent.custom_tool_use`` event (the default)
     """
-    try:
-        return run(event)
-    except TypeError:
+    names = _positional_param_names(run)
+    if names is not None and len(names) >= 2:
+        first, second = names[0], names[1]
+        if first in {"name", "tool_name"} and second in {"input", "arguments"}:
+            return run(_tool_name(event), _arguments_from_event(event))
+    if names is not None and len(names) == 1 and names[0] in {"input", "arguments"}:
         return run(_arguments_from_event(event))
+    return run(event)
 
 
 def _wrap_run_handler(config: _ToolConfig, run: Any) -> Callable[..., Any]:
@@ -388,7 +254,7 @@ def _wrap_run_handler(config: _ToolConfig, run: Any) -> Callable[..., Any]:
         event: Any,
         *,
         send: Any,
-        session_id: Any,
+        anthropic_session_id: Any,
     ) -> Any:
         try:
             verdict = await evaluate_custom_tool(event, config)
@@ -399,63 +265,43 @@ def _wrap_run_handler(config: _ToolConfig, run: Any) -> Callable[..., Any]:
                     "proceeding because on_guard_error is 'allow'",
                     config.action,
                 )
-                return await _maybe_await(_invoke_run(run, event))
+                return await maybe_await(_invoke_run(run, event))
             await _send_denial(
                 send=send,
-                session_id=session_id,
+                anthropic_session_id=anthropic_session_id,
                 event=event,
                 verdict=CustomToolVerdict(deny=True, payload=payload_from_block(None)),
             )
             return None
         if verdict.deny:
             await _send_denial(
-                send=send, session_id=session_id, event=event, verdict=verdict
+                send=send,
+                anthropic_session_id=anthropic_session_id,
+                event=event,
+                verdict=verdict,
             )
             return None
-        return await _maybe_await(_invoke_run(run, event))
+        return await maybe_await(_invoke_run(run, event))
 
+    adopt_wrapper(handle, run)
     return handle
 
 
-def _wrap_tool_run(config: _ToolConfig, original: Any) -> Any:
-    """Wrap a worker tool ``run`` so DENY never executes the body.
-
-    The EnvironmentWorker / SessionToolRunner posts
-    ``user.custom_tool_result`` from the return value. Returning the
-    denial JSON is the same gate; we do not invent a second send.
-    """
-
-    async def guarded_run(*args: Any, **kwargs: Any) -> Any:
-        event = _event_from_run_args(config.tool_name, args, kwargs)
-        try:
-            verdict = await evaluate_custom_tool(event, config)
-        except Exception:
-            if config.on_guard_error == "allow":
-                return await _maybe_await(original(*args, **kwargs))
-            return dumps_denial(payload_from_block(None))
-        if verdict.deny:
-            payload = (
-                verdict.payload
-                if verdict.payload is not None
-                else payload_from_block(None)
-            )
-            return dumps_denial(payload)
-        return await _maybe_await(original(*args, **kwargs))
-
-    if inspect.iscoroutinefunction(inspect.unwrap(original)):
-        return guarded_run
-
-    def guarded_run_sync(*args: Any, **kwargs: Any) -> Any:
-        return asyncio.run(guarded_run(*args, **kwargs))
-
-    return guarded_run_sync
-
-
-def _event_from_run_args(
+def _event_from_call_args(
     tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> dict[str, Any]:
-    """Rebuild an ``agent.custom_tool_use``-shaped mapping from ``run`` args."""
-    if args and isinstance(args[0], Mapping) and "input" in args[0]:
+    """Rebuild an ``agent.custom_tool_use``-shaped mapping from ``call`` args.
+
+    ``SessionToolRunner`` invokes ``tool.call(input)`` with the model input
+    mapping. A mapping is treated as a full event only when it *is* one
+    (``type == agent.custom_tool_use``), not merely because it has an
+    ``input`` key — that is a legal tool-schema field.
+    """
+    if (
+        args
+        and isinstance(args[0], Mapping)
+        and args[0].get("type") == "agent.custom_tool_use"
+    ):
         source = args[0]
         return {
             "type": "agent.custom_tool_use",
@@ -466,6 +312,8 @@ def _event_from_run_args(
     input_map: dict[str, Any] = {}
     if args and isinstance(args[0], Mapping):
         input_map = dict(args[0])
+    elif "input" in kwargs and isinstance(kwargs["input"], Mapping):
+        input_map = dict(kwargs["input"])
     elif kwargs:
         input_map = dict(kwargs)
     return {
@@ -476,26 +324,65 @@ def _event_from_run_args(
     }
 
 
-def _has_run(tool: Any) -> bool:
-    return callable(getattr(tool, "run", None))
+def _wrap_tool_call(config: _ToolConfig, original: Any) -> Any:
+    """Wrap a worker tool ``call`` so DENY never executes the body.
+
+    ``SessionToolRunner`` posts ``user.custom_tool_result`` from the
+    return value and sets ``is_error`` only when ``call`` raises.
+    Returning denial JSON would look like success. Raising
+    ``ToolError`` (or :class:`~._denial.WorkerToolDenied` without the
+    extra) is the honest deny.
+    """
+
+    async def guarded_call(*args: Any, **kwargs: Any) -> Any:
+        event = _event_from_call_args(config.tool_name, args, kwargs)
+        try:
+            verdict = await evaluate_custom_tool(event, config)
+        except Exception:
+            if config.on_guard_error == "allow":
+                return await maybe_await(original(*args, **kwargs))
+            raise_worker_denial(payload_from_block(None))
+        if verdict.deny:
+            payload = (
+                verdict.payload
+                if verdict.payload is not None
+                else payload_from_block(None)
+            )
+            raise_worker_denial(payload)
+        return await maybe_await(original(*args, **kwargs))
+
+    if looks_async(original):
+        adopt_wrapper(guarded_call, original)
+        return guarded_call
+
+    def guarded_call_sync(*args: Any, **kwargs: Any) -> Any:
+        return run_coroutine_sync(guarded_call(*args, **kwargs))
+
+    adopt_wrapper(guarded_call_sync, original)
+    return guarded_call_sync
+
+
+def _has_call(tool: Any) -> bool:
+    return callable(getattr(tool, "call", None))
 
 
 def _wrap_tool_object(tool: Any, config: _ToolConfig) -> Any:
-    if _is_already_guarded(tool):
+    if is_already_guarded(tool):
         return tool
-    if not _has_run(tool):
+    if not _has_call(tool):
         raise TypeError(
-            "guard_custom_tool(tool=) wraps an object with a callable run "
-            f"(beta_tool / beta_async_tool), got {type(tool).__name__}"
+            "guard_custom_tool(tool=) wraps an object with a callable call "
+            f"(BetaFunctionTool / @beta_tool / @beta_async_tool), got "
+            f"{type(tool).__name__}"
         )
     guarded = copy.copy(tool)
-    original = getattr(tool, "run")
-    wrapped = _wrap_tool_run(config, original)
+    original = getattr(tool, "call")
+    wrapped = _wrap_tool_call(config, original)
     try:
-        object.__setattr__(guarded, "run", wrapped)
+        object.__setattr__(guarded, "call", wrapped)
     except AttributeError:
-        guarded.run = wrapped
-    _brand(guarded)
+        guarded.call = wrapped
+    brand(guarded)
     return guarded
 
 
@@ -541,17 +428,26 @@ def guard_custom_tool(
 
     Pass ``run=`` for the hosted REST+SSE path. The returned handler is::
 
-        await handler(event, send=client.beta.sessions.events.send, session_id=...)
+        await handler(
+            event,
+            send=client.beta.sessions.events.send,
+            anthropic_session_id=session.id,
+        )
+
+    ``anthropic_session_id`` is Anthropic's ``ses_...``, used only to post
+    ``user.custom_tool_result``. Wrap-time ``session_id=`` is a
+    caller-owned correlation id and is never read off that value.
 
     On DENY (or unevaluated policy under the default
     ``on_guard_error="deny"``) the original ``run`` is not called and
     ``user.custom_tool_result`` is sent with error text (schema field
-    ``is_error`` is set). On ALLOW, ``run`` executes and the caller
-    sends the success result.
+    ``is_error`` is set). Transient send failures are retried. On ALLOW,
+    ``run`` executes and the caller sends the success result.
 
     Pass ``tool=`` for a self-hosted ``EnvironmentWorker`` /
-    ``@beta_tool`` object. The returned copy has ``run`` wrapped the
-    same way; the worker posts the denial JSON as the tool result.
+    ``@beta_tool`` object. The returned copy has ``call`` wrapped — that
+    is what ``SessionToolRunner`` invokes, not ``run``. On DENY the
+    wrapper raises ``ToolError`` so the runner posts ``is_error=True``.
     Already-branded tools are returned unchanged. The ``ant`` CLI
     worker cannot register custom tools.
 
@@ -565,9 +461,10 @@ def guard_custom_tool(
             client is accepted.
         action: Checkpoint label, e.g. ``"email.sent"``.
         run: Hosted custom-tool body. Called with the
-            ``agent.custom_tool_use`` event (or its ``input`` mapping).
-        tool: A worker tool with ``run`` (``@beta_tool`` /
-            ``@beta_async_tool``).
+            ``agent.custom_tool_use`` event, its ``input`` mapping, or
+            ``(name, input)`` — chosen from the callable's signature.
+        tool: A worker tool with ``call`` (``@beta_tool`` /
+            ``@beta_async_tool`` / ``BetaFunctionTool``).
         actor: Who is acting, or a callable of the tool arguments.
         inputs: Policy inputs, or a callable of the tool arguments.
         rules: Local rules, or a callable of the tool arguments.
@@ -575,13 +472,14 @@ def guard_custom_tool(
         correlation_id: Caller-owned Sequence id. Never minted. Never an
             Anthropic session / event id we treated as ours.
         session_id: Same, for an id the application calls a session.
+            Not Anthropic's ``ses_...``.
         on_guard_error: ``"deny"`` (default) or ``"allow"``.
 
     Raises:
         ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or
             ``"deny"``, or the installed ``anthropic`` is below 0.92.0.
         TypeError: neither ``run`` nor ``tool`` was provided, or *tool*
-            has no callable ``run``.
+            has no callable ``call``.
         ValueError: *correlation_id* / *session_id* is not printable ASCII
             within 256 bytes.
     """
@@ -604,7 +502,7 @@ def guard_custom_tool(
         if tool_name in _ANTHROPIC_CLOUD_ONLY:
             logger.warning(
                 "arcjet: %s always runs on Anthropic; wrapping its local "
-                "run does not gate the cloud tool",
+                "call does not gate the cloud tool",
                 tool_name,
             )
 
