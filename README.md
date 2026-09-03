@@ -84,7 +84,8 @@ support](https://docs.arcjet.com/support).
 
 - [Documentation](https://docs.arcjet.com) — full reference and guides
 - [Examples](https://github.com/arcjet/arcjet-py/tree/main/examples) — FastAPI
-  and Flask example apps, including LangChain integration
+  and Flask example apps, including LangChain, CrewAI, and OpenAI Agents
+  integration
 - [Blueprints](https://docs.arcjet.com/blueprints) — recipes for common security
   patterns
 

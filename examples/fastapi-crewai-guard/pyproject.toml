@@ -1,0 +1,22 @@
+[project]
+name = "example-fastapi-crewai-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + CrewAI Guard Application"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "arcjet",
+    "crewai>=1.15.3,<2",
+    "fastapi[standard]==0.141.1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# There is no `arcjet[crewai]` extra. CrewAI hard-depends on
+# `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 carry an unpatched critical
+# RCE (CVE-2026-45829). Install `crewai` as a direct example dependency —
+# the same way an application would — and do not commit `uv.lock`.
+# The adapter is on main; use the local checkout.
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }
