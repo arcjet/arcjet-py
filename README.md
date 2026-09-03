@@ -1004,6 +1004,8 @@ effect happens.
 | An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
 | A Claude Agent SDK authored `@tool` / `SdkMcpTool` | `guard_tool` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — via `is_error` tool result |
 | Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block |
+| A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — via a returned `ArcjetDenialResult` |
+| Unwrapped Strands MCP / vended / built-ins | `guard_hooks` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — `BeforeToolCallEvent.cancel_tool` |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -1033,6 +1035,14 @@ right home for capture and the wrong home for policy.
   OpenAI Agents. Docs:
   [`/guards/claude-agent-sdk-py/`](https://docs.arcjet.com/guards/claude-agent-sdk-py/)
   — not the JS page [`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
+- **`arcjet[strands-agents]`** — `guard_tool`, `guard_hooks`, and
+  `strands_agent_context` for Python Strands Agents
+  (`strands-agents>=1.11.0,<2`, the first 1.x with
+  `BeforeToolCallEvent.cancel_tool`). Independent of LangChain, CrewAI,
+  OpenAI Agents, and the Claude Agent SDK. The default extra set does not
+  pull chromadb. Docs:
+  [`/guards/strands-agents-py/`](https://docs.arcjet.com/guards/strands-agents-py/)
+  — not the JS page [`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1636,6 +1646,110 @@ caller-owned `session_id=` fallback, then `arcjet_sequence()`. It never
 mints. It never reads `trace_id`. Wrap-time `session_id=` /
 `correlation_id=` (including `inbound["session_id"]`) must be a UUID the
 app already minted — the same value you pass to `query()`.
+
+### Strands Agents tools and hooks
+
+`arcjet.guard.strands_agents` needs `pip install "arcjet[strands-agents]"`
+(`strands-agents>=1.11.0,<2`). Nothing here imports
+`arcjet.guard.langchain`, `arcjet.guard.crewai`,
+`arcjet.guard.openai_agents`, or `arcjet.guard.claude_agent_sdk`, and
+importing `arcjet.guard` never imports Strands. The Python page is
+[`/guards/strands-agents-py/`](https://docs.arcjet.com/guards/strands-agents-py/);
+it does not replace the JS page
+[`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).
+
+```py
+from arcjet.guard import TokenBucket, launch_arcjet, server_input
+from arcjet.guard.strands_agents import (
+    guard_hooks,
+    guard_tool,
+    strands_agent_context,
+)
+from strands import Agent, tool
+
+aj = launch_arcjet(key=arcjet_key)
+session_id = user_id  # a caller-owned id the app already minted
+mcp_limit = TokenBucket(refill_rate=20, interval_seconds=60, max_tokens=20)
+
+
+@tool
+def send_email(recipient: str, body: str) -> str:
+    """Send an email."""
+    return "sent"
+
+
+guarded_send = guard_tool(
+    guard=aj,
+    tool=send_email,
+    action="email.sent",
+    on_guard_error="deny",  # default
+)
+
+hooks = guard_hooks(
+    guard=aj,
+    action=lambda call: f"{call['tool_name']}.invoked",
+    rules=lambda call: [mcp_limit(key=call["tool_name"], requested=1)],
+)
+
+agent = Agent(
+    tools=[guarded_send],
+    hooks=[hooks],
+)
+
+# Screen inbound user text yourself. There is no guard_inbound helper.
+ctx = strands_agent_context({"sessionId": session_id})
+decision = await aj.guard(
+    label="chat.inbound",
+    inputs={"content": server_input.string(user_text)},
+    correlation_id=ctx.correlation_id,
+    metadata=ctx.metadata,
+)
+if decision.conclusion == "DENY" or decision.has_failed_open():
+    raise RuntimeError("refusing to start the run")
+
+agent(user_text, sessionId=session_id)
+```
+
+On DENY the authored handler returns the plain
+`{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }` dict.
+It does not throw (the SDK swallows into `Error: {Type} - {message}`).
+Already-branded tools are skipped.
+
+#### Screen inbound before `agent()`
+
+There is no `guard_inbound` helper and no dedicated prompt hook on the
+Strands hooks bus (`MessageAddedEvent` is observe-only;
+`BeforeInvocationEvent.cancel` aborts the whole run). Screen user text
+with core `guard()` / `guard_sync()` before `agent()`. `protect()` and
+the request path are fail-open — the caller must check
+`has_failed_open()`. These helpers default to `on_guard_error="deny"`.
+
+#### `event.interrupt()` is not a policy gate
+
+`BeforeToolCallEvent.interrupt()` is human-in-the-loop. This helper does
+not call it. Use `guard_tool` for authored tools or
+`cancel_tool` for unwrapped ones.
+
+#### Deny unwrapped tools on `BeforeToolCallEvent.cancel_tool`
+
+MCP, vended, and built-in tools not passed through `guard_tool` are
+gated here. `cancel_tool` set to a string (the JSON
+`ArcjetDenialResult`) or `True` skips the handler. `rules` / `actor` /
+`inputs` / `metadata` callables receive `tool_use.input` plus
+`tool_name`. Wrapped tools are skipped by the `_arcjet_guarded` brand so
+the two surfaces do not double-call Guard. `AfterToolCallEvent` is
+capture-only (`strands.phase: after`) and is not skipped by the brand.
+
+`BeforeToolsEvent.cancel` is not set. Official Strands docs: a batch
+cancel produces an error result for every tool and skips execution
+entirely, so no per-tool `BeforeToolCallEvent` fires. The JS adapter
+avoided `BeforeToolsEvent.cancel` for that reason; Python is the same,
+so the primary gate is per-tool `cancel_tool`.
+
+`strands_agent_context` reads `invocation_state.correlationId`, then
+`sessionId`, then `requestId` (and the snake_case aliases). It never
+mints. It never reads `trace_id`. It never reads `agent.id` or
+SessionManager auto-ids.
 
 ### Sync usage
 
