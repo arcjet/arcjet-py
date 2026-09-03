@@ -545,7 +545,9 @@ class TestCustomToolGate:
         client = StubGuardClient(decision=make_allow_decision())
         send = RecordingSend()
         handle = guard_custom_tool(guard=client, run=run, action="email.sent")
-        result = asyncio.run(handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1"))
+        result = asyncio.run(
+            handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1")
+        )
         assert result == "ok"
         assert executed == [{"to": "a@example.com", "body": "hi"}]
         assert send.calls == []
@@ -758,7 +760,9 @@ class TestMissingPeer:
             run=lambda _e: "ok",
             action="x.done",
         )
-        result = asyncio.run(handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1"))
+        result = asyncio.run(
+            handle(_custom_tool_use(), send=send, anthropic_session_id="ses_1")
+        )
         assert result == "ok"
 
 
@@ -924,9 +928,7 @@ class TestReviewFixes:
             {"to": "a@example.com", "body": "hi"},
         )
 
-    def test_typeerror_in_run_body_is_not_retried(
-        self, reset_sequence_context
-    ) -> None:
+    def test_typeerror_in_run_body_is_not_retried(self, reset_sequence_context) -> None:
         calls: list[int] = []
 
         def run(event: Any) -> str:
@@ -939,7 +941,13 @@ class TestReviewFixes:
             action="email.sent",
         )
         with pytest.raises(TypeError, match="real failure"):
-            _run(handle(_custom_tool_use(), send=RecordingSend(), anthropic_session_id="ses_1"))
+            _run(
+                handle(
+                    _custom_tool_use(),
+                    send=RecordingSend(),
+                    anthropic_session_id="ses_1",
+                )
+            )
         assert calls == [1]
 
     def test_pydantic_shaped_custom_tool_use(self, reset_sequence_context) -> None:
@@ -975,7 +983,9 @@ class TestReviewFixes:
             def __init__(self) -> None:
                 self.n = 0
 
-            def __call__(self, session_id: Any, *, events: Any = None, **kwargs: Any) -> str:
+            def __call__(
+                self, session_id: Any, *, events: Any = None, **kwargs: Any
+            ) -> str:
                 self.n += 1
                 if self.n < 3:
                     raise ConnectionError("blip")
@@ -996,7 +1006,9 @@ class TestReviewFixes:
         monkeypatch.setattr(tool_module, "DENIAL_SEND_BACKOFF_SECONDS", (0, 0))
 
         class DeadSend:
-            def __call__(self, session_id: Any, *, events: Any = None, **kwargs: Any) -> str:
+            def __call__(
+                self, session_id: Any, *, events: Any = None, **kwargs: Any
+            ) -> str:
                 raise ConnectionError("down")
 
         handle = guard_custom_tool(
@@ -1005,7 +1017,11 @@ class TestReviewFixes:
             action="email.sent",
         )
         with pytest.raises(ConnectionError, match="down"):
-            _run(handle(_custom_tool_use(), send=DeadSend(), anthropic_session_id="ses_1"))
+            _run(
+                handle(
+                    _custom_tool_use(), send=DeadSend(), anthropic_session_id="ses_1"
+                )
+            )
 
     def test_worker_denial_prefers_tool_error(
         self, monkeypatch: pytest.MonkeyPatch

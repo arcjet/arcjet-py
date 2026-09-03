@@ -192,9 +192,7 @@ async def _send_denial(
     attempts = max(1, DENIAL_SEND_ATTEMPTS)
     for attempt in range(attempts):
         try:
-            return await maybe_await(
-                send(anthropic_session_id, events=[body])
-            )
+            return await maybe_await(send(anthropic_session_id, events=[body]))
         except Exception as exc:
             last_error = exc
             if attempt + 1 >= attempts:
