@@ -19,25 +19,27 @@ import sys
 from collections.abc import Sequence
 from typing import Any, Literal, Optional
 
+from fastapi.testclient import TestClient
+
+from arcjet.guard import LocalDetectSensitiveInfo, server_input
+from arcjet.guard._errors import ArcjetDeniedError, ArcjetUnavailableError
+from arcjet.guard._types import Decision, Reason, RuleResultError
 from arcjet.guard.claude_managed_agents import (
     claude_managed_agents_context,
     guard_custom_tool,
     guard_events,
 )
-from fastapi.testclient import TestClient
-
-from arcjet.guard import LocalDetectSensitiveInfo, server_input
-from arcjet.guard._errors import ArcjetDeniedError
-from arcjet.guard._types import Decision, Reason, RuleResultError
 
 ScenarioName = Literal[
     "allow",
     "deny",
     "unavailable",
     "inbound-block",
+    "inbound-unavailable",
     "inbound-pass",
     "correlation",
     "session-reject",
+    "helpers",
     "no-guard-inbound",
     "custom-tool-result-shape",
 ]
@@ -47,9 +49,11 @@ ALL_SCENARIOS: tuple[ScenarioName, ...] = (
     "deny",
     "unavailable",
     "inbound-block",
+    "inbound-unavailable",
     "inbound-pass",
     "correlation",
     "session-reject",
+    "helpers",
     "no-guard-inbound",
     "custom-tool-result-shape",
 )
@@ -245,6 +249,27 @@ async def scenario_inbound_block() -> None:
     assert send.calls == []
 
 
+async def scenario_inbound_unavailable() -> None:
+    guard = ScenarioGuard(decision=_failed_open())
+    send = RecordingSend()
+    wrapped = _send_wrap(guard, send)
+    try:
+        await wrapped(
+            ANTHROPIC_SESSION_ID,
+            events=[
+                {
+                    "type": "user.message",
+                    "content": [{"type": "text", "text": "Send a welcome email."}],
+                }
+            ],
+        )
+    except ArcjetUnavailableError:
+        pass
+    else:
+        raise AssertionError("expected ArcjetUnavailableError")
+    assert send.calls == []
+
+
 async def scenario_inbound_pass() -> None:
     guard = ScenarioGuard(decision=_allow())
     send = RecordingSend()
@@ -302,6 +327,41 @@ async def scenario_session_reject() -> None:
                 os.environ[name] = value
 
 
+async def scenario_helpers() -> None:
+    previous = {
+        name: os.environ.get(name) for name in ("ARCJET_KEY", "ANTHROPIC_API_KEY")
+    }
+    try:
+        os.environ.setdefault("ARCJET_KEY", "ajkey_verify")
+        os.environ.setdefault("ANTHROPIC_API_KEY", "sk-verify")
+        import main as app_module
+
+        assert (
+            app_module._stop_reason_type({"stop_reason": {"type": "end_turn"}})
+            == "end_turn"
+        )
+        assert app_module._stop_reason_type({"stop_reason": "end_turn"}) == "end_turn"
+        assert app_module._stop_reason_type({"type": "session.status_idle"}) is None
+
+        previous_agent = app_module._agent_id
+        previous_environment = app_module._environment_id
+        app_module._agent_id = "agent_existing"
+        app_module._environment_id = "env_existing"
+        try:
+            agent_id, environment_id = await app_module._ensure_agent()
+            assert agent_id == "agent_existing"
+            assert environment_id == "env_existing"
+        finally:
+            app_module._agent_id = previous_agent
+            app_module._environment_id = previous_environment
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 async def scenario_no_guard_inbound() -> None:
     from arcjet.guard import claude_managed_agents as adapter
 
@@ -324,6 +384,14 @@ async def scenario_no_guard_inbound() -> None:
     assert '"always_ask"' not in source
     assert "'always_ask'" not in source
     assert '"user.tool_confirmation"' not in source
+    # House import order: framework, then arcjet, then the adapter.
+    adapter_import = source.index("from arcjet.guard.claude_managed_agents import")
+    assert source.index("from fastapi import") < adapter_import
+    assert source.index("from arcjet import") < adapter_import
+    assert source.index("from arcjet.guard import") < adapter_import
+    assert source.index("sessions.events.stream") < source.index(
+        '"type": "user.message"'
+    )
 
 
 async def scenario_custom_tool_result_shape() -> None:
@@ -390,9 +458,11 @@ SCENARIOS: dict[ScenarioName, Any] = {
     "deny": scenario_deny,
     "unavailable": scenario_unavailable,
     "inbound-block": scenario_inbound_block,
+    "inbound-unavailable": scenario_inbound_unavailable,
     "inbound-pass": scenario_inbound_pass,
     "correlation": scenario_correlation,
     "session-reject": scenario_session_reject,
+    "helpers": scenario_helpers,
     "no-guard-inbound": scenario_no_guard_inbound,
     "custom-tool-result-shape": scenario_custom_tool_result_shape,
 }

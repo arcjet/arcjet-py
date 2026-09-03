@@ -58,8 +58,12 @@ equivalent of Guard's `has_failed_open()`). Inbound user text is screened
 with the core `guard()` call before the session starts (fail-open — check
 DENY / `has_failed_open()`) and again by `guard_events` wrapping
 `sessions.events.send` so `user.message` is gated **before** the original
-send. The custom tool is authorized by `guard_custom_tool` on
-`agent.custom_tool_use`. There is no `guard_inbound` helper.
+send. The event stream is opened first — Anthropic only delivers events
+emitted after the connection is up — then `user.message` and
+`user.custom_tool_result` are sent on that connection. The custom tool is
+authorized by `guard_custom_tool` on `agent.custom_tool_use`. There is no
+`guard_inbound` helper. A session that hits the tool-round cap or ends
+without `end_turn` is stopped with `user.interrupt`.
 
 Default `permission_policy: always_allow` **cannot** gate Anthropic-cloud
 bash / read / write, and `web_search` / `web_fetch` always run on

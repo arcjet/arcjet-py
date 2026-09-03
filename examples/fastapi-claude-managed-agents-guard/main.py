@@ -14,6 +14,7 @@ on ``agent.custom_tool_use``. The id comes from the request, is read by
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -22,11 +23,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from anthropic import AsyncAnthropic
-from arcjet.guard.claude_managed_agents import (
-    claude_managed_agents_context,
-    guard_custom_tool,
-    guard_events,
-)
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -47,6 +43,11 @@ from arcjet.guard import (
     launch_arcjet,
     security_metadata,
     server_input,
+)
+from arcjet.guard.claude_managed_agents import (
+    claude_managed_agents_context,
+    guard_custom_tool,
+    guard_events,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -105,6 +106,7 @@ detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
 # ANTHROPIC_ENVIRONMENT_ID to reuse ones you already have.
 _agent_id: str | None = os.getenv("ANTHROPIC_AGENT_ID") or None
 _environment_id: str | None = os.getenv("ANTHROPIC_ENVIRONMENT_ID") or None
+_agent_lock = asyncio.Lock()
 
 
 def _tool_input(event: Any) -> Mapping[str, Any]:
@@ -120,6 +122,19 @@ def _event_field(event: Any, name: str) -> Any:
     if isinstance(event, Mapping):
         return event.get(name)
     return getattr(event, name, None)
+
+
+def _stop_reason_type(event: Any) -> str | None:
+    """``session.status_idle.stop_reason.type``, if the payload has one."""
+    stop = _event_field(event, "stop_reason")
+    if stop is None:
+        return None
+    if isinstance(stop, str):
+        return stop
+    value = _event_field(stop, "type")
+    if value is None:
+        return None
+    return value if isinstance(value, str) else str(value)
 
 
 async def send_email(event: Any) -> str:
@@ -141,47 +156,47 @@ async def _ensure_agent() -> tuple[str, str]:
     example does not set them.
     """
     global _agent_id, _environment_id
-    if _agent_id and _environment_id:
+    async with _agent_lock:
+        if _environment_id is None:
+            environment = await anthropic_client.beta.environments.create(
+                name="arcjet-fastapi-managed-agents-guard",
+                config={"type": "cloud", "networking": {"type": "unrestricted"}},
+            )
+            _environment_id = environment.id
+        if _agent_id is None:
+            agent = await anthropic_client.beta.agents.create(
+                name="arcjet-email-agent",
+                model=ANTHROPIC_MODEL,
+                system=(
+                    "You always use the send_email tool to fulfill a request. "
+                    "You never skip the tool to answer in text alone. "
+                    "Call send_email exactly once. If the tool is blocked, do "
+                    "not call it again; explain that security blocked it."
+                ),
+                tools=[
+                    {
+                        "type": "custom",
+                        "name": "send_email",
+                        "description": "Send an email to a recipient",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "to": {
+                                    "type": "string",
+                                    "description": "The recipient address",
+                                },
+                                "body": {
+                                    "type": "string",
+                                    "description": "The email body",
+                                },
+                            },
+                            "required": ["to", "body"],
+                        },
+                    }
+                ],
+            )
+            _agent_id = agent.id
         return _agent_id, _environment_id
-
-    environment = await anthropic_client.beta.environments.create(
-        name="arcjet-fastapi-managed-agents-guard",
-        config={"type": "cloud", "networking": {"type": "unrestricted"}},
-    )
-    agent = await anthropic_client.beta.agents.create(
-        name="arcjet-email-agent",
-        model=ANTHROPIC_MODEL,
-        system=(
-            "You always use the send_email tool to fulfill a request. "
-            "You never skip the tool to answer in text alone. "
-            "Call send_email exactly once. If the tool is blocked, do "
-            "not call it again; explain that security blocked it."
-        ),
-        tools=[
-            {
-                "type": "custom",
-                "name": "send_email",
-                "description": "Send an email to a recipient",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "to": {
-                            "type": "string",
-                            "description": "The recipient address",
-                        },
-                        "body": {
-                            "type": "string",
-                            "description": "The email body",
-                        },
-                    },
-                    "required": ["to", "body"],
-                },
-            }
-        ],
-    )
-    _agent_id = agent.id
-    _environment_id = environment.id
-    return _agent_id, _environment_id
 
 
 @asynccontextmanager
@@ -390,71 +405,109 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             on_guard_error="deny",
         )
 
-        try:
-            await send(
-                anthropic_session_id,
-                events=[
-                    {
-                        "type": "user.message",
-                        "content": [{"type": "text", "text": body.message}],
-                    }
-                ],
-            )
-        except ArcjetDeniedError:
-            logger.warning("arcjet denied inbound user.message")
-            return JSONResponse({"error": "denied by policy"}, status_code=403)
-        except ArcjetUnavailableError:
-            logger.error("arcjet inbound policy could not be evaluated; failing closed")
-            return JSONResponse({"error": "policy unavailable"}, status_code=503)
-
         reply_parts: list[str] = []
-        # Anthropic drives the loop. We stream until the session is idle
-        # with no outstanding custom-tool calls, then return.
-        for _ in range(8):
-            tool_calls: list[Any] = []
-            terminated = False
-            async with anthropic_client.beta.sessions.events.stream(
-                session_id=anthropic_session_id,
-            ) as stream:
-                async for event in stream:
-                    event_type = _event_field(event, "type")
-                    if event_type == "agent.message":
-                        reply_parts.append(
-                            _message_text(_event_field(event, "content"))
-                        )
-                    elif event_type == "agent.custom_tool_use":
-                        tool_calls.append(event)
-                    elif event_type == "session.status_idle":
-                        break
-                    elif event_type == "session.status_terminated":
-                        terminated = True
-                        break
-            if terminated or not tool_calls:
-                break
-            for call in tool_calls:
-                # Pass the real events API as `send`. On DENY the helper
-                # uses it to post `user.custom_tool_result` and returns
-                # None — do not run the tool, do not invent fields.
-                # `call.id` is Anthropic's event id (`sevt_...`): use it
-                # only as `custom_tool_use_id`, never as correlation.
-                result = await handle_send_email(
-                    call,
-                    send=raw_send,
-                    session_id=anthropic_session_id,
-                )
-                if result is None:
-                    continue
-                await raw_send(
+        # Anthropic delivers only events emitted after the stream is
+        # open. Open first, send `user.message` (and later tool results)
+        # while it is open, then iterate. Handle `agent.custom_tool_use`
+        # on the same connection so a DENY `user.custom_tool_result` is
+        # not sent into a gap.
+        max_tool_rounds = 8
+        tool_rounds = 0
+        finished = False
+        terminated = False
+        interrupted = False
+        async with anthropic_client.beta.sessions.events.stream(
+            session_id=anthropic_session_id,
+        ) as stream:
+            try:
+                await send(
                     anthropic_session_id,
                     events=[
                         {
-                            "type": "user.custom_tool_result",
-                            "custom_tool_use_id": _event_field(call, "id"),
-                            "content": [{"type": "text", "text": str(result)}],
-                            "is_error": False,
+                            "type": "user.message",
+                            "content": [{"type": "text", "text": body.message}],
                         }
                     ],
                 )
+            except ArcjetDeniedError:
+                logger.warning("arcjet denied inbound user.message")
+                return JSONResponse({"error": "denied by policy"}, status_code=403)
+            except ArcjetUnavailableError:
+                logger.error(
+                    "arcjet inbound policy could not be evaluated; failing closed"
+                )
+                return JSONResponse({"error": "policy unavailable"}, status_code=503)
+
+            async for event in stream:
+                event_type = _event_field(event, "type")
+                if event_type == "agent.message":
+                    reply_parts.append(_message_text(_event_field(event, "content")))
+                elif event_type == "agent.custom_tool_use":
+                    tool_rounds += 1
+                    if tool_rounds > max_tool_rounds:
+                        logger.error(
+                            "managed agents session hit tool-round cap; interrupting"
+                        )
+                        await raw_send(
+                            anthropic_session_id,
+                            events=[{"type": "user.interrupt"}],
+                        )
+                        interrupted = True
+                        break
+                    # Pass the real events API as `send`. On DENY the
+                    # helper uses it to post `user.custom_tool_result`
+                    # and returns None — do not run the tool, do not
+                    # invent fields. `event.id` is Anthropic's
+                    # `sevt_...`: use it only as
+                    # `custom_tool_use_id`, never as correlation.
+                    result = await handle_send_email(
+                        event,
+                        send=raw_send,
+                        session_id=anthropic_session_id,
+                    )
+                    if result is not None:
+                        await raw_send(
+                            anthropic_session_id,
+                            events=[
+                                {
+                                    "type": "user.custom_tool_result",
+                                    "custom_tool_use_id": _event_field(event, "id"),
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": str(result),
+                                        }
+                                    ],
+                                    "is_error": False,
+                                }
+                            ],
+                        )
+                elif event_type == "session.status_idle":
+                    # Waiting for a custom-tool result is also idle.
+                    # Only `end_turn` means the turn is done.
+                    if _stop_reason_type(event) == "end_turn":
+                        finished = True
+                        break
+                elif event_type == "session.error":
+                    logger.error(
+                        "managed agents session error: %s",
+                        _event_field(event, "error"),
+                    )
+                    terminated = True
+                    break
+                elif event_type == "session.status_terminated":
+                    terminated = True
+                    break
+
+        if not finished and not terminated and not interrupted:
+            logger.error("managed agents session ended without end_turn; interrupting")
+            try:
+                await raw_send(
+                    anthropic_session_id,
+                    events=[{"type": "user.interrupt"}],
+                )
+            except Exception:
+                logger.exception("failed to interrupt managed agents session")
 
         await guard_client.flush()
 
