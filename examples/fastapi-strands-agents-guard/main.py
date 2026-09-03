@@ -3,9 +3,10 @@
 Every Arcjet decision this file produces lands on one Sequence, because they
 all share one caller-owned id: `protect()` on the route, the inbound
 `guard()` call, `guard_tool` on the authored `@tool`, and `guard_hooks` on
-the unwrapped tool. The id comes from the request, is put on
-`invocation_state` as `correlationId` then `sessionId`, and is never minted
-here — `strands_agent_context` only reads it.
+the unwrapped tool. The id comes from the request and is put on
+`invocation_state` as `sessionId` only, so the helper's preference order
+(`correlationId` then `sessionId` then `requestId`) is visible. It is never
+minted here — `strands_agent_context` only reads it.
 """
 
 import logging
@@ -88,9 +89,11 @@ guard_client = launch_arcjet(key=ARCJET_KEY)
 detect_injection = DetectPromptInjection()
 detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
 
+# Overridable so a dated snapshot does not pin the example shut.
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 model = AnthropicModel(
     client_args={"api_key": ANTHROPIC_API_KEY},
-    model_id="claude-sonnet-4-20250514",
+    model_id=ANTHROPIC_MODEL,
 )
 
 
@@ -107,14 +110,14 @@ def send_email(to: str, body: str) -> str:
 
 
 @tool
-def lookup_account(email: str) -> str:
-    """Look up an account by email address.
+def lookup_account(account_id: str) -> str:
+    """Look up an account by its internal id.
 
     Args:
-        email: The account email to look up.
+        account_id: The account id to look up. This is not an email address.
     """
-    logger.info("looking up account %s", email)
-    return f"Account found for {email}"
+    logger.info("looking up account %s", account_id)
+    return f"Account found for {account_id}"
 
 
 @asynccontextmanager
@@ -138,6 +141,22 @@ class ChatRequest(BaseModel):
     session_id: str
 
 
+# Same bound Guard enforces on a Sequence id. Rejecting beats truncating.
+_MAX_SESSION_ID_BYTES = 256
+
+
+def _caller_owned_session_id(value: str) -> str | None:
+    """Return *value* if Guard will accept it as a Sequence id. Never mint."""
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if not candidate.isascii() or not candidate.isprintable():
+        return None
+    if len(candidate.encode("utf-8")) > _MAX_SESSION_ID_BYTES:
+        return None
+    return candidate
+
+
 @app.post("/chat")
 async def chat(request: Request, body: ChatRequest) -> Any:
     # Derive the correlation ID from something the caller already has — here a
@@ -147,27 +166,40 @@ async def chat(request: Request, body: ChatRequest) -> Any:
     # it. The same value is passed to `protect()`, inbound `guard()`,
     # `guard_tool` / `guard_hooks`, and `invoke_async(..., invocation_state=)`.
     # `strands_agent_context` reads `correlationId` then `sessionId` then
-    # `requestId` (JS camelCase first, snake_case aliases second). It never
-    # mints, never reads `trace_id`, and never constructs a SessionManager
-    # just for an id.
+    # `requestId` (JS camelCase first, snake_case aliases second). Only
+    # `sessionId` is set here so that order is not hidden by writing the
+    # same value into every slot. It never mints, never reads `trace_id`,
+    # and never constructs a SessionManager just for an id.
     #
     # EXAMPLE ONLY: this trusts `session_id` from the request body, so a caller
     # could write to another session's Sequence and to its actor and metadata.
     # In a real service take it from the authenticated session — a signed
     # cookie, a verified token claim — never from a field the caller controls.
-    session_id = body.session_id.strip()
-    if not session_id:
+    session_id = _caller_owned_session_id(body.session_id)
+    if session_id is None:
         return JSONResponse(
-            {"error": "session_id must be a caller-owned id"},
+            {
+                "error": (
+                    "session_id must be a caller-owned printable ASCII id "
+                    "(at most 256 bytes)"
+                )
+            },
             status_code=400,
         )
 
-    invocation_state = {
-        "correlationId": session_id,
-        "sessionId": session_id,
-    }
+    invocation_state = {"sessionId": session_id}
     derived = strands_agent_context(invocation_state)
-    correlation_id = derived.correlation_id or session_id
+    correlation_id = derived.correlation_id
+    if correlation_id is None:
+        return JSONResponse(
+            {
+                "error": (
+                    "session_id must be a caller-owned printable ASCII id "
+                    "(at most 256 bytes)"
+                )
+            },
+            status_code=400,
+        )
 
     decision = await aj.protect(
         request,
@@ -241,11 +273,11 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             },
             rules=lambda args: (
                 detect_injection(str(args.get("body", ""))),
-                # Sensitive info DENIES; it does not redact. If this
-                # trips, the tool does not run and nothing is rewritten on
-                # the way through.
+                # Sensitive info DENIES; it does not redact. The recipient
+                # address is the point of this tool, so EMAIL on `to` is
+                # not a rule — that would deny every real send. EMAIL in
+                # the body still blocks.
                 detect_sensitive_info(str(args.get("body", ""))),
-                detect_sensitive_info(str(args.get("to", ""))),
             ),
             metadata=security_metadata(
                 user=session_id,
@@ -260,9 +292,9 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         )
 
         # `BeforeToolCallEvent` fires for every tool, including the wrapped
-        # one. `guard_tool` brands its copy (`_arcjet_guarded`); `guard_hooks`
-        # skips that brand on the before path so Guard is not called twice.
-        # There is no `exclude=` list — brand-skip is the only skip.
+        # one. `guard_tool` brands its copy; `guard_hooks` skips branded
+        # tools on the before path so Guard is not called twice. There is
+        # no `exclude=` list — brand-skip is the only skip.
         #
         # Deny is `cancel_tool` set to the JSON `ArcjetDenialResult` (a str)
         # or `True`. Do not set `BeforeToolsEvent.cancel`: a batch cancel
@@ -270,12 +302,14 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         # never run and every tool in the batch would share one deny.
         #
         # `lookup_account` is left unwrapped so `cancel_tool` is its only
-        # gate. `AfterToolCallEvent` is capture-only (`strands.phase: after`)
-        # and is not skipped by the brand. `event.interrupt()` is HITL, not
-        # policy, and is never called.
+        # gate. Its argument is an account id, not an email, so a clean
+        # lookup can allow and still emit `AfterToolCallEvent` capture.
+        # EMAIL in that id still denies. `AfterToolCallEvent` is
+        # capture-only (`strands.phase: after`) and is not skipped by the
+        # brand. `event.interrupt()` is HITL, not policy, and is never
+        # called.
         hooks = guard_hooks(
             guard=guard_client,
-            action=lambda call: f"{call.get('tool_name', 'tool')}.invoked",
             actor=session_id,
             inputs=lambda call: {
                 key: server_input.string(str(value))
@@ -284,7 +318,12 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             },
             rules=lambda call: (
                 detect_injection(
-                    str(call.get("body") or call.get("command") or call.get("email") or "")
+                    str(
+                        call.get("body")
+                        or call.get("command")
+                        or call.get("account_id")
+                        or ""
+                    )
                 ),
                 detect_sensitive_info(
                     " ".join(
@@ -311,9 +350,10 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             system_prompt=(
                 "You always use the send_email tool to fulfill a request. "
                 "You never skip the tool to answer in text alone. "
-                "Call send_email exactly once. Use lookup_account only when "
-                "you must resolve a recipient. If a tool is blocked, do "
-                "not call it again; explain that security blocked it."
+                "Call send_email exactly once. Use lookup_account with an "
+                "account id (not an email) only when you must resolve a "
+                "recipient. If a tool is blocked, do not call it again; "
+                "explain that security blocked it."
             ),
             tools=[guarded_send_email, lookup_account],
             hooks=[hooks],

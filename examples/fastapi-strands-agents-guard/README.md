@@ -30,6 +30,19 @@ Then run the FastAPI application:
 uv run --env-file .env.local fastapi dev main.py
 ```
 
+Verify the adapter contracts without starting Claude:
+
+```sh
+uv run python verify.py
+```
+
+The live PII scenario is opt-in. It hits the real Guard API only when both
+`ARCJET_VERIFY_LIVE=1` and a real `ARCJET_KEY` are set:
+
+```sh
+ARCJET_VERIFY_LIVE=1 ARCJET_KEY=ajkey_... uv run python verify.py
+```
+
 ## `POST /chat`
 
 Sends a message to a Strands Agents agent that calls one authored tool
@@ -39,17 +52,18 @@ deny / `is_error()`, the request-path equivalent of `has_failed_open()`).
 Inbound user text is screened with the core `guard()` call before
 `invoke_async` (fail-open — check DENY / `has_failed_open()`). There is no
 `guard_inbound` helper and no inbound hook on the Strands bus. The authored
-tool is authorized by `guard_tool`. The unwrapped tool is denied on
+tool is authorized by `guard_tool`. The unwrapped tool is gated on
 `BeforeToolCallEvent` with `cancel_tool` (a JSON `ArcjetDenialResult` string,
 or `True`). `AfterToolCallEvent` is capture-only (`strands.phase: after`).
 
-Requires `message` and `session_id` in the JSON body. `session_id` must be an
-id the **app already minted** — it is the caller-owned correlation ID on
-`protect()`, inbound `guard()`, `guard_tool` / `guard_hooks`, and
-`invoke_async(..., invocation_state={"correlationId": ..., "sessionId": ...})`.
+Requires `message` and `session_id` in the JSON body. `session_id` must be a
+printable ASCII id the **app already minted** (at most 256 bytes) — it is the
+caller-owned correlation ID on `protect()`, inbound `guard()`, `guard_tool` /
+`guard_hooks`, and `invoke_async(..., invocation_state={"sessionId": ...})`.
 `strands_agent_context` reads `correlationId` then `sessionId` then
-`requestId`. This example never mints one, never reads `trace_id`, and never
-constructs a `SessionManager` just to ask it for an id.
+`requestId`. This example writes only `sessionId` so that order is visible. It
+never mints one, never reads `trace_id`, and never constructs a
+`SessionManager` just to ask it for an id.
 
 ```shell
 curl -X POST http://localhost:8000/chat \
@@ -92,6 +106,12 @@ denial and the run finishes. Do not throw (the SDK swallows into
 `Error: {Type} - {message}`). `guard_hooks` denies the unwrapped tool with
 `BeforeToolCallEvent.cancel_tool` set to the same JSON envelope.
 
+The recipient address is the point of `send_email`, so EMAIL on `to` is not a
+tool-path rule — that would deny every real send. EMAIL in the email *body*
+still denies, as does EMAIL in the inbound `message`. `lookup_account` takes
+an account id, not an email: a clean id can allow (and still emit
+`AfterToolCallEvent` capture); an email in that id is denied by the hook.
+
 `event.interrupt()` is HITL, not the deny path. This example never calls it.
 Do not set `BeforeToolsEvent.cancel` — a batch cancel skips per-tool
 `BeforeToolCallEvent` hooks, so brand-skip would not run.
@@ -110,9 +130,9 @@ see a single Sequence containing:
 
 `guard_tool` wraps the `@tool` `send_email` and hands the copy to
 `Agent(tools=[...])`. The original is left unwrapped. `lookup_account` is
-handed over unwrapped so `cancel_tool` is its only gate. `guard_hooks` brand-
-skips the wrapped copy on the before path (`_arcjet_guarded`) so Guard is not
-called twice. `AfterToolCallEvent` is not skipped by the brand.
+handed over unwrapped so `cancel_tool` is its only gate. `guard_hooks`
+brand-skips the wrapped copy on the before path so Guard is not called twice.
+`AfterToolCallEvent` is not skipped by the brand.
 
 The runner path is asynchronous and needs `launch_arcjet`. Do not pass the
 sync `ArcjetGuardSync` client unless you have no async client.
