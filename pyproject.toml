@@ -106,6 +106,14 @@ claude-managed-agents = ["anthropic>=0.92.0,<2"]
 # safe to declare. Like openai-agents it is in no dependency group so
 # the lockfile does not pull its transitive tree into every `uv sync`.
 strands-agents = ["strands-agents>=1.11.0,<2"]
+# Authored LlmAgent.before_tool_callback plus Runner BasePlugin.
+# Separate extra so installing `arcjet` never pulls Google ADK;
+# `arcjet.guard.google_adk` imports `google.adk` lazily. The floor is
+# 2.0.0 — ADK 2.x, matching JS `@arcjet/guard/google-adk/v2`.
+# Verified on 2.8.0. No chromadb — unlike CrewAI this extra is safe
+# to declare. Like openai-agents it is in no dependency group so the
+# lockfile does not pull its transitive tree into every `uv sync`.
+google-adk = ["google-adk>=2.0.0,<3"]
 # There is deliberately no `crewai` extra, and CrewAI is in no dependency
 # group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
 # 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /
@@ -222,6 +230,8 @@ exclude = [
   "tests/integration/guard/test_claude_agent_sdk.py",
   # Optional extra; strands-agents is not in the default install.
   "tests/integration/guard/test_strands_agents.py",
+  # Optional extra; google-adk is not in the default install.
+  "tests/integration/guard/test_google_adk.py",
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
@@ -252,4 +262,6 @@ exclude = [
   "tests/integration/guard/test_claude_agent_sdk.py",
   # Optional extra; strands-agents is not in the default install.
   "tests/integration/guard/test_strands_agents.py",
+  # Optional extra; google-adk is not in the default install.
+  "tests/integration/guard/test_google_adk.py",
 ]
