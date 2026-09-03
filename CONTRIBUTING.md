@@ -159,6 +159,24 @@ uv run --no-sync pytest tests/integration/guard/test_strands_agents.py --no-cov
 `tests/unit/guard/test_strands_agents.py` imports no `strands` and always runs,
 including when the extra is absent. `just test` on a plain `uv sync` skips the
 integration file, which is what CI does.
+
+### Google ADK tests
+
+`arcjet[google-adk]` is a real extra (`google-adk>=2.0.0,<3`) but is in no
+dependency group, so the lockfile does not pull its transitive tree into every
+`uv sync`. Install it alongside the locked environment when you want integration
+coverage:
+
+```sh
+uv sync
+uv pip install "google-adk>=2.0.0,<3"
+# `--no-sync`, or uv restores the lock and removes google-adk again
+uv run --no-sync pytest tests/integration/guard/test_google_adk.py --no-cov
+```
+
+`tests/unit/guard/test_google_adk.py` imports no `google.adk` and always runs,
+including when the extra is absent. `just test` on a plain `uv sync` skips the
+integration file, which is what CI does.
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call

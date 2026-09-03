@@ -223,7 +223,23 @@ keeping the existing API surface intact with internal changes.
   path. `strands_agent_context` reads a caller-owned `correlationId` /
   `sessionId` / `requestId` from `invocation_state` and never mints,
   never reads `trace_id`, never reads `agent.id` / SessionManager
-  auto-ids. `event.interrupt()` is HITL and is not wrapped. There is no
+  auto-ids.   `event.interrupt()` is HITL and is not wrapped. There is no
+  `guard_inbound`. Already-branded tools are skipped.
+- `src/arcjet/guard/google_adk/` — Optional Google ADK integration
+  (`arcjet[google-adk]`, peer `google-adk>=2.0.0,<3`). Independent of
+  LangChain, CrewAI, OpenAI Agents, the Claude Agent SDK, Claude
+  Managed Agents, and Strands Agents: it must not import any of them.
+  The gate is `LlmAgent.before_tool_callback(tool, args, tool_context)`
+  and plugin `BasePlugin.before_tool_callback`. Return `None` to allow;
+  return a **dict** to skip the tool (the dict is the tool result).
+  Empty `{}` also skips — never return `{}` to allow. On DENY the
+  original tool function does not run. The deny is the
+  `ArcjetDenialResult` dict, not a throw (PluginManager wraps a throw
+  as a plugin error). HITL (`require_confirmation` /
+  `request_confirmation` / ADK `SecurityPlugin`) is not wrapped.
+  `google_adk_context` reads a caller-owned id and never mints, never
+  reads `trace_id`, never reads an ADK-generated `invocation_id`,
+  never reads `toolContext.session_id` / `session.id`. There is no
   `guard_inbound`. Already-branded tools are skipped.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
@@ -266,6 +282,10 @@ deliberately kept apart and **must not be merged**:
   does not pull it). Same lockfile policy as openai-agents. The floor
   is 1.11.0 — the first 1.x with `BeforeToolCallEvent.cancel_tool`
   (1.10.0 does not have it). Verified on 1.54.0.
+- `google-adk` → `google-adk>=2.0.0,<3`. Enough for
+  `arcjet.guard.google_adk`. No chromadb. Same lockfile policy as
+  openai-agents. The floor is 2.0.0 — ADK 2.x, matching JS
+  `@arcjet/guard/google-adk/v2`.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
@@ -290,6 +310,10 @@ import the Claude Agent SDK (`claude_agent_sdk`). Nothing outside
 (`anthropic`). `claude_managed_agents` must not import
 `arcjet.guard.claude_agent_sdk`. Nothing outside
 `src/arcjet/guard/strands_agents/` may import Strands Agents (`strands`).
+Nothing outside `src/arcjet/guard/google_adk/` may import Google ADK
+(`google.adk`). `google_adk` must not import `arcjet.guard.langchain`,
+`crewai`, `openai_agents`, `claude_agent_sdk`, `claude_managed_agents`,
+or `strands_agents`.
 
 ## Coding conventions
 

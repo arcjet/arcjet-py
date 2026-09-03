@@ -1010,6 +1010,7 @@ effect happens.
 | Claude Managed Agents inbound `user.message` / `initial_events` | `guard_events` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — does not call `sessions.events.send` |
 | A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — error-status JSON `ArcjetDenialResult` |
 | Unwrapped Strands MCP / vended / built-ins | `guard_hooks` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — `BeforeToolCallEvent.cancel_tool` |
+| A Google ADK `LlmAgent` / Runner plugin | `guard_tool` / `guard_plugin` (`arcjet.guard.google_adk`) | `arcjet[google-adk]` | Yes — deny dict from `before_tool_callback` |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -1052,6 +1053,13 @@ right home for capture and the wrong home for policy.
   default extra set does not pull chromadb. Docs:
   [`/guards/strands-agents-py/`](https://docs.arcjet.com/guards/strands-agents-py/)
   — not the JS page [`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).
+- **`arcjet[google-adk]`** — `guard_tool`, `guard_plugin`, and
+  `google_adk_context` for Python Google ADK
+  (`google-adk>=2.0.0,<3`, ADK 2.x). Independent of LangChain, CrewAI,
+  OpenAI Agents, the Claude Agent SDK, Claude Managed Agents, and
+  Strands Agents. The default extra set does not pull chromadb. Docs:
+  [`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/)
+  (JS page; this extra is the Python adapter).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1851,6 +1859,88 @@ so the primary gate is per-tool `cancel_tool`.
 `sessionId`, then `requestId` (and the snake_case aliases). It never
 mints. It never reads `trace_id`. It never reads `agent.id` or
 SessionManager auto-ids.
+
+### Google ADK tools and plugins
+
+`arcjet.guard.google_adk` needs `pip install "arcjet[google-adk]"`
+(`google-adk>=2.0.0,<3`). Nothing here imports
+`arcjet.guard.langchain`, `arcjet.guard.crewai`,
+`arcjet.guard.openai_agents`, `arcjet.guard.claude_agent_sdk`,
+`arcjet.guard.claude_managed_agents`, or
+`arcjet.guard.strands_agents`, and importing `arcjet.guard` never
+imports Google ADK. This is the Python adapter; it does not replace
+the JS page
+[`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/).
+
+```py
+from arcjet.guard import TokenBucket, launch_arcjet, server_input
+from arcjet.guard.google_adk import (
+    google_adk_context,
+    guard_plugin,
+    guard_tool,
+)
+
+aj = launch_arcjet(key=arcjet_key)
+session_id = user_id  # a caller-owned id the app already minted
+lookup_limit = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=10)
+
+# LlmAgent.before_tool_callback(tool, args, tool_context)
+before_tool = guard_tool(
+    guard=aj,
+    action="order.looked-up",
+    session_id=session_id,
+    rules=lambda call: [lookup_limit(key=call["tool_name"], requested=1)],
+    on_guard_error="deny",  # default
+)
+
+# Runner BasePlugin.before_tool_callback — put it first
+plugin = guard_plugin(
+    guard=aj,
+    action=lambda call: f"{call['tool_name']}.invoked",
+    session_id=session_id,
+)
+
+# Screen inbound user text yourself. There is no guard_inbound helper.
+app_context = {"session_id": session_id}
+ctx = google_adk_context({"context": app_context})
+decision = await aj.guard(
+    label="chat.inbound",
+    inputs={"content": server_input.string(user_text)},
+    correlation_id=ctx.correlation_id,
+    metadata=ctx.metadata,
+)
+if decision.conclusion == "DENY" or decision.has_failed_open():
+    raise RuntimeError("refusing to start the run")
+```
+
+On DENY `before_tool_callback` returns the
+`{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`
+dict. ADK skips the original tool function and uses that dict as the
+tool result. `None` allows the tool to run. Never `{}` — ADK treats
+an empty mapping as skip too. The callback does not throw
+(PluginManager wraps a throw as a plugin error).
+
+#### Screen inbound before `runner.run_async`
+
+There is no `guard_inbound` helper and no inbound plugin hook that
+denies with a dict (`on_user_message_callback` replaces the user
+message). Screen user text with core `guard()` / `guard_sync()` before
+`runner.run_async`. `protect()` and the request path are fail-open —
+the caller must check `has_failed_open()`. These helpers default to
+`on_guard_error="deny"`. Fail-closed always returns the deny dict; it
+never returns `None` on error.
+
+#### Confirmation is not a policy gate
+
+`require_confirmation` / `request_confirmation` / ADK `SecurityPlugin`
+are human-in-the-loop. This helper does not call them. Policy sits on
+`before_tool_callback` only.
+
+`google_adk_context` reads a caller-owned `correlationId`, then
+`sessionId`, then `conversationId` (and the snake_case aliases). It
+never mints. It never reads `trace_id`. It never reads an
+ADK-generated `invocation_id`. It never reads `toolContext.session_id`
+or `session.id`.
 
 ### Sync usage
 
