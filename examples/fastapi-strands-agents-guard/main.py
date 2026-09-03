@@ -71,6 +71,9 @@ aj = arcjet(
             # curl can reach the agent.
             allow=["CURL"],
         ),
+        # EXAMPLE ONLY: `userId` is later bound to the request-body
+        # `session_id`. A caller who rotates that field bypasses the
+        # bucket. In a real service key it on an authenticated identity.
         token_bucket(
             characteristics=["userId"],
             mode=Mode.LIVE,
@@ -105,7 +108,7 @@ def send_email(to: str, body: str) -> str:
         to: The recipient address.
         body: The email body.
     """
-    logger.info("sending email to %s", to)
+    logger.info("sending email")
     return f"Email sent to {to}"
 
 
@@ -116,7 +119,7 @@ def lookup_account(account_id: str) -> str:
     Args:
         account_id: The account id to look up. This is not an email address.
     """
-    logger.info("looking up account %s", account_id)
+    logger.info("looking up account")
     return f"Account found for {account_id}"
 
 
@@ -189,17 +192,9 @@ async def chat(request: Request, body: ChatRequest) -> Any:
 
     invocation_state = {"sessionId": session_id}
     derived = strands_agent_context(invocation_state)
-    correlation_id = derived.correlation_id
-    if correlation_id is None:
-        return JSONResponse(
-            {
-                "error": (
-                    "session_id must be a caller-owned printable ASCII id "
-                    "(at most 256 bytes)"
-                )
-            },
-            status_code=400,
-        )
+    # Already validated above, so this is that same id — not a second
+    # failure mode.
+    correlation_id = derived.correlation_id or session_id
 
     decision = await aj.protect(
         request,

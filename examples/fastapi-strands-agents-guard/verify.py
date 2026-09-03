@@ -14,7 +14,12 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Literal, Optional
+
+_EXAMPLE_DIR = Path(__file__).resolve().parent
+if str(_EXAMPLE_DIR) not in sys.path:
+    sys.path.insert(0, str(_EXAMPLE_DIR))
 
 from fastapi.testclient import TestClient
 from strands import tool

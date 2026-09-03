@@ -18,5 +18,8 @@ exclude-newer = "7 days"
 # `david/cursor/strands-agents-guard`). That is not a PyPI release. The extra
 # pulls `strands-agents>=1.11.0,<2`. The Anthropic extra is only so this
 # example can run without Bedrock. No chromadb.
+#
+# TODO: once the adapter lands on main (or PyPI), drop this git pin and
+# use the local checkout like examples/fastapi-claude-agent-sdk-guard.
 [tool.uv.sources]
 arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "a630806169b92757192f3f5cce2e305827b26567" }

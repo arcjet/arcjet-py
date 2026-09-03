@@ -24,15 +24,18 @@ cp example.env .env.local
 # Edit .env.local and set your ARCJET_KEY and ANTHROPIC_API_KEY
 ```
 
-Then run the FastAPI application:
+Then run the FastAPI application from this directory:
 
 ```sh
+cd examples/fastapi-strands-agents-guard
 uv run --env-file .env.local fastapi dev main.py
 ```
 
-Verify the adapter contracts without starting Claude:
+Verify the adapter contracts without starting Claude. Run this from
+`examples/fastapi-strands-agents-guard` so `import main` resolves here:
 
 ```sh
+cd examples/fastapi-strands-agents-guard
 uv run python verify.py
 ```
 
