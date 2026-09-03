@@ -62,8 +62,9 @@ send. The event stream is opened first — Anthropic only delivers events
 emitted after the connection is up — then `user.message` and
 `user.custom_tool_result` are sent on that connection. The custom tool is
 authorized by `guard_custom_tool` on `agent.custom_tool_use`. There is no
-`guard_inbound` helper. A session that hits the tool-round cap or ends
-without `end_turn` is stopped with `user.interrupt`.
+`guard_inbound` helper. A session that hits the tool-round cap
+(`ANTHROPIC_MAX_TOOL_ROUNDS`, default 8) or ends without `end_turn` is
+stopped with `user.interrupt`.
 
 Default `permission_policy: always_allow` **cannot** gate Anthropic-cloud
 bash / read / write, and `web_search` / `web_fetch` always run on

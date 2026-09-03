@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
-from anthropic import AsyncAnthropic
+from anthropic import APIError, AsyncAnthropic
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -69,6 +69,7 @@ if not ANTHROPIC_API_KEY:
     )
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+MAX_TOOL_ROUNDS = int(os.getenv("ANTHROPIC_MAX_TOOL_ROUNDS", "8"))
 
 # Request-path client. FastAPI and the Managed Agents session are async,
 # so this route is async and uses `arcjet` for `protect()`.
@@ -308,7 +309,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             label="chat.inbound",
             actor=session_id,
             inputs={"content": server_input.string(body.message)},
-            correlation_id=derived.correlation_id,
+            correlation_id=correlation_id,
             metadata=security_metadata(
                 user=session_id,
                 agent="email-agent",
@@ -411,7 +412,6 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         # while it is open, then iterate. Handle `agent.custom_tool_use`
         # on the same connection so a DENY `user.custom_tool_result` is
         # not sent into a gap.
-        max_tool_rounds = 8
         tool_rounds = 0
         finished = False
         terminated = False
@@ -444,7 +444,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
                     reply_parts.append(_message_text(_event_field(event, "content")))
                 elif event_type == "agent.custom_tool_use":
                     tool_rounds += 1
-                    if tool_rounds > max_tool_rounds:
+                    if tool_rounds > MAX_TOOL_ROUNDS:
                         logger.error(
                             "managed agents session hit tool-round cap; interrupting"
                         )
@@ -506,8 +506,12 @@ async def chat(request: Request, body: ChatRequest) -> Any:
                     anthropic_session_id,
                     events=[{"type": "user.interrupt"}],
                 )
-            except Exception:
-                logger.exception("failed to interrupt managed agents session")
+            except APIError:
+                logger.warning(
+                    "failed to interrupt managed agents session %s",
+                    anthropic_session_id,
+                    exc_info=True,
+                )
 
         await guard_client.flush()
 
