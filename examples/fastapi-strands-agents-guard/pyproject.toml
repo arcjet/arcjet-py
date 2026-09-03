@@ -1,0 +1,22 @@
+[project]
+name = "example-fastapi-strands-agents-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + Strands Agents Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[strands-agents]",
+    "fastapi[standard]==0.141.1",
+    "strands-agents[anthropic]>=1.11.0,<2",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Strands Agents adapter is unpublished. Pin `arcjet[strands-agents]` to SHA
+# a630806169b92757192f3f5cce2e305827b26567 (branch
+# `david/cursor/strands-agents-guard`). That is not a PyPI release. The extra
+# pulls `strands-agents>=1.11.0,<2`. The Anthropic extra is only so this
+# example can run without Bedrock. No chromadb.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "a630806169b92757192f3f5cce2e305827b26567" }
