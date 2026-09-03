@@ -185,8 +185,22 @@ keeping the existing API surface intact with internal changes.
   `{tool_name}.invoked` gate. Wrap-time `session_id=` / `correlation_id=`
   must be a UUID. Wrapped tools are excluded from PreToolUse by the
   `mcp__{server}__{name}` name. `claude_agent_context` reads a caller-owned
-  UUID `session_id` and never mints, never reads `trace_id`. `can_use_tool`
+  UUID `session_id` and never mints, never reads `trace_id`.   `can_use_tool`
   is HITL and is not wrapped. Already-branded tools are skipped.
+- `src/arcjet/guard/claude_managed_agents/` — Optional Claude Managed
+  Agents integration (`arcjet[claude-managed-agents]`, peer
+  `anthropic>=0.92.0,<2`). Hosted REST+SSE, beta
+  `managed-agents-2026-04-01`. Independent of LangChain, CrewAI, OpenAI
+  Agents, and the Claude Agent SDK: it must not import any of them.
+  There is no PreToolUse. `guard_custom_tool` runs Guard before the app
+  executes on `agent.custom_tool_use`; on DENY it does not run the tool
+  and sends `user.custom_tool_result` (`is_error` is on that schema).
+  `guard_events` gates `user.message` / `initial_events` before
+  `sessions.events.send`. `claude_managed_agents_context` reads a
+  caller-owned id and never mints, never reads Anthropic session/event
+  `id`, never reads `trace_id`. Default `always_allow` cannot be gated.
+  `web_search` / `web_fetch` always run on Anthropic. Do not export
+  `guard_tool`, `guard_hooks`, or `guard_inbound`.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -218,6 +232,11 @@ deliberately kept apart and **must not be merged**:
   openai-agents. The floor is 0.2.127 (0.2.83 was mcp CVE + timeout
   fail-close; 0.2.127 includes that and the background-task PreToolUse
   stdin fix). Verified on 0.2.148.
+- `claude-managed-agents` → `anthropic>=0.92.0,<2`. Enough for
+  `arcjet.guard.claude_managed_agents`. No chromadb. Same lockfile
+  policy as openai-agents. The floor is 0.92.0 (first
+  `client.beta.agents` / `sessions` / `environments`). This is not the
+  Claude Agent SDK extra.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
@@ -237,7 +256,10 @@ Arcjet Guard must never require LangChain to be installed. Nothing outside
 `src/arcjet/guard/crewai/` may import CrewAI. Nothing outside
 `src/arcjet/guard/openai_agents/` may import the OpenAI Agents SDK
 (`agents`). Nothing outside `src/arcjet/guard/claude_agent_sdk/` may
-import the Claude Agent SDK (`claude_agent_sdk`).
+import the Claude Agent SDK (`claude_agent_sdk`). Nothing outside
+`src/arcjet/guard/claude_managed_agents/` may import the Anthropic SDK
+(`anthropic`). `claude_managed_agents` must not import
+`arcjet.guard.claude_agent_sdk`.
 
 ## Coding conventions
 

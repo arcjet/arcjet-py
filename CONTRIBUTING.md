@@ -129,6 +129,19 @@ uv run --no-sync pytest tests/integration/guard/test_claude_agent_sdk.py --no-co
 always runs, including when the extra is absent. `just test` on a plain
 `uv sync` skips the integration file, which is what CI does.
 
+### Claude Managed Agents tests
+
+`arcjet[claude-managed-agents]` is a real extra (`anthropic>=0.92.0,<2`) but is
+in no dependency group, so the lockfile does not pull its transitive tree
+into every `uv sync`. The unit suite imports no `anthropic` and always runs,
+including when the extra is absent. This extra is not the Claude Agent SDK
+adapter — do not run those tests in place of these.
+
+```sh
+uv sync
+uv run pytest tests/unit/guard/test_claude_managed_agents.py --no-cov
+```
+
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call

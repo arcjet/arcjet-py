@@ -84,6 +84,19 @@ openai-agents = ["openai-agents>=0.19.0,<1"]
 # openai-agents it is in no dependency group so the lockfile does not
 # pull its transitive tree into every `uv sync`.
 claude-agent-sdk = ["claude-agent-sdk>=0.2.127,<1"]
+# Hosted Claude Managed Agents (REST+SSE, beta managed-agents-2026-04-01).
+# Separate extra so installing `arcjet` never pulls `anthropic`;
+# `arcjet.guard.claude_managed_agents` imports `anthropic` lazily and
+# duck-types `sessions.events.send`. This is NOT the Claude Agent SDK
+# extra — do not reuse that module or `guard_tool` / PreToolUse.
+# The floor is 0.92.0, the first release whose changelog adds
+# `client.beta.agents` / `sessions` / `environments`. EnvironmentWorker
+# landed later (0.103.0); the adapter duck-types `run` so the extra
+# floor stays at agents/sessions/environments. No chromadb — unlike
+# CrewAI this extra is safe to declare. Like openai-agents it is in no
+# dependency group so the lockfile does not pull its transitive tree
+# into every `uv sync`.
+claude-managed-agents = ["anthropic>=0.92.0,<2"]
 # There is deliberately no `crewai` extra, and CrewAI is in no dependency
 # group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
 # 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /

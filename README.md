@@ -1004,6 +1004,8 @@ effect happens.
 | An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
 | A Claude Agent SDK authored `@tool` / `SdkMcpTool` | `guard_tool` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — via `is_error` tool result |
 | Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block |
+| A Claude Managed Agents custom tool (`agent.custom_tool_use`) | `guard_custom_tool` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — `user.custom_tool_result` (does not run the tool) |
+| Claude Managed Agents inbound `user.message` / `initial_events` | `guard_events` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — does not call `sessions.events.send` |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -1033,6 +1035,11 @@ right home for capture and the wrong home for policy.
   OpenAI Agents. Docs:
   [`/guards/claude-agent-sdk-py/`](https://docs.arcjet.com/guards/claude-agent-sdk-py/)
   — not the JS page [`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
+- **`arcjet[claude-managed-agents]`** — `guard_custom_tool`, `guard_events`,
+  and `claude_managed_agents_context` for hosted Claude Managed Agents
+  (`anthropic>=0.92.0,<2`, beta `managed-agents-2026-04-01`). Independent of
+  LangChain, CrewAI, OpenAI Agents, and the Claude Agent SDK. Shared JS+Python
+  docs: [`/guards/claude-managed-agents/`](https://docs.arcjet.com/guards/claude-managed-agents/).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1059,7 +1066,7 @@ from arcjet.guard.langchain import (
 )
 ```
 
-**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `guard_hooks`, `ArcjetMiddleware`, `register_arcjet_hooks`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
+**Fail-closed default** — The *checkpoint surfaces* (`guard_action`, `guard_action_sync`, `guard_tool`, `guard_hooks`, `guard_custom_tool`, `guard_events`, `ArcjetMiddleware`, `register_arcjet_hooks`) default to denying when evaluation is unavailable. This is Arcjet's one documented divergence from the platform-wide fail-open convention. Note the scope: the core `guard()` call still fails **open**, returning an ALLOW for which `has_failed_open()` is `True`, as does the request protection API (`arcjet` / `arcjet_sync`). It is the surfaces that wrap a consequential effect which fail closed:
 
 - **`on_guard_error="deny"`** (default) — If Guard is unavailable or evaluation fails, the guarded action blocks with `ArcjetUnavailableError`.
 - **`on_guard_error="allow"`** — Opt out: if Guard is unavailable, the action runs anyway. Use this only where availability matters more than enforcement.
@@ -1636,6 +1643,78 @@ caller-owned `session_id=` fallback, then `arcjet_sequence()`. It never
 mints. It never reads `trace_id`. Wrap-time `session_id=` /
 `correlation_id=` (including `inbound["session_id"]`) must be a UUID the
 app already minted — the same value you pass to `query()`.
+
+### Claude Managed Agents (hosted REST+SSE)
+
+`arcjet.guard.claude_managed_agents` needs
+`pip install "arcjet[claude-managed-agents]"` (`anthropic>=0.92.0,<2`).
+This is **not** `arcjet.guard.claude_agent_sdk`. There is no PreToolUse,
+no `guard_tool`, and no `guard_inbound`. Anthropic runs the tool loop
+(beta `managed-agents-2026-04-01`). Shared JS+Python docs:
+[`/guards/claude-managed-agents/`](https://docs.arcjet.com/guards/claude-managed-agents/).
+
+```py
+from arcjet.guard import DetectPromptInjection, launch_arcjet
+from arcjet.guard.claude_managed_agents import (
+    claude_managed_agents_context,
+    guard_custom_tool,
+    guard_events,
+)
+
+aj = launch_arcjet(key=arcjet_key)
+ctx = claude_managed_agents_context({"session_id": app_session_id})
+
+send = guard_events(
+    guard=aj,
+    send=client.beta.sessions.events.send,
+    action="message.received",
+    rules=lambda arguments: [DetectPromptInjection()(arguments["prompt"])],
+    correlation_id=ctx.correlation_id,
+    on_guard_error="deny",  # default
+)
+
+handle = guard_custom_tool(
+    guard=aj,
+    run=send_email,
+    action="email.sent",
+    correlation_id=ctx.correlation_id,
+    on_guard_error="deny",  # default
+)
+
+send(
+    session.id,
+    events=[{"type": "user.message", "content": [{"type": "text", "text": user_text}]}],
+)
+
+# On agent.custom_tool_use:
+await handle(event, send=client.beta.sessions.events.send, session_id=session.id)
+```
+
+On DENY the custom-tool helper does not run the tool. It sends a real
+`user.custom_tool_result` (`custom_tool_use_id`, `content`, `is_error`)
+with JSON `{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`.
+`guard_events` does not call `sessions.events.send` when inbound
+`user.message` / `initial_events` is denied.
+
+For a self-hosted `EnvironmentWorker`, wrap the custom `@beta_tool` /
+`@beta_async_tool` with the same helper (`tool=`) and put it in the
+worker's `tools` factory. The CLI worker cannot register custom tools.
+
+#### What this extra cannot gate
+
+Default `permission_policy: always_allow` **cannot** be gated —
+Anthropic-cloud bash / read / write run before any customer hook.
+`web_search` / `web_fetch` always run on Anthropic. MCP: Anthropic is
+the client; customer-side Guard is on custom tools and MCP servers
+**they** host. HITL `always_ask` / `user.tool_confirmation` is not
+policy. `protect()` and the request path are fail-open — the caller
+must check `has_failed_open()`. These helpers default to
+`on_guard_error="deny"`.
+
+`claude_managed_agents_context` reads a caller-owned `correlation_id` /
+`session_id`, then `arcjet_sequence()`. It never mints. It never reads
+`trace_id`. It never treats Anthropic session / event ids as if we
+created them.
 
 ### Sync usage
 
