@@ -97,6 +97,15 @@ claude-agent-sdk = ["claude-agent-sdk>=0.2.127,<1"]
 # dependency group so the lockfile does not pull its transitive tree
 # into every `uv sync`.
 claude-managed-agents = ["anthropic>=0.92.0,<2"]
+# Authored @tool wrap plus BeforeToolCallEvent.cancel_tool hooks. Separate
+# extra so installing `arcjet` never pulls Strands Agents;
+# `arcjet.guard.strands_agents` imports `strands` lazily. The floor is
+# 1.11.0 — the first 1.x whose BeforeToolCallEvent has cancel_tool
+# (1.10.0 does not; PR 964 shipped in 1.11.0). Verified on 1.54.0. The
+# default extra set does not pull chromadb — unlike CrewAI this extra is
+# safe to declare. Like openai-agents it is in no dependency group so
+# the lockfile does not pull its transitive tree into every `uv sync`.
+strands-agents = ["strands-agents>=1.11.0,<2"]
 # There is deliberately no `crewai` extra, and CrewAI is in no dependency
 # group. `crewai` hard-depends on `chromadb~=1.1.0`, and every chromadb from
 # 1.0.0 to 1.5.9 carries an unpatched critical RCE (CVE-2026-45829 /
@@ -211,6 +220,8 @@ exclude = [
   "tests/integration/guard/test_openai_agents_runner.py",
   # Optional extra; claude-agent-sdk is not in the default install.
   "tests/integration/guard/test_claude_agent_sdk.py",
+  # Optional extra; strands-agents is not in the default install.
+  "tests/integration/guard/test_strands_agents.py",
 ]
 include = ["src", "tests"]
 pythonVersion = "3.10"
@@ -239,4 +250,6 @@ exclude = [
   "tests/integration/guard/test_openai_agents_runner.py",
   # Optional extra; claude-agent-sdk is not in the default install.
   "tests/integration/guard/test_claude_agent_sdk.py",
+  # Optional extra; strands-agents is not in the default install.
+  "tests/integration/guard/test_strands_agents.py",
 ]

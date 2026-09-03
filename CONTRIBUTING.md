@@ -142,6 +142,23 @@ uv sync
 uv run pytest tests/unit/guard/test_claude_managed_agents.py --no-cov
 ```
 
+### Strands Agents tests
+
+`arcjet[strands-agents]` is a real extra (`strands-agents>=1.11.0,<2`) but
+is in no dependency group, so the lockfile does not pull its transitive tree
+into every `uv sync`. Install it alongside the locked environment when you want
+integration coverage:
+
+```sh
+uv sync
+uv pip install "strands-agents>=1.11.0,<2"
+# `--no-sync`, or uv restores the lock and removes strands-agents again
+uv run --no-sync pytest tests/integration/guard/test_strands_agents.py --no-cov
+```
+
+`tests/unit/guard/test_strands_agents.py` imports no `strands` and always runs,
+including when the extra is absent. `just test` on a plain `uv sync` skips the
+integration file, which is what CI does.
 ## Benchmarks
 
 WASM performance benchmarks live in `tests/benchmarks/` and measure the per-call

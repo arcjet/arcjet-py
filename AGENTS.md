@@ -204,6 +204,27 @@ keeping the existing API surface intact with internal changes.
   `trace_id`. Default `always_allow` cannot be gated.
   `web_search` / `web_fetch` always run on Anthropic. Do not export
   `guard_tool`, `guard_hooks`, or `guard_inbound`.
+- `src/arcjet/guard/strands_agents/` — Optional Strands Agents
+  integration (`arcjet[strands-agents]`, peer `strands-agents>=1.11.0,<2`).
+  Independent of LangChain, CrewAI, OpenAI Agents, the Claude Agent
+  SDK, and Claude Managed Agents: it must not import any of them.
+  `guard_tool` wraps an authored `@tool` / `DecoratedFunctionTool.stream`;
+  on DENY it yields an error-status tool result whose text is the JSON
+  `ArcjetDenialResult` and does not throw (the SDK swallows into
+  `Error: {Type} - {message}`). `stream` is the wrap point so
+  caller-owned `invocation_state` is visible; tool kwargs are never a
+  correlation source. `guard_hooks` denies unwrapped MCP / vended /
+  built-ins on `BeforeToolCallEvent` (`cancel_tool` = JSON
+  `ArcjetDenialResult`). `BeforeToolsEvent.cancel` is not set: official
+  docs say a batch cancel skips per-tool `BeforeToolCallEvent` hooks
+  (the same choice as the JS adapter). `AfterToolCallEvent` is
+  capture-only (`strands.phase: after`); a cancel or exception is not
+  recorded as `success`. Wrapped tools are brand-skipped on the before
+  path. `strands_agent_context` reads a caller-owned `correlationId` /
+  `sessionId` / `requestId` from `invocation_state` and never mints,
+  never reads `trace_id`, never reads `agent.id` / SessionManager
+  auto-ids. `event.interrupt()` is HITL and is not wrapped. There is no
+  `guard_inbound`. Already-branded tools are skipped.
 - `src/arcjet/_analyze/` — WASM component integration with typed Python bindings.
   See `docs/WITGEN.md` for binding generation and
   `docs/WASMTIME.md` for wasmtime-py details.
@@ -240,6 +261,11 @@ deliberately kept apart and **must not be merged**:
   policy as openai-agents. The floor is 0.92.0 (first
   `client.beta.agents` / `sessions` / `environments`). This is not the
   Claude Agent SDK extra.
+- `strands-agents` → `strands-agents>=1.11.0,<2`. Enough for
+  `arcjet.guard.strands_agents`. No chromadb (the default extra set
+  does not pull it). Same lockfile policy as openai-agents. The floor
+  is 1.11.0 — the first 1.x with `BeforeToolCallEvent.cancel_tool`
+  (1.10.0 does not have it). Verified on 1.54.0.
 There is deliberately **no `crewai` extra and no CrewAI dependency group**.
 `crewai` hard-depends on `chromadb~=1.1.0`, and chromadb 1.0.0–1.5.9 all carry
 an unpatched critical RCE (CVE-2026-45829). No fixed version exists and
@@ -262,7 +288,8 @@ Arcjet Guard must never require LangChain to be installed. Nothing outside
 import the Claude Agent SDK (`claude_agent_sdk`). Nothing outside
 `src/arcjet/guard/claude_managed_agents/` may import the Anthropic SDK
 (`anthropic`). `claude_managed_agents` must not import
-`arcjet.guard.claude_agent_sdk`.
+`arcjet.guard.claude_agent_sdk`. Nothing outside
+`src/arcjet/guard/strands_agents/` may import Strands Agents (`strands`).
 
 ## Coding conventions
 
