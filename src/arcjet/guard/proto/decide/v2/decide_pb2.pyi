@@ -37,6 +37,7 @@ class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_TYPE_DENIED_STRING_VALUES: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_STRING_LENGTH: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_STRING_LIST_MEMBERSHIP: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_POLICY_EXPRESSION: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_CUSTOM: _ClassVar[GuardRuleType]
 
@@ -109,6 +110,7 @@ GUARD_RULE_TYPE_ALLOWED_STRING_VALUES: GuardRuleType
 GUARD_RULE_TYPE_DENIED_STRING_VALUES: GuardRuleType
 GUARD_RULE_TYPE_STRING_LENGTH: GuardRuleType
 GUARD_RULE_TYPE_STRING_LIST_MEMBERSHIP: GuardRuleType
+GUARD_RULE_TYPE_POLICY_EXPRESSION: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_CUSTOM: GuardRuleType
 GUARD_RULE_MODE_UNSPECIFIED: GuardRuleMode
@@ -428,6 +430,12 @@ class ResultNotRun(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class ResultPolicyExpression(_message.Message):
+    __slots__ = ()
+    CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    conclusion: GuardConclusion
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ...) -> None: ...
+
 class ResultError(_message.Message):
     __slots__ = ()
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
@@ -505,6 +513,7 @@ class GuardPolicyRuleResult(_message.Message):
     DENIED_STRING_VALUES_FIELD_NUMBER: _ClassVar[int]
     STRING_LENGTH_FIELD_NUMBER: _ClassVar[int]
     STRING_LIST_MEMBERSHIP_FIELD_NUMBER: _ClassVar[int]
+    POLICY_EXPRESSION_FIELD_NUMBER: _ClassVar[int]
     LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     NOT_RUN_FIELD_NUMBER: _ClassVar[int]
@@ -521,10 +530,11 @@ class GuardPolicyRuleResult(_message.Message):
     denied_string_values: ResultStringConstraint
     string_length: ResultStringConstraint
     string_list_membership: ResultStringListMembership
+    policy_expression: ResultPolicyExpression
     local_sensitive_info: ResultLocalSensitiveInfo
     error: ResultError
     not_run: ResultNotRun
-    def __init__(self, result_id: _Optional[str] = ..., policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., allowed_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., denied_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_length: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_list_membership: _Optional[_Union[ResultStringListMembership, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
+    def __init__(self, result_id: _Optional[str] = ..., policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., allowed_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., denied_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_length: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_list_membership: _Optional[_Union[ResultStringListMembership, _Mapping]] = ..., policy_expression: _Optional[_Union[ResultPolicyExpression, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
 
 class GuardDecision(_message.Message):
     __slots__ = ()
