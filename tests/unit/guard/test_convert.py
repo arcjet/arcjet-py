@@ -972,7 +972,7 @@ class TestPolicyExpressionResult:
     """
 
     @staticmethod
-    def _policy_result(conclusion: int) -> pb.GuardPolicyRuleResult:
+    def _policy_result(conclusion: pb.GuardConclusion) -> pb.GuardPolicyRuleResult:
         return pb.GuardPolicyRuleResult(
             result_id="result-expression",
             policy_id="policy-id",
