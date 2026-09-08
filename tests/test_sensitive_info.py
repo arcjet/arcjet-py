@@ -7,6 +7,7 @@ evaluator).
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,6 +33,7 @@ from arcjet._rules import (
     SensitiveInfoEntityType,
     detect_sensitive_info,
 )
+from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 # ---------------------------------------------------------------------------
@@ -1040,3 +1042,24 @@ class TestDetectCallback:
         si = result.reason.sensitive_info
         assert len(si.denied) == 1
         assert si.denied[0].identified_type == "CUSTOM_PII"
+
+
+class TestWasmBackendSeparatorRuns:
+    """Separator-only tokens were skipped by recursing once each.
+
+    A couple of thousand spaces — an unremarkable input — exhausted the WASM
+    stack and raised instead of returning a result, so detection did not run
+    for that request. Reserved test data only (RFC 2606 domain).
+    """
+
+    def test_long_separator_runs_do_not_abort_the_wasm(self) -> None:
+        from arcjet._local import WasmSensitiveInfoBackend
+
+        backend = WasmSensitiveInfoBackend()
+        result = backend.detect(
+            SensitiveInfoBackendContext(log=logging.getLogger(__name__)),
+            "  " * 20000 + "victim@example.com",
+            SensitiveInfoEntitiesDeny([SensitiveInfoEntityEmail()]),
+        )
+
+        assert len(result.denied) == 1
