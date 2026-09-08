@@ -70,7 +70,7 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "connect-python" },
@@ -162,7 +162,7 @@ dev = [
 
 [[package]]
 name = "arcjet-sensitive-info-rampart"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "sensitive-info-rampart" }
 dependencies = [
     { name = "arcjet" },
