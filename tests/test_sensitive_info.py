@@ -1063,3 +1063,36 @@ class TestWasmBackendSeparatorRuns:
         )
 
         assert len(result.denied) == 1
+
+
+class TestWasmBackendOffsets:
+    """The WASM component reports UTF-8 byte offsets.
+
+    ``DetectedSensitiveInfoEntity.start``/``end`` are documented as indices
+    into the value, and Python indexes strings by code point, so the backend
+    converts them. Without that, ``value[entity.start : entity.end]`` returns
+    the wrong substring as soon as the value contains a non-ASCII character.
+
+    Reserved test data only (RFC 2606 domain).
+    """
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["", "hello ", "Здравствуйте, ", "您好 ", "🙂🙂🙂🙂 ", "é" * 4 + " "],
+    )
+    def test_offsets_index_the_value_as_a_python_string(self, prefix: str) -> None:
+        from arcjet._local import WasmSensitiveInfoBackend
+
+        email = "victim@example.com"
+        value = f"{prefix}mail {email} end"
+
+        backend = WasmSensitiveInfoBackend()
+        result = backend.detect(
+            SensitiveInfoBackendContext(log=logging.getLogger(__name__)),
+            value,
+            SensitiveInfoEntitiesDeny([SensitiveInfoEntityEmail()]),
+        )
+
+        assert len(result.denied) == 1
+        entity = result.denied[0]
+        assert value[entity.start : entity.end] == email
