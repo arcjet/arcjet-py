@@ -1096,3 +1096,33 @@ class TestWasmBackendOffsets:
         assert len(result.denied) == 1
         entity = result.denied[0]
         assert value[entity.start : entity.end] == email
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["", "hello ", "Здравствуйте, ", "您好 ", "🙂🙂🙂🙂 ", "é" * 4 + " "],
+    )
+    def test_allowed_offsets_index_the_value_as_a_python_string(
+        self, prefix: str
+    ) -> None:
+        """The same conversion applies to ``allowed``, not just ``denied``.
+
+        An allow-list rule reports matching entities on ``allowed``, so that
+        list needs the same treatment; asserting only ``denied`` would leave
+        half the conversion uncovered.
+        """
+        from arcjet._local import WasmSensitiveInfoBackend
+
+        email = "victim@example.com"
+        value = f"{prefix}mail {email} end"
+
+        backend = WasmSensitiveInfoBackend()
+        result = backend.detect(
+            SensitiveInfoBackendContext(log=logging.getLogger(__name__)),
+            value,
+            SensitiveInfoEntitiesAllow([SensitiveInfoEntityEmail()]),
+        )
+
+        assert len(result.allowed) == 1
+        assert not result.denied
+        entity = result.allowed[0]
+        assert value[entity.start : entity.end] == email
