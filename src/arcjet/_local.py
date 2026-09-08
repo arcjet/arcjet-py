@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.resources as _res
 import json
 import threading
+from dataclasses import replace
 from typing import Callable, Iterable
 
 from arcjet._analyze import (
@@ -383,6 +384,52 @@ def _to_proto_entities(
     ]
 
 
+def _to_code_point_offsets(
+    value: str,
+    entities: list[DetectedSensitiveInfoEntity],
+) -> list[DetectedSensitiveInfoEntity]:
+    """Convert the UTF-8 byte offsets WASM reports into ``str`` indices.
+
+    ``DetectedSensitiveInfoEntity.start``/``end`` are documented as indices
+    into the value, and Python strings are indexed by code point. The component
+    counts bytes, so without this ``value[entity.start : entity.end]`` returns
+    the wrong substring for any value containing a non-ASCII character.
+
+    A span is only ever widened, never narrowed, so it still covers the whole
+    entity when an offset lands inside a character.
+    """
+    if not entities:
+        return []
+
+    # One pass over the value, recording the code point index that each byte
+    # offset corresponds to.
+    floors: dict[int, int] = {0: 0}
+    ceilings: dict[int, int] = {0: 0}
+    byte_offset = 0
+    for index, character in enumerate(value):
+        width = len(character.encode("utf-8"))
+        for inner in range(1, width):
+            # Inside a character: widen outwards in both directions.
+            floors[byte_offset + inner] = index
+            ceilings[byte_offset + inner] = index + 1
+        byte_offset += width
+        floors[byte_offset] = index + 1
+        ceilings[byte_offset] = index + 1
+
+    def resolve(offset: int, table: dict[int, int]) -> int:
+        # Offsets past the end clamp to it, so a span is always sliceable.
+        return table.get(offset, len(value))
+
+    return [
+        replace(
+            entity,
+            start=resolve(entity.start, floors),
+            end=max(resolve(entity.start, floors), resolve(entity.end, ceilings)),
+        )
+        for entity in entities
+    ]
+
+
 class WasmSensitiveInfoBackend:
     """Default sensitive-info backend backed by the arcjet-analyze WASM engine.
 
@@ -430,7 +477,14 @@ class WasmSensitiveInfoBackend:
 
             wasm_detect = _wrapped_detect
 
-        return component.detect_sensitive_info(value, config, detect=wasm_detect)
+        result = component.detect_sensitive_info(value, config, detect=wasm_detect)
+        # WASM reports UTF-8 byte offsets; the public dataclass is documented in
+        # string indices.
+        return replace(
+            result,
+            allowed=_to_code_point_offsets(value, result.allowed),
+            denied=_to_code_point_offsets(value, result.denied),
+        )
 
 
 # Module-level default backend instance, reused across evaluations.
