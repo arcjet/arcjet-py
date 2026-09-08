@@ -39,6 +39,7 @@ Reason = Literal[
     "SENSITIVE_INFO",
     "INPUT_CONSTRAINT",
     "CUSTOM",
+    "POLICY_EXPRESSION",
     "ERROR",
     "NOT_RUN",
     "UNKNOWN",
@@ -346,6 +347,29 @@ class RuleResultCustom:
 
 
 @dataclass(frozen=True, slots=True)
+class RuleResultPolicyExpression:
+    """Result for a remote-policy rule decided by the policy's expression language.
+
+    A v2 policy states its rules as an expression over the inputs it declares,
+    rather than as a typed rule variant, so this carries the conclusion and
+    nothing more. Which conditions fired is a property of the compiled artifact
+    named by ``policy_revision``, not something the result restates.
+    """
+
+    conclusion: Conclusion = "ALLOW"
+    """Whether the request was allowed or denied by this rule."""
+
+    reason: Reason = "POLICY_EXPRESSION"
+    """The reason category — always ``"POLICY_EXPRESSION"``."""
+
+    type: Literal["POLICY_EXPRESSION"] = "POLICY_EXPRESSION"
+    """Discriminant — always ``"POLICY_EXPRESSION"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings. Informational; never changes the conclusion."""
+
+
+@dataclass(frozen=True, slots=True)
 class RuleResultNotRun:
     """Result for a rule that was not evaluated."""
 
@@ -439,6 +463,7 @@ RuleResult = Union[
     RuleResultModerateContent,
     RuleResultSensitiveInfo,
     RuleResultCustom,
+    RuleResultPolicyExpression,
     RuleResultNotRun,
     RuleResultError,
     RuleResultInputConstraint,

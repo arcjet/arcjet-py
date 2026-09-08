@@ -13,10 +13,15 @@ from arcjet.guard import (
     ModerateContent,
     RuleResultError,
     RuleResultModerateContent,
+    RuleResultPolicyExpression,
     SlidingWindow,
     TokenBucket,
 )
-from arcjet.guard._convert import decision_from_proto, rule_to_proto
+from arcjet.guard._convert import (
+    _policy_result_from_proto,
+    decision_from_proto,
+    rule_to_proto,
+)
 from arcjet.guard._local import hash_text
 from arcjet.guard._rules._base import _hash_key
 from arcjet.guard.proto.decide.v2 import decide_pb2 as pb
@@ -954,3 +959,56 @@ class TestBuildUserAgent:
 
         ua = _build_user_agent()
         assert _sdk_version() in ua
+
+
+class TestPolicyExpressionResult:
+    """A policy v2 states its rules as an expression, so ``policy_expression``
+    is the variant every Rego rule reports through.
+
+    ``_policy_result_from_proto`` had no branch for it, so it fell through to
+    ``RuleResultUnknown`` — whose conclusion is ALLOW. A denying rule therefore
+    read as allowed. Both conclusions are asserted because only the DENY case
+    shows the conclusion is taken from the message rather than defaulted.
+    """
+
+    @staticmethod
+    def _policy_result(conclusion: pb.GuardConclusion) -> pb.GuardPolicyRuleResult:
+        return pb.GuardPolicyRuleResult(
+            result_id="result-expression",
+            policy_id="policy-id",
+            policy_revision="rev-1",
+            rule_id="deny-recipient",
+            type=pb.GUARD_RULE_TYPE_POLICY_EXPRESSION,
+            mode=pb.GUARD_RULE_MODE_LIVE,
+            execution=pb.GUARD_RULE_EXECUTION_SERVER,
+            policy_expression=pb.ResultPolicyExpression(conclusion=conclusion),
+        )
+
+    def test_preserves_a_denial(self) -> None:
+        result = _policy_result_from_proto(
+            self._policy_result(pb.GUARD_CONCLUSION_DENY)
+        )
+        assert result.result.type == "POLICY_EXPRESSION"
+        assert result.result.reason == "POLICY_EXPRESSION"
+        assert result.result.conclusion == "DENY"
+        # The rule's identity has to survive: it is what names the rule in a
+        # log or an audit trail.
+        assert result.rule_id == "deny-recipient"
+        assert result.policy_revision == "rev-1"
+
+    def test_preserves_an_allow(self) -> None:
+        result = _policy_result_from_proto(
+            self._policy_result(pb.GUARD_CONCLUSION_ALLOW)
+        )
+        assert result.result.type == "POLICY_EXPRESSION"
+        assert result.result.reason == "POLICY_EXPRESSION"
+        assert result.result.conclusion == "ALLOW"
+
+    def test_is_a_distinct_type_from_unknown(self) -> None:
+        # The regression this guards is silent: an unhandled variant becomes
+        # RuleResultUnknown, which also reports ALLOW. Asserting the type keeps
+        # the allow case above from passing for the wrong reason.
+        result = _policy_result_from_proto(
+            self._policy_result(pb.GUARD_CONCLUSION_ALLOW)
+        )
+        assert isinstance(result.result, RuleResultPolicyExpression)

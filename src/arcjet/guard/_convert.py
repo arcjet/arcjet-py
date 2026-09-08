@@ -47,6 +47,7 @@ from ._types import (
     RuleResultInputConstraint,
     RuleResultModerateContent,
     RuleResultNotRun,
+    RuleResultPolicyExpression,
     RuleResultPromptInjection,
     RuleResultSensitiveInfo,
     RuleResultSlidingWindow,
@@ -82,6 +83,7 @@ def _reason_from_oneof(field_name: str) -> Reason:
         "moderate_content": "MODERATE_CONTENT",
         "local_sensitive_info": "SENSITIVE_INFO",
         "local_custom": "CUSTOM",
+        "policy_expression": "POLICY_EXPRESSION",
         "error": "ERROR",
         "not_run": "NOT_RUN",
     }
@@ -235,6 +237,10 @@ def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
             conclusion=_conclusion_from_proto(pr.string_list_membership.conclusion),
             type="STRING_LIST_MEMBERSHIP",
             matched=pr.string_list_membership.matched,
+        )
+    elif which == "policy_expression":
+        result = RuleResultPolicyExpression(
+            conclusion=_conclusion_from_proto(pr.policy_expression.conclusion),
         )
     elif which == "error":
         result = RuleResultError(
