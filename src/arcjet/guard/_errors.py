@@ -14,6 +14,7 @@ from ._types import Decision
 
 __all__ = [
     "ArcjetDeniedError",
+    "ArcjetInvalidLabelError",
     "ArcjetUnavailableError",
     "OnGuardError",
 ]
@@ -58,3 +59,20 @@ class ArcjetUnavailableError(Exception):
         # leaves the traceback saying nothing about why evaluation failed.
         if cause is not None:
             self.__cause__ = cause
+
+
+class ArcjetInvalidLabelError(ValueError):
+    """Raised when a guard label cannot match any policy.
+
+    A configuration error rather than a decision: nothing was evaluated. It is
+    raised where the label is written — at construction — rather than on every
+    call, so a misspelling fails once at startup instead of disabling the guard
+    for the life of the process.
+    """
+
+    def __init__(self, label: str, where: str, problem: str) -> None:
+        super().__init__(
+            f"{where}: guard label {label!r} is invalid ({problem}). "
+            "No policy can match it — rename the tool or pass an explicit action."
+        )
+        self.label = label
