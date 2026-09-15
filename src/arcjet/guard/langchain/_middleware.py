@@ -32,6 +32,7 @@ from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._registry import _awaitable, _blocking
 from arcjet.guard._rules import RuleWithInput
 
+from .._label import assert_valid_action
 from ._tool import (
     _awaited,
     _correlation_from_config,
@@ -74,6 +75,9 @@ class ToolPolicy:
     actor: Optional[ActorResolver | AsyncActorResolver] = None
     inputs: Optional[InputResolver | AsyncInputResolver] = None
     metadata: Optional[Metadata] = None
+
+    def __post_init__(self) -> None:
+        assert_valid_action(self.action, "ToolPolicy")
 
 
 def _policy_actor(policy: "ToolPolicy", args: Mapping[str, Any]) -> Any:

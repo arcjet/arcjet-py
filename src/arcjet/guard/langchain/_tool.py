@@ -54,6 +54,7 @@ from .._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
 from .._client import _GuardClient
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import assert_valid_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable, _blocking, registered_client
 from .._rules import RuleWithInput
@@ -1687,6 +1688,7 @@ def guard_tool(
     mistake, not a degraded evaluation, and ``on_guard_error`` deliberately
     does not govern it.
     """
+    assert_valid_action(action, "guard_tool")
     if on_guard_error not in ("allow", "deny"):
         raise ArcjetMisconfiguration(
             f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "

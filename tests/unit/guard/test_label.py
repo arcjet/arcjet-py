@@ -67,3 +67,60 @@ def test_validate_guard_label_accepts_a_label_the_service_accepts() -> None:
 def test_the_reported_problem_names_the_offending_character() -> None:
     assert "'W'" in (label_problem("getWeather.invoked") or "")
     assert "' '" in (label_problem("tools.a b") or "")
+
+
+class TestAdapterEntryPointsRefuseABadLabel:
+    """Every construction-time entry point refuses a label no policy can match.
+
+    A label derived from a tool name at call time is not checked here — the
+    service judges that one and AJ1023 carries the verdict back. CrewAI is
+    exempt for the same reason plus one of its own: ``sanitize_tool_name``
+    lowercases and separates with underscores, so its derived labels are valid
+    by construction.
+    """
+
+    def test_tool_policy_dataclasses(self) -> None:
+        from arcjet.guard.crewai._hooks import ToolPolicy as CrewToolPolicy
+        from arcjet.guard.langchain._middleware import ToolPolicy as LangChainToolPolicy
+
+        for policy_type in (CrewToolPolicy, LangChainToolPolicy):
+            with pytest.raises(ArcjetInvalidLabelError):
+                policy_type(action="getWeather.invoked")
+            policy_type(action="send_email.invoked")
+
+    def test_wrapper_factories(self) -> None:
+        from arcjet.guard.claude_managed_agents import guard_custom_tool, guard_events
+
+        with pytest.raises(ArcjetInvalidLabelError):
+            guard_events(
+                guard=object(), send=lambda *a, **k: None, action="getWeather.invoked"
+            )
+        with pytest.raises(ArcjetInvalidLabelError):
+            guard_custom_tool(
+                guard=object(), run=lambda e: None, action="getWeather.invoked"
+            )
+
+    def test_hooks_check_only_a_literal_action(self) -> None:
+        from arcjet.guard.claude_agent_sdk import guard_hooks as claude_guard_hooks
+        from arcjet.guard.crewai import register_arcjet_hooks
+        from arcjet.guard.strands_agents import guard_hooks as strands_guard_hooks
+
+        for factory in (claude_guard_hooks, strands_guard_hooks, register_arcjet_hooks):
+            with pytest.raises(ArcjetInvalidLabelError):
+                factory(guard=object(), action="getWeather.invoked")
+
+            # A callable is only resolvable per call, so it must not be refused
+            # here. Anything else the adapter raises — a missing optional peer,
+            # for instance — is not what this asserts.
+            try:
+                factory(guard=object(), action=lambda *a, **k: "getWeather.invoked")
+            except ArcjetInvalidLabelError:  # pragma: no cover - the failure case
+                pytest.fail("a callable action must not be refused at construction")
+            except Exception:
+                pass
+
+    def test_crewai_sanitizer_still_produces_valid_labels(self) -> None:
+        from arcjet.guard.crewai import sanitize_tool_name
+
+        for raw in ("Send Email", "lookupOrder", "getWeather", "refund"):
+            assert label_problem(f"{sanitize_tool_name(raw)}.invoked") is None

@@ -40,6 +40,7 @@ from .._checkpoint import (
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import assert_valid_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
@@ -384,6 +385,7 @@ def guard_tool(
         ValueError: *correlation_id* is not printable ASCII within 256 bytes.
         ImportError: the ``openai-agents`` extra is not installed.
     """
+    assert_valid_action(action, "guard_tool")
     if on_guard_error not in ("allow", "deny"):
         raise ArcjetMisconfiguration(
             f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "

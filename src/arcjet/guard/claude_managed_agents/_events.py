@@ -24,6 +24,7 @@ from arcjet._errors import ArcjetMisconfiguration
 
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import assert_valid_action
 from ._common import (
     PHASE_METADATA_KEY,
     ActorResolver,
@@ -246,6 +247,7 @@ def guard_events(
             "guard_events() needs a non-empty action string "
             "(there is no guard_inbound helper; user.message is this path)"
         )
+    assert_valid_action(action, "guard_events")
 
     config = _EventsConfig(
         guard=guard,
