@@ -26,6 +26,7 @@ from arcjet._logging import logger
 
 from .._context import _validated
 from .._errors import OnGuardError
+from .._label import assert_valid_action
 from ._common import (
     TOOL_METADATA_KEY,
     ActorResolver,
@@ -434,6 +435,7 @@ def _validate_common(
         raise ArcjetMisconfiguration(
             "guard_custom_tool() needs a non-empty action string"
         )
+    assert_valid_action(action, "guard_custom_tool")
 
 
 def guard_custom_tool(

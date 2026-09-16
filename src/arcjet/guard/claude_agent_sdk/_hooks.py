@@ -40,6 +40,7 @@ from .._checkpoint import (
     _resolve_correlation_id,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import assert_valid_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
@@ -615,6 +616,9 @@ def guard_hooks(
             exclude entry cannot be qualified.
         ImportError: the ``claude-agent-sdk`` extra is not installed.
     """
+    # A callable action is only known per call; the service judges that one.
+    if isinstance(action, str):
+        assert_valid_action(action, "guard_hooks")
     if on_guard_error not in ("allow", "deny"):
         raise ArcjetMisconfiguration(
             f"on_guard_error must be 'allow' or 'deny', got {on_guard_error!r}. "

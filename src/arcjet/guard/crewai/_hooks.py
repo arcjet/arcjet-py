@@ -36,6 +36,7 @@ from .._checkpoint import (
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import assert_valid_action
 from .._policy_input import PolicyInputMap
 from .._registry import _blocking
 from .._rules import RuleWithInput
@@ -93,6 +94,9 @@ class ToolPolicy:
     actor: ActorResolver = None
     inputs: InputResolver = None
     metadata: Optional[Metadata] = None
+
+    def __post_init__(self) -> None:
+        assert_valid_action(self.action, "ToolPolicy")
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,6 +520,9 @@ def register_arcjet_hooks(
             registration is already live.
         ValueError: *correlation_id* is not printable ASCII within 256 bytes.
     """
+    # A callable action is only known per call; the service judges that one.
+    if isinstance(action, str):
+        assert_valid_action(action, "register_arcjet_hooks")
     global _registered
 
     if on_guard_error not in ("allow", "deny"):

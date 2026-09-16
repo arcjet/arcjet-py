@@ -78,9 +78,11 @@ from ._context import (
 )
 from ._errors import (
     ArcjetDeniedError,
+    ArcjetInvalidLabelError,
     ArcjetUnavailableError,
     OnGuardError,
 )
+from ._label import validate_guard_label
 from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._registry import (
     capture,
@@ -172,6 +174,7 @@ __all__ = [
     "ArcjetWarning",
     # Errors
     "ArcjetDeniedError",
+    "ArcjetInvalidLabelError",
     "ArcjetUnavailableError",
     # Rule classes
     "DetectPromptInjection",
@@ -221,4 +224,5 @@ __all__ = [
     "flush_sync",
     "guard",
     "guard_sync",
+    "validate_guard_label",
 ]

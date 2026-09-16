@@ -27,6 +27,7 @@ from arcjet._metadata import Metadata
 
 from ._context import current_correlation_id, current_sequence_metadata
 from ._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from ._label import label_rejected_by_service
 from ._policy_input import PolicyInputMap
 from ._registry import _awaitable, _blocking
 from ._registry import capture as _registry_capture
@@ -107,6 +108,10 @@ def _outcome_for_completed_action(
     if decision is None:
         return "degraded"
     if decision.has_failed_open() or degraded is not None:
+        return "degraded"
+    # The service replaced the label, so no published policy could have matched
+    # and the guard did not run. Policy never judged this action.
+    if label_rejected_by_service(decision):
         return "degraded"
     return "success"
 
@@ -199,6 +204,17 @@ def _classify_decision(
     """
     if decision.conclusion == "DENY":
         return denied_error(action, decision)
+    if label_rejected_by_service(decision):
+        # AJ1023: the label was replaced with invalid-label, so no published
+        # policy could have matched. Unevaluated policy, not an allow.
+        if on_guard_error != "allow":
+            return unavailable_error(action, degraded)
+        logger.warning(
+            "arcjet: guard label for action %r was rejected by the service; "
+            "no policy can match it, and on_guard_error is 'allow'",
+            action,
+        )
+        return None
     if decision.has_failed_open():
         if on_guard_error != "allow":
             return unavailable_error(action, degraded)
