@@ -19,12 +19,13 @@ gate.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 __all__ = [
     "MAX_LABEL_BYTES",
     "assert_valid_action",
     "label_problem",
+    "label_rejected_by_service",
     "validate_guard_label",
 ]
 
@@ -92,3 +93,19 @@ def validate_guard_label(label: str) -> None:
             validate_guard_label("getWeather.invoked")  # raises
     """
     assert_valid_action(label, "validate_guard_label")
+
+
+def label_rejected_by_service(decision: Any) -> bool:
+    """Whether the service reported that it rejected this decision's label.
+
+    When it did, the label it evaluated was ``invalid-label``, so no published
+    policy could have matched and the guard did not run. That is unevaluated
+    policy rather than an allow, and ``on_guard_error`` governs it.
+
+    A capture call has no response to carry the code, so capture uses
+    :func:`label_problem` instead.
+    """
+    from ._diagnostics import LABEL_INVALID
+
+    warnings = getattr(decision, "warnings", ())
+    return any(getattr(w, "code", None) == LABEL_INVALID for w in warnings)

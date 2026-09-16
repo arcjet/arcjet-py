@@ -10,8 +10,16 @@ import json
 from pathlib import Path
 
 import pytest
+from guard_doubles import StubGuardClient, make_allow_decision
 
-from arcjet.guard import ArcjetInvalidLabelError, validate_guard_label
+from arcjet.guard import (
+    ArcjetInvalidLabelError,
+    ArcjetUnavailableError,
+    ArcjetWarning,
+    Decision,
+    guard_action_sync,
+    validate_guard_label,
+)
 from arcjet.guard._label import MAX_LABEL_BYTES, label_problem
 
 _CASES_PATH = Path(__file__).parents[2] / "fixtures" / "guard-label-cases.json"
@@ -124,3 +132,63 @@ class TestAdapterEntryPointsRefuseABadLabel:
 
         for raw in ("Send Email", "lookupOrder", "getWeather", "refund"):
             assert label_problem(f"{sanitize_tool_name(raw)}.invoked") is None
+
+
+class TestARejectedLabelIsUnevaluatedPolicy:
+    """AJ1023 means the service replaced the label with ``invalid-label``.
+
+    No published policy could have matched, so the guard did not run. The
+    decision still reads ALLOW and ``has_failed_open()`` is false, which is
+    exactly why this used to look like a guard that ran and permitted the call.
+    """
+
+    @staticmethod
+    def _label_rejected_decision() -> Decision:
+        return Decision(
+            conclusion="ALLOW",
+            id="gdec_invalid_label",
+            reason="UNKNOWN",
+            results=(),
+            warnings=(
+                ArcjetWarning(
+                    code="AJ1023",
+                    message='label is invalid and was replaced with "invalid-label"',
+                ),
+            ),
+        )
+
+    def test_it_denies_by_default(self) -> None:
+        ran = False
+
+        def action() -> str:
+            nonlocal ran
+            ran = True
+            return "ran"
+
+        client = StubGuardClient(decision=self._label_rejected_decision())
+        with pytest.raises(ArcjetUnavailableError):
+            guard_action_sync(
+                action,
+                action="tool.invoked",
+                guard=client,  # type: ignore[arg-type]
+            )
+        assert ran is False, "the guarded callable must not run"
+
+    def test_on_guard_error_allow_lets_it_run(self) -> None:
+        client = StubGuardClient(decision=self._label_rejected_decision())
+        out = guard_action_sync(
+            lambda: "ran",
+            action="tool.invoked",
+            guard=client,  # type: ignore[arg-type]
+            on_guard_error="allow",
+        )
+        assert out == "ran"
+
+    def test_a_decision_without_aj1023_is_unaffected(self) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        out = guard_action_sync(
+            lambda: "ran",
+            action="tool.invoked",
+            guard=client,  # type: ignore[arg-type]
+        )
+        assert out == "ran"

@@ -45,6 +45,9 @@ OPTION_DROPPED = "AJ1001"
 """A field was rejected during validation and dropped."""
 
 METADATA_ENCODE_FAILED = "AJ1017"
+
+LABEL_INVALID = "AJ1023"
+"""A guard label was rejected and replaced; no published policy could match it."""
 """A metadata key could not be encoded and was dropped."""
 
 CLIENT_ALREADY_REGISTERED = "AJ3004"
@@ -67,6 +70,7 @@ _MESSAGES = {
     # as well. They are also still sent in the event's local_warnings.
     OPTION_DROPPED: "A capture field was invalid and was dropped",
     METADATA_ENCODE_FAILED: "Metadata keys could not be encoded and were dropped",
+    LABEL_INVALID: "A guard label was invalid and was replaced; no policy matched",
     # Registration codes. Neither concerns an individual event.
     CLIENT_ALREADY_REGISTERED: (
         "An Arcjet client is already registered; the existing one was kept"
