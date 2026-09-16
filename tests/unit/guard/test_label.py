@@ -125,6 +125,10 @@ class TestAdapterEntryPointsRefuseABadLabel:
             except ArcjetInvalidLabelError:  # pragma: no cover - the failure case
                 pytest.fail("a callable action must not be refused at construction")
             except Exception:
+                # The assertion has already succeeded by this point: the factory
+                # did not refuse the callable. Anything it raises afterwards is
+                # its own concern — a missing optional peer, most often — and
+                # is deliberately not asserted here.
                 pass
 
     def test_crewai_sanitizer_still_produces_valid_labels(self) -> None:

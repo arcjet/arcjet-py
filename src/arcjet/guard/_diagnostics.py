@@ -45,10 +45,10 @@ OPTION_DROPPED = "AJ1001"
 """A field was rejected during validation and dropped."""
 
 METADATA_ENCODE_FAILED = "AJ1017"
+"""A metadata key could not be encoded and was dropped."""
 
 LABEL_INVALID = "AJ1023"
 """A guard label was rejected and replaced; no published policy could match it."""
-"""A metadata key could not be encoded and was dropped."""
 
 CLIENT_ALREADY_REGISTERED = "AJ3004"
 """A second client tried to register; the first one was kept."""
