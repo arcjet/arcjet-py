@@ -13,10 +13,9 @@ second shape for a model-facing tool result — do not invent one.
 from __future__ import annotations
 
 import json
-import math
-import time
 from typing import Any, NoReturn, Optional, TypedDict
 
+from .._retry_after import retry_after_seconds
 from .._types import Decision
 from ._import import load_tool_error
 
@@ -40,31 +39,6 @@ class ArcjetDenialResult(_ArcjetDenialRequired, total=False):
     """
 
     retryAfterSeconds: int
-
-
-def retry_after_seconds(decision: Decision) -> Optional[int]:
-    """Seconds until a rate-limited call may be retried.
-
-    Only meaningful for a ``RATE_LIMIT`` denial. A co-occurring rule that
-    allowed can still leave a ``reset_at_unix_seconds`` in ``decision.results``;
-    ignore it when the denying reason is not a rate limit — same rule as JS
-    ``denial.ts``.
-    """
-    if decision.reason != "RATE_LIMIT":
-        return None
-    now = time.time()
-    found: Optional[int] = None
-    for result in decision.results:
-        if getattr(result, "conclusion", None) != "DENY":
-            continue
-        if getattr(result, "reason", None) != "RATE_LIMIT":
-            continue
-        reset = getattr(result, "reset_at_unix_seconds", None)
-        if isinstance(reset, int) and reset > 0:
-            seconds = max(0, math.ceil(reset - now))
-            if found is None or seconds < found:
-                found = seconds
-    return found
 
 
 def denied_message(decision: Decision) -> str:
