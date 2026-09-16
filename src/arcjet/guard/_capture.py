@@ -23,7 +23,8 @@ from arcjet._metadata import (
 )
 
 from ._convert import local_warnings_to_proto
-from ._diagnostics import CAPTURE_INPUT_INVALID, OPTION_DROPPED, Diagnose
+from ._diagnostics import CAPTURE_INPUT_INVALID, LABEL_INVALID, OPTION_DROPPED, Diagnose
+from ._label import label_problem
 from .proto.decide.v2 import decide_pb2 as pb
 
 CAPTURE_SOURCE_SDK = "sdk"
@@ -54,6 +55,22 @@ def _option_dropped(name: str) -> LocalWarning:
     return LocalWarning(
         code=CAPTURE_OPTION_DROPPED_CODE,
         message=f"capture.{name} was invalid and was dropped by the SDK",
+    )
+
+
+def _label_invalid(problem: str) -> LocalWarning:
+    """Describe a capture action the service will not match to a policy.
+
+    A capture call has no response to carry ``AJ1023`` back, so the client-side
+    check is the only signal available here.  It warns and the action is still
+    sent as written: a capture records what the application did, and there is
+    nothing to fail closed on.
+
+    Message text matches arcjet-js so the two SDKs render this identically.
+    """
+    return LocalWarning(
+        code=LABEL_INVALID,
+        message=f"capture.action is invalid ({problem}); no policy will match it",
     )
 
 
@@ -119,6 +136,10 @@ def normalize_capture_event(
             warnings.append(_option_dropped("metadata"))
 
         warnings.extend(enforce_metadata_budget([encoded]))
+
+        label_issue = label_problem(action)
+        if label_issue is not None:
+            warnings.append(_label_invalid(label_issue))
 
         for warning in warnings:
             diagnose(warning.code)

@@ -264,3 +264,34 @@ class TestCaptureRequest:
         assert len(request.events) == 1
         assert request.events[0].action == "refund.issued"
         assert request.sent_at_unix_ms > 0
+
+
+class TestActionLabel:
+    """A capture call has no response to carry AJ1023 back.
+
+    The client-side check is the only signal available, so capture warns and
+    still sends the action as written.  A capture records what the application
+    did; there is nothing to fail closed on.
+    """
+
+    def test_warns_and_still_sends_an_action_no_policy_can_match(self) -> None:
+        event, diag = _normalize(action="getWeather.invoked")
+
+        assert event is not None, "the event must not be dropped"
+        assert event.action == "getWeather.invoked", "sent as written"
+        assert [w.code for w in event.local_warnings] == ["AJ1023"]
+        assert "no policy will match it" in event.local_warnings[0].message
+        assert "uppercase letter" in event.local_warnings[0].message
+        assert diag.just_codes == ["AJ1023"]
+
+    def test_a_valid_action_warns_about_nothing(self) -> None:
+        event, diag = _normalize(action="send_email.invoked")
+
+        assert event is not None
+        assert list(event.local_warnings) == []
+        assert diag.just_codes == []
+
+    def test_capture_action_never_raises(self) -> None:
+        from arcjet.guard import capture_action
+
+        capture_action(action="getWeather.invoked")
