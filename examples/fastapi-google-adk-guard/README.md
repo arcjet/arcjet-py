@@ -11,7 +11,7 @@ This is **not** JS `@google/adk` / `@arcjet/guard/google-adk/v2`. See
 [`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/).
 
 The Google ADK adapter is unpublished. This example pins
-`arcjet[google-adk]` to SHA `679423c9f5f6db2ad3ca573088faabd862a8587b`
+`arcjet[google-adk]` to SHA `1e6e71cc70c8c98c1364fb0f88c7b09675715ec5`
 (branch `david/cursor/google-adk-guard-c36e`). That is not a PyPI release. The
 extra pulls `google-adk>=2.0.0,<3`. No chromadb. The runner path is async
 (`launch_arcjet`, not `launch_arcjet_sync`).

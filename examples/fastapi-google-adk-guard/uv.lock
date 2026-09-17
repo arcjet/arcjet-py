@@ -223,8 +223,8 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "1.0.0"
-source = { git = "https://github.com/arcjet/arcjet-py?rev=679423c9f5f6db2ad3ca573088faabd862a8587b#679423c9f5f6db2ad3ca573088faabd862a8587b" }
+version = "1.2.0"
+source = { git = "https://github.com/arcjet/arcjet-py?rev=1e6e71cc70c8c98c1364fb0f88c7b09675715ec5#1e6e71cc70c8c98c1364fb0f88c7b09675715ec5" }
 dependencies = [
     { name = "connect-python" },
     { name = "pyqwest" },
@@ -688,7 +688,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arcjet", extras = ["google-adk"], git = "https://github.com/arcjet/arcjet-py?rev=679423c9f5f6db2ad3ca573088faabd862a8587b" },
+    { name = "arcjet", extras = ["google-adk"], git = "https://github.com/arcjet/arcjet-py?rev=1e6e71cc70c8c98c1364fb0f88c7b09675715ec5" },
     { name = "fastapi", extras = ["standard"], specifier = "==0.141.1" },
 ]
 
