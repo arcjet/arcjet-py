@@ -90,10 +90,13 @@ class TestSourceIsolation:
                     assert "crewai" not in node.module
                     assert node.module != "arcjet.guard.langchain"
                     assert node.module != "arcjet.guard.crewai"
+                    assert node.module != "arcjet.guard.google_adk"
+                    assert "google_adk" not in node.module
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         assert "langchain" not in alias.name
                         assert "crewai" not in alias.name
+                        assert "google_adk" not in alias.name
 
     def test_core_guard_imports_with_agents_unimportable(self) -> None:
         """The real invariant, in a process where ``agents`` cannot import."""
