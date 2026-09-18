@@ -265,6 +265,31 @@ class TestGoogleAdkContext:
         ctx = google_adk_context(session)
         assert ctx.correlation_id is None
 
+    def test_reads_adk_state_object(self, reset_sequence_context) -> None:
+        ctx = google_adk_context(_AdkState({"sessionId": "from-adk-state"}))
+        assert ctx.correlation_id == "from-adk-state"
+        assert ctx.metadata is not None
+        assert ctx.metadata["google-adk.session"] == "from-adk-state"
+
+    def test_reads_adk_state_on_tool_context(self, reset_sequence_context) -> None:
+        """Real ToolContext.state is ADK State, not a Mapping.
+
+        session.id / toolContext.sessionId stay unread; the caller-owned
+        id lives on state.
+        """
+        session = SimpleNamespace(id="adk-generated-session")
+        tool_context = SimpleNamespace(
+            session=session,
+            session_id="adk-generated-session",
+            sessionId="adk-generated-session",
+            invocation_id="inv-minted",
+            state=_AdkState({"sessionId": "from-state"}),
+        )
+        ctx = google_adk_context(tool_context)
+        assert ctx.correlation_id == "from-state"
+        assert ctx.metadata is not None
+        assert ctx.metadata["google-adk.session"] == "from-state"
+
 
 class TestDenialPayload:
     def test_rate_limit_is_retryable_and_may_include_retry_after(self) -> None:
@@ -553,6 +578,24 @@ class TestEvaluateBeforeTool:
         )
         assert client.guards[0]["correlation_id"] is None
 
+    def test_correlation_from_adk_state_object(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        session = SimpleNamespace(id="adk-generated-session")
+        _run(
+            evaluate_before_tool(
+                tool=_tool(),
+                args={"value": "hello"},
+                tool_context=SimpleNamespace(
+                    session=session,
+                    session_id="adk-generated-session",
+                    invocation_id="inv-minted",
+                    state=_AdkState({"sessionId": "sess-from-state"}),
+                ),
+                config=_config(guard=client),
+            )
+        )
+        assert client.guards[0]["correlation_id"] == "sess-from-state"
+
     def test_never_reads_trace_id_from_context(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())
         _run(
@@ -644,6 +687,22 @@ class TestGuardToolCallback:
     def test_missing_action_is_refused(self) -> None:
         with pytest.raises(ArcjetMisconfiguration, match="action"):
             guard_tool(guard=StubGuardClient(), action=None)
+
+
+class _AdkState:
+    """ADK ``sessions.state.State`` is dict-like but not a Mapping."""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        self._values = values
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._values.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._values
+
+    def __getitem__(self, key: str) -> Any:
+        return self._values[key]
 
 
 class _DummyBasePlugin:
@@ -758,6 +817,22 @@ def test_public_exports_are_only_the_locked_names() -> None:
     from arcjet.guard import google_adk as adapter
 
     assert adapter.__all__ == ["guard_tool", "guard_plugin", "google_adk_context"]
+
+
+def test_nothing_outside_google_adk_imports_the_peer() -> None:
+    src = Path(__file__).resolve().parents[3] / "src" / "arcjet"
+    for path in src.rglob("*.py"):
+        if "guard/google_adk" in path.as_posix():
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                assert node.module != "google.adk"
+                assert not node.module.startswith("google.adk.")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert alias.name != "google.adk"
+                    assert not alias.name.startswith("google.adk.")
 
 
 def test_payload_from_block_without_decision_is_unavailable() -> None:

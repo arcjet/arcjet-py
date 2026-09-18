@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,9 +12,20 @@ from guard_doubles import StubGuardClient, make_allow_decision, make_deny_decisi
 
 pytest.importorskip("google.adk", reason="arcjet[google-adk] extra is not installed")
 
+from google.adk.agents import LlmAgent  # noqa: E402
+from google.adk.models.base_llm import BaseLlm  # noqa: E402
+from google.adk.models.llm_request import LlmRequest  # noqa: E402
+from google.adk.models.llm_response import LlmResponse  # noqa: E402
 from google.adk.plugins.base_plugin import BasePlugin  # noqa: E402
+from google.adk.runners import InMemoryRunner  # noqa: E402
+from google.adk.sessions.state import State  # noqa: E402
+from google.genai import types  # noqa: E402
 
-from arcjet.guard.google_adk import guard_plugin, guard_tool  # noqa: E402
+from arcjet.guard.google_adk import (  # noqa: E402
+    google_adk_context,
+    guard_plugin,
+    guard_tool,
+)
 from arcjet.guard.google_adk._plugin import _PLUGIN_NAME  # noqa: E402
 
 
@@ -119,3 +131,110 @@ def test_guard_tool_callback_allow_and_deny() -> None:
     result = _run(callback(tool=_tool(), args={"value": "hello"}, tool_context={}))
     assert result is not None
     assert result["arcjetDenied"] is True
+
+
+def test_real_adk_state_is_not_a_mapping() -> None:
+    from collections.abc import Mapping
+
+    state = State({"sessionId": "from-adk-state"}, {})
+    assert not isinstance(state, Mapping)
+    assert state.get("sessionId") == "from-adk-state"
+    ctx = google_adk_context(state)
+    assert ctx.correlation_id == "from-adk-state"
+
+
+class _ScriptedRefundLlm(BaseLlm):
+    """Always calls ``issue_refund`` once, then answers in text."""
+
+    model: str = "scripted-refund"
+
+    async def generate_content_async(
+        self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse, None]:
+        del stream
+        if llm_request.contents:
+            last = llm_request.contents[-1]
+            for part in last.parts or []:
+                if getattr(part, "function_response", None) is not None:
+                    yield LlmResponse(
+                        content=types.Content(
+                            role="model",
+                            parts=[types.Part(text="Refund handled.")],
+                        )
+                    )
+                    return
+        yield LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="issue_refund",
+                            args={
+                                "order_id": "ord-100",
+                                "amount_cents": 2000,
+                                "reason": "item never arrived",
+                            },
+                        )
+                    )
+                ],
+            )
+        )
+
+
+def test_plugin_allow_and_deny_through_real_runner() -> None:
+    """End-to-end: InMemoryRunner + BasePlugin + ADK State, no Gemini."""
+    refunds: list[str] = []
+
+    def issue_refund(order_id: str, amount_cents: int, reason: str) -> dict[str, str]:
+        refunds.append(order_id)
+        return {"status": f"refunded {order_id} ({amount_cents}) {reason}"}
+
+    async def _once(client: StubGuardClient) -> str:
+        refunds.clear()
+        plugin = guard_plugin(guard=client, action="refund.issued", actor="user-42")
+        agent = LlmAgent(
+            name="refund_agent",
+            model=_ScriptedRefundLlm(),
+            instruction="Always call issue_refund.",
+            tools=[issue_refund],
+        )
+        runner = InMemoryRunner(agent=agent, app_name="refund-desk", plugins=[plugin])
+        await runner.session_service.create_session(
+            app_name="refund-desk",
+            user_id="user-42",
+            session_id="sess-adk-state",
+            state={"sessionId": "sess-adk-state"},
+        )
+        parts: list[str] = []
+        async for event in runner.run_async(
+            user_id="user-42",
+            session_id="sess-adk-state",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part(text="Refund order ord-100")],
+            ),
+        ):
+            content = getattr(event, "content", None)
+            event_parts = getattr(content, "parts", None) if content else None
+            if not event_parts:
+                continue
+            for part in event_parts:
+                text = getattr(part, "text", None)
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "".join(parts)
+
+    allow_client = StubGuardClient(decision=make_allow_decision())
+    reply = _run(_once(allow_client))
+    assert refunds == ["ord-100"]
+    assert allow_client.guards[0]["correlation_id"] == "sess-adk-state"
+    assert allow_client.guards[0]["actor"] == "user-42"
+    assert allow_client.guards[0]["label"] == "refund.issued"
+    assert "Refund handled" in reply or refunds == ["ord-100"]
+
+    deny_client = StubGuardClient(decision=make_deny_decision())
+    _run(_once(deny_client))
+    assert refunds == []
+    result_meta = deny_client.captures[0]["metadata"]
+    assert result_meta["outcome"] == "denied"

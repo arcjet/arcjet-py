@@ -29,7 +29,7 @@ from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
-from ._context import google_adk_context
+from ._context import _mapping_like, google_adk_context
 from ._denial import ArcjetDenialResult, payload_from_block, skip_dict
 
 ActorResolver = Union[str, Callable[[Mapping[str, Any]], Optional[str]], None]
@@ -180,16 +180,17 @@ def _resolved_metadata(
 def _caller_owned_source(tool_context: Any) -> Any:
     """What :func:`google_adk_context` may read.
 
-    Application-owned ``state`` is a source. ``session.id`` /
+    Application-owned ``state`` is a source. ADK's session ``State`` is
+    dict-like but not a ``Mapping`` — still extract it. ``session.id`` /
     ``toolContext.sessionId`` / ``invocation_id`` are not — the helper
     refuses those even if *tool_context* itself is passed.
     """
     if tool_context is None:
         return None
     state = getattr(tool_context, "state", None)
-    if isinstance(state, Mapping):
+    if _mapping_like(state):
         return state
-    if isinstance(tool_context, Mapping):
+    if _mapping_like(tool_context):
         return tool_context
     return tool_context
 

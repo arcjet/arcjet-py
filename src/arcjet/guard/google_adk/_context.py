@@ -70,6 +70,27 @@ class GoogleAdkContext:
     metadata: Optional[Metadata] = None
 
 
+def _mapping_like(value: Any) -> bool:
+    """True when named fields can be read with ``.get``.
+
+    ``collections.abc.Mapping`` covers dicts and ``MappingProxyType``.
+    Google ADK's ``sessions.state.State`` implements ``get`` /
+    ``__contains__`` / ``__getitem__`` but is **not** a ``Mapping`` —
+    ``isinstance(State(...), Mapping)`` is False. The documented place
+    for a caller-owned id is that object (``ToolContext.state``), so it
+    must be treated the same way as a mapping. Falling back to
+    ``getattr`` would miss every key: ``State`` stores them internally,
+    not as attributes.
+    """
+    if isinstance(value, Mapping):
+        return True
+    if value is None or isinstance(
+        value, (str, bytes, bytearray, list, tuple, set, frozenset)
+    ):
+        return False
+    return callable(getattr(value, "get", None)) and hasattr(value, "__contains__")
+
+
 def _readable(value: Any) -> Any:
     """*value* if named fields can be read off it, else ``None``."""
     if value is None or isinstance(
@@ -100,7 +121,7 @@ def _read(source: Any, name: str) -> Any:
         return None
     if _looks_like_tool_context(source) and name in _ADK_GENERATED:
         return None
-    if isinstance(source, Mapping):
+    if _mapping_like(source):
         return source.get(name)
     return getattr(source, name, None)
 

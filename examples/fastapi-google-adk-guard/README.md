@@ -40,12 +40,10 @@ cd examples/fastapi-google-adk-guard
 uv run python verify.py
 ```
 
-The live PII scenario is opt-in. It hits the real Guard API only when both
-`ARCJET_VERIFY_LIVE=1` and a real `ARCJET_KEY` are set:
-
-```sh
-ARCJET_VERIFY_LIVE=1 ARCJET_KEY=ajkey_... uv run python verify.py
-```
+`verify.py` exercises adapter contracts with an in-memory Guard client. It
+does not call Gemini or the live Decide API. For a runnable shop that
+drives a real ADK `InMemoryRunner` (no Gemini key), see
+`examples/fastapi-google-adk-shop`.
 
 ## `POST /chat`
 
