@@ -226,7 +226,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
             label="chat.inbound",
             actor=session_id,
             inputs={"content": server_input.string(body.message)},
-            correlation_id=derived.correlation_id,
+            correlation_id=correlation_id,
             metadata=security_metadata(
                 user=session_id,
                 agent="email-agent",

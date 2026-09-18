@@ -35,6 +35,46 @@ from ._import import load_base_plugin
 
 _PLUGIN_NAME = "arcjet.guard.google_adk"
 
+#: One plugin type per loaded ``BasePlugin``. ``guard_plugin()`` used to
+#: define a new class on every call, so a shop that builds a plugin per
+#: request minted a distinct type each time. Keyed by the base so a
+#: test that swaps ``load_base_plugin`` still gets a class of that base.
+_plugin_types: dict[type[Any], type[Any]] = {}
+
+
+def _plugin_type(base: type[Any]) -> type[Any]:
+    existing = _plugin_types.get(base)
+    if existing is not None:
+        return existing
+
+    class ArcjetGuardPlugin(base):
+        def __init__(self, config: CallbackConfig) -> None:
+            super().__init__(name=_PLUGIN_NAME)
+            self._config = config
+
+        async def before_tool_callback(
+            self,
+            *,
+            tool: Any,
+            tool_args: Any,
+            tool_context: Any,
+        ) -> Optional[dict[str, Any]]:
+            try:
+                verdict = await evaluate_before_tool(
+                    tool=tool,
+                    args=tool_args,
+                    tool_context=tool_context,
+                    config=self._config,
+                )
+            except Exception:
+                if self._config.on_guard_error == "allow":
+                    return None
+                verdict = BeforeToolVerdict(deny=True, payload=payload_from_block(None))
+            return callback_result(verdict)
+
+    _plugin_types[base] = ArcjetGuardPlugin
+    return ArcjetGuardPlugin
+
 
 def _exclude_names(exclude: Sequence[str] | None) -> frozenset[str]:
     if exclude is None:
@@ -147,31 +187,4 @@ def guard_plugin(
         exclude=_exclude_names(exclude),
     )
 
-    base = load_base_plugin()
-
-    class ArcjetGuardPlugin(base):
-        def __init__(self) -> None:
-            super().__init__(name=_PLUGIN_NAME)
-            self._config = config
-
-        async def before_tool_callback(
-            self,
-            *,
-            tool: Any,
-            tool_args: Any,
-            tool_context: Any,
-        ) -> Optional[dict[str, Any]]:
-            try:
-                verdict = await evaluate_before_tool(
-                    tool=tool,
-                    args=tool_args,
-                    tool_context=tool_context,
-                    config=self._config,
-                )
-            except Exception:
-                if self._config.on_guard_error == "allow":
-                    return None
-                verdict = BeforeToolVerdict(deny=True, payload=payload_from_block(None))
-            return callback_result(verdict)
-
-    return ArcjetGuardPlugin()
+    return _plugin_type(load_base_plugin())(config)

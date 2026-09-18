@@ -225,24 +225,24 @@ def google_adk_context(
         candidates.append((conversation_id, "conversation_id"))
 
     resolved: Optional[str] = None
-    rejected: Optional[str] = None
+    rejected: list[str] = []
     for value, label in candidates:
         valid = _valid_id(value)
         if valid is not None:
             resolved = valid
             break
         if isinstance(value, str):
-            rejected = label
+            rejected.append(label)
 
     if resolved is None:
         resolved = current_correlation_id()
 
-    if rejected is not None and resolved is None:
+    if rejected and resolved is None:
         logger.warning(
             "arcjet: Google ADK %s rejected; no valid caller-owned "
             "correlation / session / conversation id, leaving the call "
             "uncorrelated",
-            rejected,
+            ", ".join(rejected),
         )
 
     derived: dict[str, Any] = {}

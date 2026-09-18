@@ -223,7 +223,7 @@ keeping the existing API surface intact with internal changes.
   path. `strands_agent_context` reads a caller-owned `correlationId` /
   `sessionId` / `requestId` from `invocation_state` and never mints,
   never reads `trace_id`, never reads `agent.id` / SessionManager
-  auto-ids.   `event.interrupt()` is HITL and is not wrapped. There is no
+  auto-ids. `event.interrupt()` is HITL and is not wrapped. There is no
   `guard_inbound`. Already-branded tools are skipped.
 - `src/arcjet/guard/google_adk/` — Optional Google ADK integration
   (`arcjet[google-adk]`, peer `google-adk>=2.0.0,<3`). Independent of

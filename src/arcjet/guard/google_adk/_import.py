@@ -39,10 +39,13 @@ def _release(raw: str) -> tuple[int, ...]:
     dependency, and a three-part release is all this comparison needs. Pre-
     release suffixes (``rc1``) are stripped; post-releases (``2.0.0.post1``)
     also compare as ``(2, 0, 0)`` because only the leading digit run is kept.
-    A short or non-numeric release such as ``"2.0"`` or ``"2.0.post1"``
-    collapses to ``(2, 0)``, which compares less than the three-part floor
-    and is refused — not treated as unknown and skipped. An empty parse
-    (``"weird"``) is the skip path.
+    A short release such as ``"2.0"`` or ``"2.0.post1"`` collapses to
+    ``(2, 0)``. :func:`_comparable_release` pads that to ``(2, 0, 0)`` so
+    it satisfies the three-part floor the same way PEP 440 treats
+    ``2.0`` and ``2.0.0`` as one release. Google ADK publishes
+    three-part versions today; padding keeps a two-part wheel from
+    being refused as below-floor. An empty parse (``"weird"``) is the
+    skip path.
     """
     parts: list[int] = []
     for chunk in raw.split(".")[:3]:
@@ -55,6 +58,15 @@ def _release(raw: str) -> tuple[int, ...]:
             break
         parts.append(int(digits))
     return tuple(parts)
+
+
+def _comparable_release(release: tuple[int, ...]) -> tuple[int, ...]:
+    """Pad a short parse so ``2.0`` compares as ``(2, 0, 0)``."""
+    if not release:
+        return release
+    if len(release) >= 3:
+        return release[:3]
+    return release + (0,) * (3 - len(release))
 
 
 def _installed_version() -> Optional[str]:
@@ -75,7 +87,7 @@ def _require_google_adk() -> None:
     installed = _installed_version()
     if installed is None:
         return
-    release = _release(installed)
+    release = _comparable_release(_release(installed))
     if release and release < MINIMUM_GOOGLE_ADK:
         floor = ".".join(str(part) for part in MINIMUM_GOOGLE_ADK)
         raise ArcjetMisconfiguration(

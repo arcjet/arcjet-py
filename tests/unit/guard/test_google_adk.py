@@ -52,6 +52,7 @@ from arcjet.guard.google_adk._denial import (
     unavailable_result,
 )
 from arcjet.guard.google_adk._import import (
+    _comparable_release,
     _release,
     google_adk_present,
     load_base_plugin,
@@ -207,6 +208,17 @@ class TestGoogleAdkContext:
         ctx = google_adk_context({"session_id": "not\nvalid"})
         assert ctx.correlation_id is None
         assert ctx.metadata is None
+
+    def test_all_rejected_ids_are_named_in_the_warning(
+        self, reset_sequence_context, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            ctx = google_adk_context(
+                {"correlationId": "not\nvalid", "sessionId": "also\nbad"}
+            )
+        assert ctx.correlation_id is None
+        assert "correlationId" in caplog.text
+        assert "sessionId" in caplog.text
 
     def test_never_reads_trace_id(self, reset_sequence_context) -> None:
         ctx = google_adk_context({"trace_id": "tr_minted", "traceId": "tr2"})
@@ -751,6 +763,15 @@ class TestGuardPlugin:
         assert result != {}
         assert result["arcjetDenied"] is True
 
+    def test_repeated_calls_reuse_the_plugin_type(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(plugin_module, "load_base_plugin", lambda: _DummyBasePlugin)
+        first = guard_plugin(guard=StubGuardClient(), action="echo.invoked")
+        second = guard_plugin(guard=StubGuardClient(), action="echo.invoked")
+        assert type(first) is type(second)
+        assert first is not second
+
     def test_exclude_skips_named_tool(
         self, monkeypatch: pytest.MonkeyPatch, reset_sequence_context
     ) -> None:
@@ -790,7 +811,11 @@ class TestVersionFloor:
         assert _release("2.1.0") == (2, 1, 0)
         assert _release("2.0.0rc1") == (2, 0, 0)
         assert _release("1.19.0") == (1, 19, 0)
+        assert _release("2.0") == (2, 0)
         assert _release("weird") == ()
+        assert _comparable_release((2, 0)) == (2, 0, 0)
+        assert _comparable_release((2, 0, 0)) == (2, 0, 0)
+        assert _comparable_release(()) == ()
 
     def test_below_the_floor_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(import_module, "_installed_version", lambda: "1.19.0")
@@ -800,7 +825,7 @@ class TestVersionFloor:
     def test_at_or_above_the_floor_is_accepted(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        for installed in ("2.0.0", "2.1.0", "2.0.1"):
+        for installed in ("2.0.0", "2.1.0", "2.0.1", "2.0"):
             monkeypatch.setattr(
                 import_module, "_installed_version", lambda v=installed: v
             )
