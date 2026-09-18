@@ -1,0 +1,24 @@
+[project]
+name = "example-fastapi-google-adk-guard"
+version = "0.1.0"
+description = "Arcjet Python SDK Example FastAPI + Google ADK Guard Application"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[google-adk]",
+    "fastapi[standard]==0.141.1",
+    "google-adk>=2.0.0,<3",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Google ADK adapter is unpublished. Pin `arcjet[google-adk]` to SHA
+# a71970dc6d434a47e77e71e35fd485ac1be7ab14 (branch
+# `david/cursor/google-adk-guard-5549`). That is not a PyPI release. The
+# extra pulls `google-adk>=2.0.0,<3`. No chromadb.
+#
+# TODO: once the adapter lands on main (or PyPI), drop this git pin and
+# use the local checkout like examples/fastapi-claude-agent-sdk-guard.
+[tool.uv.sources]
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "a71970dc6d434a47e77e71e35fd485ac1be7ab14" }
