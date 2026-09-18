@@ -13,11 +13,12 @@ dependencies = [
 [tool.uv]
 exclude-newer = "7 days"
 
-# Google ADK adapter is unpublished. Pin `arcjet[google-adk]` to SHA after
-# the adapter commit is on the branch. That is not a PyPI release. The
+# Google ADK adapter is unpublished. Pin `arcjet[google-adk]` to SHA
+# a71970dc6d434a47e77e71e35fd485ac1be7ab14 (branch
+# `david/cursor/google-adk-guard-5549`). That is not a PyPI release. The
 # extra pulls `google-adk>=2.0.0,<3`. No chromadb.
 #
-# TODO: replace this path pin with the branch SHA once the adapter commit
-# is pushed (same pattern as examples/fastapi-strands-agents-guard).
+# TODO: once the adapter lands on main (or PyPI), drop this git pin and
+# use the local checkout like examples/fastapi-claude-agent-sdk-guard.
 [tool.uv.sources]
-arcjet = { path = "../../", editable = true }
+arcjet = { git = "https://github.com/arcjet/arcjet-py", rev = "a71970dc6d434a47e77e71e35fd485ac1be7ab14" }
