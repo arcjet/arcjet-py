@@ -720,7 +720,7 @@ class TestGuardPlugin:
 
     def test_invalid_exclude_is_refused(self) -> None:
         with pytest.raises(TypeError, match="exclude"):
-            guard_plugin(guard=StubGuardClient(), exclude=[""])  # type: ignore[list-item]
+            guard_plugin(guard=StubGuardClient(), exclude=[""])
 
     def test_allow_and_deny_via_dummy_base(
         self, monkeypatch: pytest.MonkeyPatch, reset_sequence_context

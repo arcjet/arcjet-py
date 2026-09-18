@@ -66,8 +66,8 @@ def guard_plugin(
 ) -> Any:
     """Return a Runner ``BasePlugin`` that fails closed.
 
-    Put the result first on ``Runner(..., plugins=[...])`` or
-    ``InMemoryRunner(..., plugins=[...])``. A ``DENY`` (or an
+    Put the result first on ``App(..., plugins=[...])`` (ADK 2.9+;
+    ``Runner(..., plugins=[...])`` still works and is deprecated). A ``DENY`` (or an
     unevaluated policy under the default ``on_guard_error="deny"``)
     returns a skip dict with ``arcjetDenied``. The original tool does
     not run. ``None`` allows the call. The plugin never returns ``{}``

@@ -19,6 +19,7 @@ from typing import Any, Optional, TypedDict
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from google.adk.agents import LlmAgent
+from google.adk.apps.app import App
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -55,6 +56,7 @@ aj = arcjet(
         shield(mode=Mode.LIVE),
         detect_bot(mode=Mode.LIVE, allow=["CURL"]),
     ],
+    environment=os.getenv("ARCJET_ENV", "development"),
 )
 guard_client = launch_arcjet(key=ARCJET_KEY)
 
@@ -136,11 +138,17 @@ class ScriptedRefundLlm(BaseLlm):
         if llm_request.contents:
             last = llm_request.contents[-1]
             for part in last.parts or []:
-                if getattr(part, "function_response", None) is not None:
+                function_response = getattr(part, "function_response", None)
+                if function_response is not None:
+                    response = getattr(function_response, "response", None)
+                    denied = isinstance(response, dict) and response.get("arcjetDenied")
+                    text = (
+                        "Security blocked this refund." if denied else "Refund handled."
+                    )
                     yield LlmResponse(
                         content=types.Content(
                             role="model",
-                            parts=[types.Part(text="Refund handled.")],
+                            parts=[types.Part(text=text)],
                         )
                     )
                     return
@@ -260,9 +268,11 @@ async def run_refund(
         instruction="Always call issue_refund exactly once.",
         tools=[issue_refund],
     )
-    runner = InMemoryRunner(agent=agent, app_name="refund-desk", plugins=[plugin])
+    runner = InMemoryRunner(
+        app=App(name="refund_desk", root_agent=agent, plugins=[plugin])
+    )
     await runner.session_service.create_session(
-        app_name="refund-desk",
+        app_name="refund_desk",
         user_id=user_id,
         session_id=session_id,
         state=app_context,

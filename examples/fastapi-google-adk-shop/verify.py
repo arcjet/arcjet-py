@@ -19,6 +19,7 @@ if str(_EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(_EXAMPLE_DIR))
 
 os.environ.setdefault("ARCJET_KEY", "ajkey_verify_placeholder")
+os.environ.setdefault("ARCJET_ENV", "development")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -59,9 +60,11 @@ class ScenarioGuard:
         self,
         decision: Optional[Decision] = None,
         exception: Optional[Exception] = None,
+        by_label: Optional[dict[str, Decision]] = None,
     ) -> None:
         self.decision = decision
         self.exception = exception
+        self.by_label = by_label or {}
         self.guards: list[dict[str, Any]] = []
         self.captures: list[dict[str, Any]] = []
 
@@ -87,6 +90,8 @@ class ScenarioGuard:
                 "inputs": inputs,
             }
         )
+        if label in self.by_label:
+            return self.by_label[label]
         if self.decision is None:
             raise RuntimeError("ScenarioGuard not configured")
         return self.decision
@@ -133,7 +138,10 @@ async def scenario_runner_allow() -> None:
 
 async def scenario_runner_deny() -> None:
     REFUNDS.clear()
-    guard = ScenarioGuard(decision=_deny())
+    guard = ScenarioGuard(
+        decision=_allow(),
+        by_label={"refund.issued": _deny()},
+    )
     result = await run_refund(
         guard=guard,
         user_id="user-42",
@@ -143,7 +151,10 @@ async def scenario_runner_deny() -> None:
         reason="item never arrived",
     )
     assert result["status"] == "denied", result
+    assert result["phase"] == "tool", result
     assert REFUNDS == []
+    labels = [call["label"] for call in guard.guards]
+    assert "refund.issued" in labels
 
 
 async def scenario_runner_correlation() -> None:

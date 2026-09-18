@@ -13,6 +13,7 @@ from guard_doubles import StubGuardClient, make_allow_decision, make_deny_decisi
 pytest.importorskip("google.adk", reason="arcjet[google-adk] extra is not installed")
 
 from google.adk.agents import LlmAgent  # noqa: E402
+from google.adk.apps.app import App  # noqa: E402
 from google.adk.models.base_llm import BaseLlm  # noqa: E402
 from google.adk.models.llm_request import LlmRequest  # noqa: E402
 from google.adk.models.llm_response import LlmResponse  # noqa: E402
@@ -199,9 +200,11 @@ def test_plugin_allow_and_deny_through_real_runner() -> None:
             instruction="Always call issue_refund.",
             tools=[issue_refund],
         )
-        runner = InMemoryRunner(agent=agent, app_name="refund-desk", plugins=[plugin])
+        runner = InMemoryRunner(
+            app=App(name="refund_desk", root_agent=agent, plugins=[plugin])
+        )
         await runner.session_service.create_session(
-            app_name="refund-desk",
+            app_name="refund_desk",
             user_id="user-42",
             session_id="sess-adk-state",
             state={"sessionId": "sess-adk-state"},

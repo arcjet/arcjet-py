@@ -15,7 +15,8 @@ Three names:
   ADK's callback chain, so the tool would run). Parameter names must be
   ``tool``, ``args``, ``tool_context``.
 * :func:`guard_plugin` — a Runner ``BasePlugin``. Put it first on
-  ``Runner(..., plugins=[...])``. Do not also attach :func:`guard_tool`
+  ``App(..., plugins=[...])`` (or the deprecated
+  ``Runner(..., plugins=[...])``). Do not also attach :func:`guard_tool`
   to the same tools — plugins run first and a second gate double-calls
   Guard. Deny is the same skip dict; ``None`` allows. Never ``{}``.
 * :func:`google_adk_context` — read a caller-owned ``correlation_id`` /
