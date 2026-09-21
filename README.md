@@ -85,8 +85,9 @@ support](https://docs.arcjet.com/support).
 - [Documentation](https://docs.arcjet.com) — full reference and guides
 - [Examples](https://github.com/arcjet/arcjet-py/tree/main/examples) — FastAPI
   and Flask example apps, including
-  [CrewAI Guard](./examples/fastapi-crewai-guard) and
-  [OpenAI Agents Guard](./examples/fastapi-openai-agents-guard) integration
+  [CrewAI Guard](./examples/fastapi-crewai-guard),
+  [OpenAI Agents Guard](./examples/fastapi-openai-agents-guard), and
+  [Google ADK Guard](./examples/fastapi-google-adk-guard) integration
 - [Blueprints](https://docs.arcjet.com/blueprints) — recipes for common security
   patterns
 
@@ -1010,6 +1011,8 @@ effect happens.
 | Claude Managed Agents inbound `user.message` / `initial_events` | `guard_events` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — does not call `sessions.events.send` |
 | A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — error-status JSON `ArcjetDenialResult` |
 | Unwrapped Strands MCP / vended / built-ins | `guard_hooks` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — `BeforeToolCallEvent.cancel_tool` |
+| A Google ADK `LlmAgent` tool call | `guard_tool` (`arcjet.guard.google_adk`) | `arcjet[google-adk]` | Yes — skip dict with `arcjetDenied` |
+| Unwrapped Google ADK tools on a Runner | `guard_plugin` (`arcjet.guard.google_adk`) | `arcjet[google-adk]` | Yes — `BasePlugin.before_tool_callback` skip dict |
 
 Two rules of thumb. If you can name the tool at wiring time, `guard_tool` is the
 smaller change — it returns something that *is* the tool, so nothing downstream
@@ -1052,6 +1055,13 @@ right home for capture and the wrong home for policy.
   default extra set does not pull chromadb. Docs:
   [`/guards/strands-agents-py/`](https://docs.arcjet.com/guards/strands-agents-py/)
   — not the JS page [`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).
+- **`arcjet[google-adk]`** — `guard_tool`, `guard_plugin`, and
+  `google_adk_context` for Python Google ADK
+  (`google-adk>=2.0.0,<3`). Independent of LangChain, CrewAI,
+  OpenAI Agents, the Claude Agent SDK, Claude Managed Agents, and
+  Strands Agents. The default extra set does not pull chromadb. Docs:
+  [`/guards/google-adk-py/`](https://docs.arcjet.com/guards/google-adk-py/)
+  — not the JS page [`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/).
 There is deliberately **no `arcjet[crewai]` extra**. `arcjet.guard.crewai`
 works against the `crewai` you install yourself (`>=1.15.3,<2`, where `@on`
 and `HookAborted` landed; CrewAI requires Python `>=3.10,<3.14`). Arcjet does
@@ -1851,6 +1861,104 @@ so the primary gate is per-tool `cancel_tool`.
 `sessionId`, then `requestId` (and the snake_case aliases). It never
 mints. It never reads `trace_id`. It never reads `agent.id` or
 SessionManager auto-ids.
+
+### Google ADK tools and plugin
+
+`arcjet.guard.google_adk` needs `pip install "arcjet[google-adk]"`
+(`google-adk>=2.0.0,<3`). Nothing here imports
+`arcjet.guard.langchain`, `arcjet.guard.crewai`,
+`arcjet.guard.openai_agents`, `arcjet.guard.claude_agent_sdk`,
+`arcjet.guard.claude_managed_agents`, or
+`arcjet.guard.strands_agents`, and importing `arcjet.guard` never
+imports Google ADK. The Python page is
+[`/guards/google-adk-py/`](https://docs.arcjet.com/guards/google-adk-py/);
+it does not replace the JS page
+[`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/).
+This is not JS `@arcjet/guard/google-adk/v2` (plugin only, no
+`guardTool`).
+
+```py
+from arcjet.guard import launch_arcjet, server_input
+from arcjet.guard.google_adk import (
+    google_adk_context,
+    guard_plugin,
+    guard_tool,
+)
+from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+
+aj = launch_arcjet(key=arcjet_key)
+session_id = user_id  # a caller-owned id the app already minted
+
+
+def send_email(to: str, body: str) -> dict[str, str]:
+    """Send an email."""
+    return {"status": "sent"}
+
+
+# Pick one gate per tool — do not stack both.
+before_tool = guard_tool(
+    guard=aj,
+    action="email.sent",
+    actor=session_id,
+    inputs=lambda call: {
+        "recipient": server_input.string(str(call.get("to", ""))),
+        "body": server_input.string(str(call.get("body", ""))),
+    },
+    session_id=session_id,
+    on_guard_error="deny",  # default
+)
+
+agent = LlmAgent(
+    name="email_agent",
+    model="gemini-2.0-flash",
+    instruction="Send email with send_email.",
+    tools=[send_email],
+    before_tool_callback=before_tool,
+)
+
+# Runner-wide alternative for unwrapped / MCP tools. Put Arcjet first.
+# plugin = guard_plugin(guard=aj, session_id=session_id)
+# runner = Runner(..., plugins=[plugin])
+
+app_context = {"sessionId": session_id}
+ctx = google_adk_context(app_context)
+decision = await aj.guard(
+    label="chat.inbound",
+    inputs={"content": server_input.string(user_text)},
+    actor=session_id,
+    correlation_id=ctx.correlation_id,
+    metadata=ctx.metadata,
+)
+if decision.conclusion == "DENY" or decision.has_failed_open():
+    raise RuntimeError("refusing to start the run")
+```
+
+On DENY `guard_tool` / `guard_plugin` return a skip dict
+`{ arcjetDenied, reason, message, retryable, retryAfterSeconds? }`.
+`None` allows the tool. They never return `{}` (falsy in ADK's
+callback chain, so the tool would run) and never throw.
+`request_confirmation` / `require_confirmation` are HITL, not a
+policy gate.
+
+#### Screen inbound before `runner.run_async`
+
+There is no `guard_inbound` helper. Screen user text with core
+`guard()` / `guard_sync()` before `runner.run_async`. `protect()` and
+the request path are fail-open — the caller must check
+`has_failed_open()`. These helpers default to `on_guard_error="deny"`.
+
+#### Human approval is not a policy gate
+
+`request_confirmation` / `require_confirmation` are human-in-the-loop.
+This helper does not call them. `SecurityPlugin` is not the Arcjet
+gate.
+
+`google_adk_context` reads `correlationId`, then `sessionId`, then
+`conversationId` (and the snake_case aliases). It never mints. It
+never reads `trace_id`. It never reads an ADK-generated
+`invocation_id`. It never reads `toolContext.sessionId` or
+`session.id`.
 
 ### Sync usage
 

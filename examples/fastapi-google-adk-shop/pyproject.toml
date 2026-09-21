@@ -1,0 +1,20 @@
+[project]
+name = "example-fastapi-google-adk-shop"
+version = "0.1.0"
+description = "Refund desk: FastAPI + Google ADK Guard, no Gemini"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "arcjet[google-adk]",
+    "fastapi[standard]==0.141.1",
+    "google-adk>=2.0.0,<3",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+# Unpublished adapter on this branch. Use the local checkout so the shop
+# tracks the SDK under review. The extra pulls `google-adk>=2.0.0,<3`.
+# No chromadb.
+[tool.uv.sources]
+arcjet = { path = "../../", editable = true }

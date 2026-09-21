@@ -186,6 +186,8 @@ class TestSourceIsolation:
                     assert node.module != "arcjet.guard.langchain"
                     assert node.module != "arcjet.guard.crewai"
                     assert node.module != "arcjet.guard.openai_agents"
+                    assert node.module != "arcjet.guard.google_adk"
+                    assert "google_adk" not in node.module
                     assert node.module != "claude_agent_sdk"
                     assert not node.module.startswith("claude_agent_sdk.")
                 if isinstance(node, ast.Import):
@@ -193,6 +195,7 @@ class TestSourceIsolation:
                         assert "langchain" not in alias.name
                         assert "crewai" not in alias.name
                         assert "openai_agents" not in alias.name
+                        assert "google_adk" not in alias.name
                         assert alias.name != "claude_agent_sdk"
                         assert not alias.name.startswith("claude_agent_sdk.")
 

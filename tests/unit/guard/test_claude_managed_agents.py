@@ -192,6 +192,8 @@ class TestSourceIsolation:
                     assert node.module != "arcjet.guard.crewai"
                     assert node.module != "arcjet.guard.openai_agents"
                     assert node.module != "arcjet.guard.claude_agent_sdk"
+                    assert node.module != "arcjet.guard.google_adk"
+                    assert "google_adk" not in node.module
                     assert node.module != "claude_agent_sdk"
                     assert not node.module.startswith("claude_agent_sdk.")
                     assert node.module != "anthropic"
@@ -202,6 +204,7 @@ class TestSourceIsolation:
                         assert "crewai" not in alias.name
                         assert "openai_agents" not in alias.name
                         assert "claude_agent_sdk" not in alias.name
+                        assert "google_adk" not in alias.name
                         assert alias.name != "claude_agent_sdk"
                         assert alias.name != "anthropic"
                         assert not alias.name.startswith("anthropic.")

@@ -128,11 +128,13 @@ class TestSourceIsolation:
                     assert "openai_agents" not in node.module
                     assert "claude_agent_sdk" not in node.module
                     assert "claude_managed_agents" not in node.module
+                    assert "google_adk" not in node.module
                     assert node.module != "arcjet.guard.langchain"
                     assert node.module != "arcjet.guard.crewai"
                     assert node.module != "arcjet.guard.openai_agents"
                     assert node.module != "arcjet.guard.claude_agent_sdk"
                     assert node.module != "arcjet.guard.claude_managed_agents"
+                    assert node.module != "arcjet.guard.google_adk"
                     assert node.module != "strands"
                     assert not node.module.startswith("strands.")
                     assert node.module != "strands_agents"
@@ -143,6 +145,7 @@ class TestSourceIsolation:
                         assert "openai_agents" not in alias.name
                         assert "claude_agent_sdk" not in alias.name
                         assert "claude_managed_agents" not in alias.name
+                        assert "google_adk" not in alias.name
                         assert alias.name != "strands"
                         assert not alias.name.startswith("strands.")
                         assert alias.name != "strands_agents"
