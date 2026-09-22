@@ -4,10 +4,9 @@ A FastAPI server with a Google ADK `LlmAgent` that uses Arcjet to protect the
 HTTP request, screen inbound user text, and authorize one authored tool via
 `LlmAgent.before_tool_callback`.
 
-The Google ADK adapter is unpublished. This example pins
-`arcjet[google-adk]` to SHA `a71970dc6d434a47e77e71e35fd485ac1be7ab14`
-(branch `david/cursor/google-adk-guard-5549`). That is not a PyPI release.
-The extra pulls `google-adk>=2.0.0,<3`. See
+This example depends on the published PyPI extra `arcjet[google-adk]`
+(`pip install "arcjet[google-adk]"`). The extra pulls
+`google-adk>=2.0.0,<3`. See
 [`/guards/google-adk-py/`](https://docs.arcjet.com/guards/google-adk-py/)
 — not the JS page
 [`/guards/google-adk/`](https://docs.arcjet.com/guards/google-adk/).
