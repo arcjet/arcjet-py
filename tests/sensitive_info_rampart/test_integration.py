@@ -277,3 +277,25 @@ def test_detection_crossing_a_window_boundary_is_reconstructed(model_calls):
     assert (phone, "PHONE_NUMBER") in found
     assert len(model_calls.lengths) == 2
     assert max(model_calls.lengths) <= _MODEL_MAX_TOKENS
+
+
+def test_model_with_no_room_for_input_tokens_is_rejected(tmp_path):
+    """A config whose position limit leaves no window budget fails at load."""
+    import json
+    import shutil
+
+    from arcjet_sensitive_info_rampart._model import (
+        ModelOptions,
+        _default_model_path,
+        _load_model,
+    )
+
+    source = _default_model_path()
+    shutil.copy(os.path.join(source, "tokenizer.json"), tmp_path)
+    with open(os.path.join(source, "config.json"), encoding="utf-8") as fh:
+        config = json.load(fh)
+    config["max_position_embeddings"] = 2
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no room for input tokens"):
+        _load_model(ModelOptions(model_path=str(tmp_path)))

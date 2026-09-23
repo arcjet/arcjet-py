@@ -257,6 +257,11 @@ class _LoadedModel:
         self.window_budget = self.max_tokens - self.tokenizer.num_special_tokens_to_add(
             False
         )
+        if self.window_budget < 1:
+            raise ValueError(
+                f"Rampart model allows {self.max_tokens} positions, which leaves "
+                "no room for input tokens beside [CLS] and [SEP]"
+            )
 
         self.session = onnxruntime.InferenceSession(
             os.path.join(model_path, "onnx", "model_q4.onnx"),
