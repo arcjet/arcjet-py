@@ -299,3 +299,31 @@ def test_model_with_no_room_for_input_tokens_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="no room for input tokens"):
         _load_model(ModelOptions(model_path=str(tmp_path)))
+
+
+def test_windows_that_fit_keep_the_character_windows(model_calls):
+    """Chunks within the token budget are scanned exactly as before the fix.
+
+    The model's phone recall drops in longer windows, so a 480-character window
+    that fits the model is sent whole rather than merged into a longer one.
+    """
+    from arcjet_sensitive_info_rampart._model import (
+        ModelOptions,
+        _load_model,
+        create_model_runner,
+    )
+
+    # The pre-fix windows: 480 characters, overlapping by 64.
+    size, step = 480, 480 - 64
+    tokenizer = _load_model(ModelOptions()).tokenizer
+    text = "Please call the office about the invoice. " * 40
+    expected = []
+    for start in range(0, len(text), step):
+        expected.append(len(tokenizer.encode(text[start : start + size]).ids))
+        if start + size >= len(text):
+            break
+
+    create_model_runner()(text)
+
+    assert len(expected) > 2
+    assert model_calls.lengths == expected

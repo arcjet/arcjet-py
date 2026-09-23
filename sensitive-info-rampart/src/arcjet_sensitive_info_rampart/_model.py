@@ -9,7 +9,7 @@ Ported from ``sensitive-info-rampart/src/model.ts`` in arcjet-js. Unlike the JS
 port, the Hugging Face ``tokenizers`` library provides character offsets
 directly, so the token-offset reconstruction (``normalizeWithMap`` /
 ``assignOffsets``) the JS version needed is unnecessary here. Those offsets
-index the original input even where normalization changes the text (Hangul is
+index the text they came from even where normalization changes it (Hangul is
 decomposed into Jamo, so several tokens can share one character's offsets).
 """
 
@@ -26,11 +26,17 @@ from ._recognizers import DetectedSpan
 DEFAULT_THRESHOLD = 0.5
 
 # The model has a 512-token window, including [CLS] and [SEP]; longer input
-# would error. Character count does not bound token count (normalization can
-# expand one character into several tokens), so the input is tokenized once and
-# scanned in overlapping *token* windows that fit it. The overlap keeps entities
-# that straddle a boundary intact, since detected spans are far shorter than it.
+# would error. Input is scanned in overlapping 480-character windows, which is
+# the context the model detects best in: its phone recall drops when given
+# windows closer to the full 512 tokens. Character count does not bound token
+# count, though (normalization can expand one character into several tokens, as
+# a Hangul syllable becomes three Jamo), so a character window that does not fit
+# is itself scanned in overlapping token windows that do. The overlaps keep
+# entities that straddle a boundary intact, since detected spans are far shorter
+# than them.
 MAX_SEQUENCE_TOKENS = 512
+MAX_INPUT_CHARS = 480
+CHUNK_OVERLAP = 64
 CHUNK_OVERLAP_TOKENS = 64
 
 
@@ -292,16 +298,21 @@ def _load_model(
 
 
 def _classify_window(
-    model: _LoadedModel, encoding: Any, start: int, end: int
+    model: _LoadedModel,
+    token_ids: Sequence[int],
+    offsets: Sequence[tuple[int, int]],
+    start: int,
+    end: int,
 ) -> list[RawToken]:  # pragma: no cover - requires onnxruntime + model
-    """Classify tokens ``[start, end)`` of ``encoding`` into raw tokens.
+    """Classify tokens ``[start, end)`` of a tokenized chunk into raw tokens.
 
-    ``encoding`` is the whole input, tokenized without special tokens, so the
-    returned offsets index the original input.
+    ``token_ids`` and ``offsets`` are the chunk tokenized without special
+    tokens, so the returned offsets index the chunk. They are read from the
+    encoding once by the caller, because each read copies the whole list.
     """
     import numpy as np
 
-    ids = [model.cls_id, *encoding.ids[start:end], model.sep_id]
+    ids = [model.cls_id, *token_ids[start:end], model.sep_id]
     if len(ids) > model.max_tokens:
         raise ValueError(
             f"Rampart window of {len(ids)} tokens exceeds the model limit of "
@@ -327,7 +338,7 @@ def _classify_window(
 
     tokens: list[RawToken] = []
     # Position 0 is [CLS]; the window's tokens follow it, then [SEP].
-    for i, (token_start, token_end) in enumerate(encoding.offsets[start:end], 1):
+    for i, (token_start, token_end) in enumerate(offsets[start:end], 1):
         # Skip zero-width tokens.
         if token_end <= token_start:
             continue
@@ -360,27 +371,50 @@ def create_model_runner(options: ModelOptions = ModelOptions()) -> ModelRunner:
         value: str,
     ) -> list[DetectedSpan]:  # pragma: no cover - requires onnxruntime + model
         model = _load_model(options)
+        budget = model.window_budget
+        overlap = min(CHUNK_OVERLAP_TOKENS, budget - 1)
 
-        encoding = model.tokenizer.encode(value, add_special_tokens=False)
-        windows = _plan_windows(
-            encoding.word_ids,
-            model.window_budget,
-            min(CHUNK_OVERLAP_TOKENS, model.window_budget - 1),
-        )
-        if len(windows) == 1:
-            start, end = windows[0]
-            tokens = _classify_window(model, encoding, start, end)
-            return aggregate_tokens(value, tokens, threshold)
+        def scan(chunk: str, offset: int, spans: list[DetectedSpan]) -> int:
+            """Scan one character window, splitting it by tokens if needed.
 
-        # Scan long input in overlapping windows. Offsets already index the
-        # original input, so no rebasing is needed. The overlap keeps an entity
-        # that straddles a window boundary intact: it is detected in both
-        # windows and the partial spans are unioned by _merge_windowed_spans
-        # (which also drops the duplicate spans the overlap region produces).
+            Appends spans rebased by ``offset`` and returns how many model
+            invocations the chunk took.
+            """
+            encoding = model.tokenizer.encode(chunk, add_special_tokens=False)
+            token_ids, offsets = encoding.ids, encoding.offsets
+            windows = _plan_windows(encoding.word_ids, budget, overlap)
+            for start, end in windows:
+                tokens = _classify_window(model, token_ids, offsets, start, end)
+                for span in aggregate_tokens(chunk, tokens, threshold):
+                    spans.append(
+                        DetectedSpan(
+                            start=span.start + offset,
+                            end=span.end + offset,
+                            type=span.type,
+                        )
+                    )
+            return len(windows)
+
         spans: list[DetectedSpan] = []
-        for start, end in windows:
-            tokens = _classify_window(model, encoding, start, end)
-            spans.extend(aggregate_tokens(value, tokens, threshold))
+        if len(value) <= MAX_INPUT_CHARS:
+            if scan(value, 0, spans) <= 1:
+                return spans
+            return _merge_windowed_spans(spans)
+
+        # Scan long input in overlapping windows and rebase each window's spans
+        # to absolute offsets. The overlap keeps an entity that straddles a
+        # window boundary intact: it is detected in both windows and the partial
+        # spans are unioned by _merge_windowed_spans (which also drops the
+        # duplicate spans the overlap region produces).
+        step = MAX_INPUT_CHARS - CHUNK_OVERLAP
+        start = 0
+        while True:
+            scan(value[start : start + MAX_INPUT_CHARS], start, spans)
+            # Once a window reaches the end, the whole input is covered; advancing
+            # would only re-scan an already-covered tail (a wasted inference pass).
+            if start + MAX_INPUT_CHARS >= len(value):
+                break
+            start += step
         return _merge_windowed_spans(spans)
 
     return run_model
