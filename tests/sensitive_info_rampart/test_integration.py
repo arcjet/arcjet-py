@@ -153,3 +153,177 @@ def test_long_input_is_chunked():
     result = backend.detect(ctx, text, entities)
     denied = {from_analyze_entity(e.identified_type) for e in result.denied}
     assert "EMAIL" in denied
+
+
+# The model's position-embedding limit, including [CLS] and [SEP].
+_MODEL_MAX_TOKENS = 512
+
+
+class _SessionSpy:
+    """Records the sequence length of every model invocation."""
+
+    def __init__(self, session):
+        self._session = session
+        self.lengths: list[int] = []
+
+    def run(self, output_names, feed):
+        self.lengths.append(int(feed["input_ids"].shape[1]))
+        return self._session.run(output_names, feed)
+
+
+@pytest.fixture
+def model_calls(monkeypatch):
+    """Spy on the cached default model's ONNX session."""
+    from arcjet_sensitive_info_rampart._model import ModelOptions, _load_model
+
+    model = _load_model(ModelOptions())
+    spy = _SessionSpy(model.session)
+    monkeypatch.setattr(model, "session", spy)
+    return spy
+
+
+def _content_tokens(text: str) -> int:
+    from arcjet_sensitive_info_rampart._model import ModelOptions, _load_model
+
+    tokenizer = _load_model(ModelOptions()).tokenizer
+    return len(tokenizer.encode(text, add_special_tokens=False).ids)
+
+
+def _found(text, spans):
+    return [(text[s.start : s.end], s.type) for s in spans]
+
+
+def test_hangul_token_expansion_does_not_overflow_the_model(model_calls):
+    """Regression: 341 characters of Hangul became 513 tokens and ONNX failed.
+
+    BertNormalizer decomposes each syllable into three Jamo tokens that share
+    one original-character offset, so the character count did not bound the
+    token count.
+    """
+    import logging
+
+    from arcjet_sensitive_info_rampart import rampart
+
+    from arcjet._analyze import SensitiveInfoEntitiesAllow
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    text = "각 " * 170 + "x"
+    assert len(text) == 341
+    assert _content_tokens(text) + 2 == 513
+
+    rampart().detect(
+        SensitiveInfoBackendContext(log=logging.getLogger("test")),
+        text,
+        SensitiveInfoEntitiesAllow(entities=[]),
+    )
+    assert len(model_calls.lengths) == 2
+    assert max(model_calls.lengths) <= _MODEL_MAX_TOKENS
+
+
+def test_token_budget_boundary(model_calls):
+    """Exactly the budget is one full-length call; one more token is two."""
+    from arcjet_sensitive_info_rampart._model import create_model_runner
+
+    run = create_model_runner()
+
+    at_budget = "각 " * 170
+    assert _content_tokens(at_budget) + 2 == _MODEL_MAX_TOKENS
+    run(at_budget)
+    assert model_calls.lengths == [_MODEL_MAX_TOKENS]
+
+    model_calls.lengths.clear()
+    run(at_budget + "x")
+    assert len(model_calls.lengths) == 2
+    assert max(model_calls.lengths) <= _MODEL_MAX_TOKENS
+
+
+def test_long_multilingual_input_scans_to_the_end(model_calls):
+    """Entities after many windows of multilingual text keep exact offsets."""
+    from arcjet_sensitive_info_rampart._model import create_model_runner
+
+    filler = (
+        "회의록 정리했습니다. 会议记录已经整理好了。議事録をまとめました。 Notes are done. "
+        * 200
+    )
+    tail = "Contact Maria Garcia at 415-555-2671."
+    text = filler + tail
+    assert _content_tokens(text) > 10 * _MODEL_MAX_TOKENS
+
+    found = _found(text, create_model_runner()(text))
+
+    assert ("Maria", "GIVEN_NAME") in found
+    assert ("Garcia", "SURNAME") in found
+    assert ("415-555-2671", "PHONE_NUMBER") in found
+    assert len(model_calls.lengths) > 10
+    assert max(model_calls.lengths) <= _MODEL_MAX_TOKENS
+
+
+def test_detection_crossing_a_window_boundary_is_reconstructed(model_calls):
+    """A phone number split by the first window edge is reported whole."""
+    from arcjet_sensitive_info_rampart._model import create_model_runner
+
+    budget = _MODEL_MAX_TOKENS - 2
+    phone = "415-555-2671"
+    prefix = "Please call Maria Garcia on "
+    # Hangul filler costs three tokens per syllable; pad so the phone number's
+    # tokens straddle the end of the first window.
+    filler = "각 " * ((budget - _content_tokens(prefix) - 2) // 3)
+    text = filler + prefix + phone + " tomorrow."
+    before = _content_tokens(filler + prefix)
+    assert before < budget < before + _content_tokens(phone)
+
+    found = _found(text, create_model_runner()(text))
+
+    assert (phone, "PHONE_NUMBER") in found
+    assert len(model_calls.lengths) == 2
+    assert max(model_calls.lengths) <= _MODEL_MAX_TOKENS
+
+
+def test_model_with_no_room_for_input_tokens_is_rejected(tmp_path):
+    """A config whose position limit leaves no window budget fails at load."""
+    import json
+    import shutil
+
+    from arcjet_sensitive_info_rampart._model import (
+        ModelOptions,
+        _default_model_path,
+        _load_model,
+    )
+
+    source = _default_model_path()
+    shutil.copy(os.path.join(source, "tokenizer.json"), tmp_path)
+    with open(os.path.join(source, "config.json"), encoding="utf-8") as fh:
+        config = json.load(fh)
+    config["max_position_embeddings"] = 2
+    (tmp_path / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no room for input tokens"):
+        _load_model(ModelOptions(model_path=str(tmp_path)))
+
+
+def test_windows_that_fit_keep_the_character_windows(model_calls):
+    """Chunks within the token budget are scanned exactly as before the fix.
+
+    The model's phone recall drops in longer windows, so a 480-character window
+    that fits the model is sent whole rather than merged into a longer one.
+    """
+    from arcjet_sensitive_info_rampart._model import (
+        ModelOptions,
+        _load_model,
+        create_model_runner,
+    )
+
+    # The pre-fix windows: 480 characters, overlapping by 64.
+    size, step = 480, 480 - 64
+    tokenizer = _load_model(ModelOptions()).tokenizer
+    text = "Please call the office about the invoice. " * 40
+    expected = []
+    for start in range(0, len(text), step):
+        expected.append(len(tokenizer.encode(text[start : start + size]).ids))
+        if start + size >= len(text):
+            break
+
+    create_model_runner()(text)
+
+    assert len(expected) > 2
+    assert model_calls.lengths == expected

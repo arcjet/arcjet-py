@@ -8,7 +8,9 @@ request.
 Ported from ``sensitive-info-rampart/src/model.ts`` in arcjet-js. Unlike the JS
 port, the Hugging Face ``tokenizers`` library provides character offsets
 directly, so the token-offset reconstruction (``normalizeWithMap`` /
-``assignOffsets``) the JS version needed is unnecessary here.
+``assignOffsets``) the JS version needed is unnecessary here. Those offsets
+index the text they came from even where normalization changes it (Hangul is
+decomposed into Jamo, so several tokens can share one character's offsets).
 """
 
 from __future__ import annotations
@@ -23,14 +25,19 @@ from ._recognizers import DetectedSpan
 
 DEFAULT_THRESHOLD = 0.5
 
-# The model has a 512-token window; longer input would error. We scan in
-# overlapping character windows that cannot exceed it (each wordpiece token
-# consumes at least one character, so <=480 characters stays under 512 tokens
-# even before whitespace splitting, leaving room for the two special tokens). The
-# overlap keeps entities that straddle a boundary intact, since detected spans
-# are far shorter than it.
+# The model has a 512-token window, including [CLS] and [SEP]; longer input
+# would error. Input is scanned in overlapping 480-character windows, which is
+# the context the model detects best in: its phone recall drops when given
+# windows closer to the full 512 tokens. Character count does not bound token
+# count, though (normalization can expand one character into several tokens, as
+# a Hangul syllable becomes three Jamo), so a character window that does not fit
+# is itself scanned in overlapping token windows that do. The overlaps keep
+# entities that straddle a boundary intact, since detected spans are far shorter
+# than them.
+MAX_SEQUENCE_TOKENS = 512
 MAX_INPUT_CHARS = 480
 CHUNK_OVERLAP = 64
+CHUNK_OVERLAP_TOKENS = 64
 
 
 @dataclass(slots=True)
@@ -167,6 +174,45 @@ def _merge_windowed_spans(spans: list[DetectedSpan]) -> list[DetectedSpan]:
     return merged
 
 
+def _plan_windows(
+    word_ids: Sequence[Optional[int]], budget: int, overlap: int
+) -> list[tuple[int, int]]:
+    """Split a token sequence into overlapping ``[start, end)`` windows.
+
+    Each window holds at most ``budget`` tokens, and together they cover every
+    token. Each window after the first starts ``overlap`` tokens before the
+    previous one ended, moved back to the start of the word there so a window
+    does not open on a sub-word continuation. It always starts after the
+    previous window's start, so planning progresses even when one word (or one
+    original character) spans more tokens than the overlap.
+
+    Pure so it can be unit-tested without loading the model.
+
+    Args:
+        word_ids: The word index of each token, as reported by the tokenizer.
+        budget: Maximum tokens per window, excluding special tokens.
+        overlap: Tokens shared by adjacent windows (less than ``budget``).
+
+    Returns:
+        Window bounds in order; empty when there are no tokens.
+    """
+    count = len(word_ids)
+    windows: list[tuple[int, int]] = []
+    start = 0
+    while start < count:
+        end = min(start + budget, count)
+        windows.append((start, end))
+        if end == count:
+            break
+        next_start = end - overlap
+        while (
+            next_start - 1 > start and word_ids[next_start] == word_ids[next_start - 1]
+        ):
+            next_start -= 1
+        start = next_start
+    return windows
+
+
 def _default_model_path() -> str:
     """Resolve the bundled ``models/rampart`` directory."""
     from importlib.resources import files
@@ -203,6 +249,25 @@ class _LoadedModel:
         # We chunk manually, so disable any tokenizer-level truncation/padding.
         self.tokenizer.no_truncation()
         self.tokenizer.no_padding()
+        self.max_tokens: int = config.get(
+            "max_position_embeddings", MAX_SEQUENCE_TOKENS
+        )
+        # Windows are tokenized without special tokens, then wrapped as
+        # [CLS] ... [SEP], which is what the tokenizer's post-processor does.
+        cls_id = self.tokenizer.token_to_id("[CLS]")
+        sep_id = self.tokenizer.token_to_id("[SEP]")
+        if cls_id is None or sep_id is None:
+            raise ValueError("Rampart tokenizer is missing [CLS] or [SEP]")
+        self.cls_id: int = cls_id
+        self.sep_id: int = sep_id
+        self.window_budget = self.max_tokens - self.tokenizer.num_special_tokens_to_add(
+            False
+        )
+        if self.window_budget < 1:
+            raise ValueError(
+                f"Rampart model allows {self.max_tokens} positions, which leaves "
+                "no room for input tokens beside [CLS] and [SEP]"
+            )
 
         self.session = onnxruntime.InferenceSession(
             os.path.join(model_path, "onnx", "model_q4.onnx"),
@@ -232,25 +297,35 @@ def _load_model(
         return loaded
 
 
-def _classify_chunk(
-    model: _LoadedModel, chunk: str
+def _classify_window(
+    model: _LoadedModel,
+    token_ids: Sequence[int],
+    offsets: Sequence[tuple[int, int]],
+    start: int,
+    end: int,
 ) -> list[RawToken]:  # pragma: no cover - requires onnxruntime + model
-    """Tokenize and classify a single chunk into raw tokens with offsets."""
+    """Classify tokens ``[start, end)`` of a tokenized chunk into raw tokens.
+
+    ``token_ids`` and ``offsets`` are the chunk tokenized without special
+    tokens, so the returned offsets index the chunk. They are read from the
+    encoding once by the caller, because each read copies the whole list.
+    """
     import numpy as np
 
-    encoding = model.tokenizer.encode(chunk)
-    ids = encoding.ids
-    if not ids:
-        return []
+    ids = [model.cls_id, *token_ids[start:end], model.sep_id]
+    if len(ids) > model.max_tokens:
+        raise ValueError(
+            f"Rampart window of {len(ids)} tokens exceeds the model limit of "
+            f"{model.max_tokens}"
+        )
 
     feed: dict[str, Any] = {}
-    ids_arr = np.array([ids], dtype=np.int64)
     if "input_ids" in model.input_names:
-        feed["input_ids"] = ids_arr
+        feed["input_ids"] = np.array([ids], dtype=np.int64)
     if "attention_mask" in model.input_names:
-        feed["attention_mask"] = np.array([encoding.attention_mask], dtype=np.int64)
+        feed["attention_mask"] = np.ones((1, len(ids)), dtype=np.int64)
     if "token_type_ids" in model.input_names:
-        feed["token_type_ids"] = np.array([encoding.type_ids], dtype=np.int64)
+        feed["token_type_ids"] = np.zeros((1, len(ids)), dtype=np.int64)
 
     outputs = model.session.run(None, feed)
     logits = np.asarray(outputs[0])[0]  # [seq, num_labels]
@@ -261,20 +336,18 @@ def _classify_chunk(
     label_ids = probs.argmax(axis=-1)
     scores = probs.max(axis=-1)
 
-    offsets = encoding.offsets
-    special = encoding.special_tokens_mask
-
     tokens: list[RawToken] = []
-    for i, (start, end) in enumerate(offsets):
-        # Skip special tokens ([CLS]/[SEP]) and zero-width tokens.
-        if special[i] == 1 or end <= start:
+    # Position 0 is [CLS]; the window's tokens follow it, then [SEP].
+    for i, (token_start, token_end) in enumerate(offsets[start:end], 1):
+        # Skip zero-width tokens.
+        if token_end <= token_start:
             continue
         tokens.append(
             RawToken(
                 entity=model.id2label.get(int(label_ids[i]), "O"),
                 score=float(scores[i]),
-                start=int(start),
-                end=int(end),
+                start=int(token_start),
+                end=int(token_end),
             )
         )
     return tokens
@@ -298,30 +371,45 @@ def create_model_runner(options: ModelOptions = ModelOptions()) -> ModelRunner:
         value: str,
     ) -> list[DetectedSpan]:  # pragma: no cover - requires onnxruntime + model
         model = _load_model(options)
+        budget = model.window_budget
+        overlap = min(CHUNK_OVERLAP_TOKENS, budget - 1)
 
+        def scan(chunk: str, offset: int, spans: list[DetectedSpan]) -> int:
+            """Scan one character window, splitting it by tokens if needed.
+
+            Appends spans rebased by ``offset`` and returns how many model
+            invocations the chunk took.
+            """
+            encoding = model.tokenizer.encode(chunk, add_special_tokens=False)
+            token_ids, offsets = encoding.ids, encoding.offsets
+            windows = _plan_windows(encoding.word_ids, budget, overlap)
+            for start, end in windows:
+                tokens = _classify_window(model, token_ids, offsets, start, end)
+                for span in aggregate_tokens(chunk, tokens, threshold):
+                    spans.append(
+                        DetectedSpan(
+                            start=span.start + offset,
+                            end=span.end + offset,
+                            type=span.type,
+                        )
+                    )
+            return len(windows)
+
+        spans: list[DetectedSpan] = []
         if len(value) <= MAX_INPUT_CHARS:
-            return aggregate_tokens(value, _classify_chunk(model, value), threshold)
+            if scan(value, 0, spans) <= 1:
+                return spans
+            return _merge_windowed_spans(spans)
 
         # Scan long input in overlapping windows and rebase each window's spans
         # to absolute offsets. The overlap keeps an entity that straddles a
         # window boundary intact: it is detected in both windows and the partial
         # spans are unioned by _merge_windowed_spans (which also drops the
         # duplicate spans the overlap region produces).
-        spans: list[DetectedSpan] = []
         step = MAX_INPUT_CHARS - CHUNK_OVERLAP
         start = 0
         while True:
-            chunk = value[start : start + MAX_INPUT_CHARS]
-            for span in aggregate_tokens(
-                chunk, _classify_chunk(model, chunk), threshold
-            ):
-                spans.append(
-                    DetectedSpan(
-                        start=span.start + start,
-                        end=span.end + start,
-                        type=span.type,
-                    )
-                )
+            scan(value[start : start + MAX_INPUT_CHARS], start, spans)
             # Once a window reaches the end, the whole input is covered; advancing
             # would only re-scan an already-covered tail (a wasted inference pass).
             if start + MAX_INPUT_CHARS >= len(value):

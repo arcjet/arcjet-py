@@ -8,13 +8,84 @@ from __future__ import annotations
 from arcjet_sensitive_info_rampart._model import (
     RawToken,
     _merge_windowed_spans,
+    _plan_windows,
     aggregate_tokens,
 )
 from arcjet_sensitive_info_rampart._recognizers import DetectedSpan
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 def tok(entity, start, end, score=0.99):
     return RawToken(entity=entity, score=score, start=start, end=end)
+
+
+def _words(*lengths):
+    """Word ids for consecutive words of the given token lengths."""
+    return [word for word, length in enumerate(lengths) for _ in range(length)]
+
+
+def _assert_valid_plan(word_ids, budget, overlap, windows):
+    n = len(word_ids)
+    assert windows[0][0] == 0
+    assert windows[-1][1] == n
+    for start, end in windows:
+        assert 0 < end - start <= budget
+    for (prev_start, prev_end), (start, end) in zip(windows, windows[1:]):
+        # Strict progress, and every boundary is covered by both windows.
+        assert prev_start < start
+        assert prev_end < end
+        assert prev_end - start >= min(overlap, prev_end - prev_start - 1)
+
+
+class TestPlanWindows:
+    def test_empty(self):
+        assert _plan_windows([], budget=510, overlap=64) == []
+
+    def test_exactly_budget_is_one_window(self):
+        assert _plan_windows(list(range(510)), budget=510, overlap=64) == [(0, 510)]
+
+    def test_one_over_budget_is_two_windows(self):
+        windows = _plan_windows(list(range(511)), budget=510, overlap=64)
+        assert windows == [(0, 510), (446, 511)]
+
+    def test_hangul_repro_token_count_is_windowed(self):
+        # "각 " * 170 + "x": BertNormalizer decomposes each syllable into three
+        # Jamo tokens that share one word and one original offset, so 341
+        # characters become 511 content tokens (513 with [CLS]/[SEP]).
+        word_ids = _words(*([3] * 170), 1)
+        assert len(word_ids) == 511
+        windows = _plan_windows(word_ids, budget=510, overlap=64)
+        assert len(windows) == 2
+        _assert_valid_plan(word_ids, 510, 64, windows)
+
+    def test_next_window_starts_on_a_word_boundary(self):
+        word_ids = _words(*([3] * 400))
+        windows = _plan_windows(word_ids, budget=510, overlap=64)
+        _assert_valid_plan(word_ids, 510, 64, windows)
+        for start, _ in windows[1:]:
+            assert word_ids[start] != word_ids[start - 1]
+
+    def test_progresses_through_one_word_longer_than_the_window(self):
+        # Every token shares a word (and so an offset); planning must still
+        # advance rather than snapping back to the same start forever.
+        word_ids = [0] * 2000
+        windows = _plan_windows(word_ids, budget=510, overlap=64)
+        _assert_valid_plan(word_ids, 510, 64, windows)
+
+    @given(
+        lengths=st.lists(st.integers(min_value=1, max_value=120), max_size=60),
+        budget=st.integers(min_value=2, max_value=600),
+        overlap=st.integers(min_value=0, max_value=200),
+    )
+    def test_plan_is_bounded_complete_and_progresses(self, lengths, budget, overlap):
+        overlap = min(overlap, budget - 1)
+        word_ids = _words(*lengths)
+        windows = _plan_windows(word_ids, budget=budget, overlap=overlap)
+        if not word_ids:
+            assert windows == []
+            return
+        _assert_valid_plan(word_ids, budget, overlap, windows)
 
 
 class TestMergeWindowedSpans:
