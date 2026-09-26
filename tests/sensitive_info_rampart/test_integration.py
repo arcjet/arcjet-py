@@ -53,6 +53,47 @@ def test_model_detects_name_and_email():
     assert denied & {"GIVEN_NAME", "SURNAME"}
 
 
+def test_model_returns_whole_entities_when_subwords_repeat_begin_labels():
+    import logging
+
+    from arcjet_sensitive_info_rampart import rampart
+
+    from arcjet._analyze import SensitiveInfoEntitiesAllow
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    backend = rampart()
+    context = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    examples = [
+        (
+            "This Agreement is entered into by and between John Anderson "
+            "(Taxpayer Identification Number 123-45-6789) and the financial "
+            "institution holding the IBAN US64SVBKUS6S3300958879. Mr. Anderson,",
+            ("US64SVBKUS6S3300958879",),
+        ),
+        (
+            "Name: Aurélie Henry-Leroy\nBBAN: LVLU04836212442259\n"
+            "Property Address: 1199 Perez Burgs\n",
+            ("Aurélie", "LVLU04836212442259", "1199"),
+        ),
+        (
+            "je viens d'emménager au 27A, Allée des Chênes, 2350 Luxembourg",
+            ("27A", "Allée des Chênes", "2350", "Luxembourg"),
+        ),
+    ]
+
+    for text, values in examples:
+        result = backend.detect(context, text, SensitiveInfoEntitiesAllow(entities=[]))
+        for value in values:
+            start = text.index(value)
+            end = start + len(value)
+            overlapping = [
+                (entity.start, entity.end)
+                for entity in result.denied
+                if entity.start < end and entity.end > start
+            ]
+            assert overlapping == [(start, end)], (value, overlapping)
+
+
 def test_model_distinguishes_bank_accounts_and_routing_numbers_from_phones():
     import logging
 

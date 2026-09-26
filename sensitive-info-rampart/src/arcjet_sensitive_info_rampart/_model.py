@@ -89,10 +89,11 @@ def aggregate_tokens(
 ) -> list[DetectedSpan]:
     """Aggregate per-token model output into entity spans.
 
-    Consecutive tokens of the same type are merged into a single span when the
-    text between them is only whitespace, so sub-word tokens (and adjacent words
-    of one entity) collapse into one span. Tokens below ``threshold`` and tokens
-    labelled outside (``O``) break the current span.
+    Consecutive tokens of the same type are merged into a single span when they
+    touch or overlap, even if the model repeats a ``B-`` label on each sub-word
+    piece. A continuation (``I-``) can also bridge whitespace within a
+    multi-word entity; a ``B-`` after whitespace starts a new entity. Tokens
+    below ``threshold`` and tokens labelled outside (``O``) break the span.
 
     Pure so it can be unit-tested without loading the model.
 
@@ -119,10 +120,12 @@ def aggregate_tokens(
         if (
             current is not None
             and current.type == entity_type
-            and not is_begin
-            and _is_whitespace(value[current.end : token.start])
+            and (
+                token.start <= current.end
+                or (not is_begin and _is_whitespace(value[current.end : token.start]))
+            )
         ):
-            current.end = token.end
+            current.end = max(current.end, token.end)
             continue
 
         if current is not None:

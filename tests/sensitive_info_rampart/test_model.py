@@ -182,8 +182,69 @@ class TestAggregateTokens:
         assert len(spans) == 1
         assert (spans[0].start, spans[0].end) == (0, 11)
 
-    def test_begin_token_starts_new_span(self):
-        # Two B- tokens of the same type do not merge.
+    def test_merges_repeated_begin_labels_inside_a_word(self):
+        # The bundled model labels every piece of "Luxembourg" B-CITY.
+        value = "Luxembourg"
+        spans = aggregate_tokens(
+            value,
+            [
+                tok("B-CITY", 0, 3),
+                tok("B-CITY", 3, 5),
+                tok("B-CITY", 5, 10),
+            ],
+        )
+        assert [(s.start, s.end, s.type) for s in spans] == [(0, 10, "CITY")]
+
+    def test_merges_repeated_begin_labels_inside_an_identifier(self):
+        # The model emits B-DRIVERS_LICENSE for every subword of this IBAN.
+        value = "US64SVBKUS6S3300958879"
+        pieces = [
+            "US",
+            "64",
+            "S",
+            "VB",
+            "KUS",
+            "6",
+            "S",
+            "33",
+            "00",
+            "9",
+            "58",
+            "8",
+            "7",
+            "9",
+        ]
+        assert "".join(pieces) == value
+        tokens = []
+        start = 0
+        for piece in pieces:
+            end = start + len(piece)
+            tokens.append(tok("B-DRIVERS_LICENSE", start, end))
+            start = end
+
+        spans = aggregate_tokens(value, tokens)
+        assert [(s.start, s.end, s.type) for s in spans] == [
+            (0, len(value), "DRIVERS_LICENSE")
+        ]
+
+    def test_merges_subwords_and_continuations_in_a_multiword_entity(self):
+        value = "Allée des Chênes"
+        spans = aggregate_tokens(
+            value,
+            [
+                tok("B-STREET_NAME", 0, 3),
+                tok("B-STREET_NAME", 3, 5),
+                tok("I-STREET_NAME", 6, 9),
+                tok("I-STREET_NAME", 10, 14),
+                tok("I-STREET_NAME", 14, 16),
+            ],
+        )
+        assert [(s.start, s.end, s.type) for s in spans] == [
+            (0, len(value), "STREET_NAME")
+        ]
+
+    def test_begin_token_after_whitespace_starts_new_span(self):
+        # A space separates two B- tokens of the same type into distinct entities.
         value = "Alex Sam"
         spans = aggregate_tokens(
             value,

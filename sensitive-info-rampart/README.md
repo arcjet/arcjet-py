@@ -70,6 +70,10 @@ The model detects: `GIVEN_NAME`, `SURNAME`, `EMAIL`, `PHONE_NUMBER`, `URL`,
 `DRIVERS_LICENSE`, `BUILDING_NUMBER`, `STREET_NAME`, `SECONDARY_ADDRESS`,
 `CITY`, `STATE`, and `ZIP_CODE`.
 
+The backend combines adjacent subword predictions of the same type into one
+entity span. Continuation predictions can also join words separated by
+whitespace, so names and street names retain their full text.
+
 Deterministic recognizers additionally detect the structured, validatable types
 `EMAIL`, `URL`, `IP_ADDRESS`, `SSN`, and `CREDIT_CARD_NUMBER` (Luhn-validated),
 mirroring Rampart's deterministic redaction layer. Phone numbers are left to
