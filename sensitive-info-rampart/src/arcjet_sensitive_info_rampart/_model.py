@@ -42,7 +42,7 @@ CHUNK_OVERLAP_TOKENS = 64
 
 @dataclass(slots=True)
 class RawToken:
-    """A single token classified by the model, with reconstructed offsets."""
+    """A single token classified by the model, with tokenizer offsets."""
 
     entity: str
     """Raw label (such as ``"B-GIVEN_NAME"``)."""
@@ -55,6 +55,9 @@ class RawToken:
 
     end: int
     """End offset (exclusive) into the text."""
+
+    is_subword: bool = False
+    """Whether this token continues the tokenizer's preceding word."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,11 +92,11 @@ def aggregate_tokens(
 ) -> list[DetectedSpan]:
     """Aggregate per-token model output into entity spans.
 
-    Consecutive tokens of the same type are merged into a single span when they
-    touch or overlap, even if the model repeats a ``B-`` label on each sub-word
-    piece. A continuation (``I-``) can also bridge whitespace within a
-    multi-word entity; a ``B-`` after whitespace starts a new entity. Tokens
-    below ``threshold`` and tokens labelled outside (``O``) break the span.
+    Consecutive tokens of the same type are merged when a repeated ``B-`` label
+    belongs to a touching sub-word piece, or an ``I-`` continuation touches or
+    bridges whitespace. A ``B-`` on a new word starts a new entity, even when
+    it touches the preceding token. Tokens below ``threshold`` and tokens
+    labelled outside (``O``) break the span.
 
     Pure so it can be unit-tested without loading the model.
 
@@ -121,7 +124,7 @@ def aggregate_tokens(
             current is not None
             and current.type == entity_type
             and (
-                token.start <= current.end
+                (token.is_subword and token.start <= current.end)
                 or (not is_begin and _is_whitespace(value[current.end : token.start]))
             )
         ):
@@ -134,7 +137,14 @@ def aggregate_tokens(
 
     if current is not None:
         spans.append(current)
-    return spans
+    # The model sometimes labels separator tokens (such as the "$" between
+    # adjacent emails) as an entity. Once B- boundaries are respected, those
+    # punctuation-only fragments must not become standalone detections.
+    return [
+        span
+        for span in spans
+        if any(char.isalnum() for char in value[span.start : span.end])
+    ]
 
 
 def _merge_windowed_spans(spans: list[DetectedSpan]) -> list[DetectedSpan]:
@@ -304,14 +314,15 @@ def _classify_window(
     model: _LoadedModel,
     token_ids: Sequence[int],
     offsets: Sequence[tuple[int, int]],
+    word_ids: Sequence[Optional[int]],
     start: int,
     end: int,
 ) -> list[RawToken]:  # pragma: no cover - requires onnxruntime + model
     """Classify tokens ``[start, end)`` of a tokenized chunk into raw tokens.
 
-    ``token_ids`` and ``offsets`` are the chunk tokenized without special
-    tokens, so the returned offsets index the chunk. They are read from the
-    encoding once by the caller, because each read copies the whole list.
+    ``token_ids``, ``offsets``, and ``word_ids`` are the chunk tokenized without
+    special tokens, so the returned offsets index the chunk. They are read from
+    the encoding once by the caller, because each read copies the whole list.
     """
     import numpy as np
 
@@ -351,6 +362,11 @@ def _classify_window(
                 score=float(scores[i]),
                 start=int(token_start),
                 end=int(token_end),
+                is_subword=(
+                    start + i > 1
+                    and word_ids[start + i - 1] is not None
+                    and word_ids[start + i - 1] == word_ids[start + i - 2]
+                ),
             )
         )
     return tokens
@@ -384,10 +400,16 @@ def create_model_runner(options: ModelOptions = ModelOptions()) -> ModelRunner:
             invocations the chunk took.
             """
             encoding = model.tokenizer.encode(chunk, add_special_tokens=False)
-            token_ids, offsets = encoding.ids, encoding.offsets
-            windows = _plan_windows(encoding.word_ids, budget, overlap)
+            token_ids, offsets, word_ids = (
+                encoding.ids,
+                encoding.offsets,
+                encoding.word_ids,
+            )
+            windows = _plan_windows(word_ids, budget, overlap)
             for start, end in windows:
-                tokens = _classify_window(model, token_ids, offsets, start, end)
+                tokens = _classify_window(
+                    model, token_ids, offsets, word_ids, start, end
+                )
                 for span in aggregate_tokens(chunk, tokens, threshold):
                     spans.append(
                         DetectedSpan(

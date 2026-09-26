@@ -94,6 +94,36 @@ def test_model_returns_whole_entities_when_subwords_repeat_begin_labels():
             assert overlapping == [(start, end)], (value, overlapping)
 
 
+def test_model_does_not_join_touching_emails_across_a_separator():
+    import logging
+
+    from arcjet_sensitive_info_rampart import RampartOptions, rampart
+    from arcjet_sensitive_info_rampart._entities import to_analyze_entity
+
+    from arcjet._analyze import SensitiveInfoEntitiesDeny
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    text = "Email alice@example.com$bob@example.com"
+    separator = text.index("$")
+    context = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    entities = SensitiveInfoEntitiesDeny(entities=[to_analyze_entity("EMAIL")])
+
+    # Run the model without recognizers so their higher precedence cannot hide
+    # an incorrect model span that crosses two distinct email addresses.
+    model_only = rampart(RampartOptions(recognizers=()))
+    result = model_only.detect(context, text, entities)
+    assert not any(
+        span.start < separator and span.end > separator + 1 for span in result.denied
+    )
+
+    # The default validated recognizer still returns complete email addresses.
+    result = rampart().detect(context, text, entities)
+    assert [text[span.start : span.end] for span in result.denied] == [
+        "alice@example.com",
+        "bob@example.com",
+    ]
+
+
 def test_model_distinguishes_bank_accounts_and_routing_numbers_from_phones():
     import logging
 
