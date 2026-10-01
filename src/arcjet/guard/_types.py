@@ -40,6 +40,7 @@ Reason = Literal[
     "INPUT_CONSTRAINT",
     "CUSTOM",
     "POLICY_EXPRESSION",
+    "IP_THREAT",
     "ERROR",
     "NOT_RUN",
     "UNKNOWN",
@@ -302,7 +303,13 @@ class RuleResultModerateContent:
 
 @dataclass(frozen=True, slots=True)
 class RuleResultSensitiveInfo:
-    """Result from a sensitive information detection evaluation."""
+    """Result from a sensitive information detection evaluation.
+
+    A ``LocalDetectSensitiveInfo`` rule runs in the SDK, so the text never
+    leaves the process. A remote policy can also run the detector on Arcjet;
+    that result arrives in ``decision.policy_results`` with
+    ``execution == "SERVER"``, which is how to tell that Arcjet saw the value.
+    """
 
     conclusion: Conclusion
     """Whether the request was allowed or denied by this rule."""
@@ -321,6 +328,54 @@ class RuleResultSensitiveInfo:
 
     detected_entity_types: tuple[str, ...] = ()
     """Entity types detected in the input (e.g. ``"EMAIL"``, ``"PHONE_NUMBER"``)."""
+
+    billing: Billing | None = None
+    """Usage billed for a server-side evaluation, when reported by the service.
+    Always ``None`` for a local (SDK) evaluation, which is not billed."""
+
+
+@dataclass(frozen=True, slots=True)
+class RuleResultIpThreat:
+    """Result from an IP threat assessment of the destinations a call would
+    contact, run on Arcjet by a remote policy.
+
+    Arrives in ``decision.policy_results``. The fields describe the destination
+    with the worst assessment.
+    """
+
+    conclusion: Conclusion
+    """Whether the request was allowed or denied by this rule."""
+
+    detected: bool
+    """Whether the worst destination scored ``"high"`` or ``"critical"``."""
+
+    reason: Literal["IP_THREAT"] = "IP_THREAT"
+    """The reason category — always ``"IP_THREAT"`` for this rule."""
+
+    type: Literal["IP_THREAT"] = "IP_THREAT"
+    """Discriminant — always ``"IP_THREAT"``."""
+
+    warnings: tuple[ArcjetWarning, ...] = ()
+    """Per-rule warnings. Informational; never changes the conclusion."""
+
+    risk_level: str = ""
+    """Worst risk: ``"none"``, ``"low"``, ``"medium"``, ``"high"`` or
+    ``"critical"``. Passed through as sent, so a value added by a newer server
+    arrives unchanged."""
+
+    reputation: str = ""
+    """Reputation of the address that produced that risk."""
+
+    activities: tuple[str, ...] = ()
+    """Activities observed for that address, such as ``"malware"`` or
+    ``"botnet"``."""
+
+    host: str = ""
+    """The destination host that produced the worst assessment. Empty when
+    nothing scored above ``"none"``."""
+
+    ip: str = ""
+    """The address that was looked up for that host."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,6 +517,7 @@ RuleResult = Union[
     RuleResultPromptInjection,
     RuleResultModerateContent,
     RuleResultSensitiveInfo,
+    RuleResultIpThreat,
     RuleResultCustom,
     RuleResultPolicyExpression,
     RuleResultNotRun,

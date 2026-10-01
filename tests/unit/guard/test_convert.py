@@ -12,13 +12,16 @@ from arcjet.guard import (
     LocalDetectSensitiveInfo,
     ModerateContent,
     RuleResultError,
+    RuleResultIpThreat,
     RuleResultModerateContent,
     RuleResultPolicyExpression,
+    RuleResultSensitiveInfo,
     SlidingWindow,
     TokenBucket,
 )
 from arcjet.guard._convert import (
     _policy_result_from_proto,
+    _reason_from_proto,
     decision_from_proto,
     rule_to_proto,
 )
@@ -1012,3 +1015,228 @@ class TestPolicyExpressionResult:
             self._policy_result(pb.GUARD_CONCLUSION_ALLOW)
         )
         assert isinstance(result.result, RuleResultPolicyExpression)
+
+
+def _policy_response(
+    conclusion: int,
+    reason: int,
+    policy_result: pb.GuardPolicyRuleResult,
+) -> pb.GuardResponse:
+    return pb.GuardResponse(
+        decision=pb.GuardDecision(
+            id="gdec_policy",
+            conclusion=conclusion,  # type: ignore[arg-type]  # proto enum int
+            reason=reason,  # type: ignore[arg-type]  # proto enum int
+            policy_rule_results=[policy_result],
+        ),
+    )
+
+
+class TestServerSensitiveInfoPolicyResult:
+    """A remote policy can run the sensitive-info detector on Arcjet. It maps
+    to the same ``RuleResultSensitiveInfo`` shape as the local rule; the policy
+    result's ``execution`` of SERVER says Arcjet saw the value.
+
+    Without a branch it fell through to ``RuleResultUnknown`` (ALLOW), so a
+    denying server detection read as allowed.
+    """
+
+    @staticmethod
+    def _policy_result(
+        result: pb.ResultSensitiveInfo,
+    ) -> pb.GuardPolicyRuleResult:
+        return pb.GuardPolicyRuleResult(
+            result_id="result-si",
+            policy_id="policy-id",
+            policy_revision="rev-1",
+            rule_id="no-pii",
+            type=pb.GUARD_RULE_TYPE_SENSITIVE_INFO,
+            mode=pb.GUARD_RULE_MODE_LIVE,
+            execution=pb.GUARD_RULE_EXECUTION_SERVER,
+            source=pb.GUARD_RULE_SOURCE_REMOTE,
+            sensitive_info=result,
+        )
+
+    def test_maps_all_fields(self) -> None:
+        policy_result = _policy_result_from_proto(
+            self._policy_result(
+                pb.ResultSensitiveInfo(
+                    conclusion=pb.GUARD_CONCLUSION_DENY,
+                    detected=True,
+                    detected_entity_types=["EMAIL", "SURNAME"],
+                    detected_entities=[
+                        pb.GuardSensitiveInfoEntity(type="EMAIL", start=3, end=18),
+                        pb.GuardSensitiveInfoEntity(type="SURNAME", start=20, end=25),
+                    ],
+                    billing=pb.Billing(unit="text_units", count=2),
+                )
+            )
+        )
+        assert policy_result.execution == "SERVER"
+        assert policy_result.source == "REMOTE"
+        assert policy_result.rule_id == "no-pii"
+        result = policy_result.result
+        assert isinstance(result, RuleResultSensitiveInfo)
+        assert result.type == "SENSITIVE_INFO"
+        assert result.reason == "SENSITIVE_INFO"
+        assert result.conclusion == "DENY"
+        assert result.detected_entity_types == ("EMAIL", "SURNAME")
+        assert result.billing == Billing(unit="text_units", count=2)
+
+    def test_minimal_result(self) -> None:
+        # Unset conclusion fails open to ALLOW; no entities and no billing.
+        result = _policy_result_from_proto(
+            self._policy_result(pb.ResultSensitiveInfo())
+        ).result
+        assert isinstance(result, RuleResultSensitiveInfo)
+        assert result.conclusion == "ALLOW"
+        assert result.detected_entity_types == ()
+        assert result.billing is None
+
+    def test_decision_reason_and_not_reported_as_local(self) -> None:
+        # The server result lives only in ``policy_results``. It must not
+        # surface through positional ``results``, where a
+        # ``LocalDetectSensitiveInfo`` rule reads its own local result.
+        local = LocalDetectSensitiveInfo()
+        decision = decision_from_proto(
+            _policy_response(
+                pb.GUARD_CONCLUSION_DENY,
+                pb.GUARD_REASON_SENSITIVE_INFO,
+                self._policy_result(
+                    pb.ResultSensitiveInfo(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                        detected_entity_types=["EMAIL"],
+                    )
+                ),
+            )
+        )
+        assert decision.conclusion == "DENY"
+        assert decision.reason == "SENSITIVE_INFO"
+        assert decision.results == ()
+        assert local.results(decision) == []
+        assert local.denied_result(decision) is None
+        [policy_result] = decision.policy_results
+        assert policy_result.execution == "SERVER"
+        assert policy_result.result.type == "SENSITIVE_INFO"
+        assert policy_result.result.conclusion == "DENY"
+
+
+class TestIpThreatPolicyResult:
+    """A remote policy can assess the destinations a call would contact. It
+    maps to ``RuleResultIpThreat`` rather than falling through to
+    ``RuleResultUnknown`` (ALLOW)."""
+
+    @staticmethod
+    def _policy_result(result: pb.ResultIpThreat) -> pb.GuardPolicyRuleResult:
+        return pb.GuardPolicyRuleResult(
+            result_id="result-ip",
+            policy_id="policy-id",
+            policy_revision="rev-2",
+            rule_id="no-malware-hosts",
+            type=pb.GUARD_RULE_TYPE_IP_THREAT,
+            mode=pb.GUARD_RULE_MODE_DRY_RUN,
+            execution=pb.GUARD_RULE_EXECUTION_SERVER,
+            source=pb.GUARD_RULE_SOURCE_REMOTE,
+            ip_threat=result,
+        )
+
+    def test_maps_all_fields(self) -> None:
+        policy_result = _policy_result_from_proto(
+            self._policy_result(
+                pb.ResultIpThreat(
+                    conclusion=pb.GUARD_CONCLUSION_DENY,
+                    detected=True,
+                    risk_level="critical",
+                    reputation="malicious",
+                    activities=["malware", "botnet"],
+                    host="bad.example.com",
+                    ip="203.0.113.7",
+                )
+            )
+        )
+        assert policy_result.execution == "SERVER"
+        assert policy_result.mode == "DRY_RUN"
+        assert policy_result.rule_id == "no-malware-hosts"
+        result = policy_result.result
+        assert isinstance(result, RuleResultIpThreat)
+        assert result.type == "IP_THREAT"
+        assert result.reason == "IP_THREAT"
+        assert result.conclusion == "DENY"
+        assert result.detected is True
+        assert result.risk_level == "critical"
+        assert result.reputation == "malicious"
+        assert result.activities == ("malware", "botnet")
+        assert result.host == "bad.example.com"
+        assert result.ip == "203.0.113.7"
+
+    def test_minimal_result(self) -> None:
+        # Nothing scored above none: empty host, no activities, and an unset
+        # conclusion that fails open to ALLOW.
+        result = _policy_result_from_proto(
+            self._policy_result(pb.ResultIpThreat(risk_level="none"))
+        ).result
+        assert isinstance(result, RuleResultIpThreat)
+        assert result.conclusion == "ALLOW"
+        assert result.detected is False
+        assert result.risk_level == "none"
+        assert result.reputation == ""
+        assert result.activities == ()
+        assert result.host == ""
+        assert result.ip == ""
+
+    def test_unknown_risk_level_passes_through(self) -> None:
+        result = _policy_result_from_proto(
+            self._policy_result(
+                pb.ResultIpThreat(
+                    conclusion=pb.GUARD_CONCLUSION_ALLOW, risk_level="severe"
+                )
+            )
+        ).result
+        assert isinstance(result, RuleResultIpThreat)
+        assert result.risk_level == "severe"
+
+    def test_decision_reason(self) -> None:
+        decision = decision_from_proto(
+            _policy_response(
+                pb.GUARD_CONCLUSION_DENY,
+                pb.GUARD_REASON_IP_THREAT,
+                self._policy_result(
+                    pb.ResultIpThreat(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                        risk_level="high",
+                    )
+                ),
+            )
+        )
+        assert decision.conclusion == "DENY"
+        assert decision.reason == "IP_THREAT"
+        assert decision.policy_results[0].result.type == "IP_THREAT"
+
+
+class TestReasonMapping:
+    def test_ip_threat_reason(self) -> None:
+        assert _reason_from_proto(pb.GUARD_REASON_IP_THREAT) == "IP_THREAT"
+
+    def test_sensitive_info_reason(self) -> None:
+        assert _reason_from_proto(pb.GUARD_REASON_SENSITIVE_INFO) == "SENSITIVE_INFO"
+
+    def test_every_proto_reason_is_mapped(self) -> None:
+        # A reason added to the proto without a mapping silently reads as
+        # UNKNOWN; only UNSPECIFIED should.
+        for name, value in pb.GuardReason.items():
+            if name == "GUARD_REASON_UNSPECIFIED":
+                assert _reason_from_proto(value) == "UNKNOWN"
+            else:
+                assert _reason_from_proto(value) != "UNKNOWN", name
+
+
+class TestRuleTypeEnum:
+    """The SDK has no table over ``GuardRuleType``; the new server rule types
+    reach it only through the policy result's oneof. Pin the wire values the
+    converter tests above rely on."""
+
+    def test_new_rule_types(self) -> None:
+        assert pb.GUARD_RULE_TYPE_SENSITIVE_INFO == 40
+        assert pb.GUARD_RULE_TYPE_IP_THREAT == 41

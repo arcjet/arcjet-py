@@ -9,8 +9,8 @@ Public API
     Conclusion, Reason, Mode, Decision,
     RuleResult, RuleResultTokenBucket, RuleResultFixedWindow,
     RuleResultSlidingWindow, RuleResultPromptInjection,
-    RuleResultModerateContent, RuleResultSensitiveInfo, RuleResultNotRun,
-    RuleResultError, RuleResultUnknown
+    RuleResultModerateContent, RuleResultSensitiveInfo, RuleResultIpThreat,
+    RuleResultNotRun, RuleResultError, RuleResultUnknown
 
 **Rule classes** (from ``rules``)::
 
@@ -129,6 +129,7 @@ from ._types import (
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultInputConstraint,
+    RuleResultIpThreat,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPolicyExpression,
@@ -161,6 +162,7 @@ __all__ = [
     "RuleResultError",
     "RuleResultFixedWindow",
     "RuleResultInputConstraint",
+    "RuleResultIpThreat",
     "RuleResultModerateContent",
     "RuleResultNotRun",
     "RuleResultPolicyExpression",

@@ -45,6 +45,7 @@ from ._types import (
     RuleResultError,
     RuleResultFixedWindow,
     RuleResultInputConstraint,
+    RuleResultIpThreat,
     RuleResultModerateContent,
     RuleResultNotRun,
     RuleResultPolicyExpression,
@@ -99,6 +100,7 @@ _REASON_MAP: dict[int, Reason] = {
     pb.GUARD_REASON_MODERATE_CONTENT: "MODERATE_CONTENT",
     pb.GUARD_REASON_SENSITIVE_INFO: "SENSITIVE_INFO",
     pb.GUARD_REASON_INPUT_CONSTRAINT: "INPUT_CONSTRAINT",
+    pb.GUARD_REASON_IP_THREAT: "IP_THREAT",
 }
 
 
@@ -210,6 +212,30 @@ def _policy_result_from_proto(pr: pb.GuardPolicyRuleResult) -> PolicyRuleResult:
         result = RuleResultSensitiveInfo(
             conclusion=_conclusion_from_proto(pr.local_sensitive_info.conclusion),
             detected_entity_types=tuple(pr.local_sensitive_info.detected_entity_types),
+        )
+    elif which == "sensitive_info":
+        # Server-side detection: Arcjet saw the value. ``execution`` (SERVER)
+        # is what distinguishes it from a ``LocalDetectSensitiveInfo`` result.
+        v = pr.sensitive_info
+        result = RuleResultSensitiveInfo(
+            conclusion=_conclusion_from_proto(v.conclusion),
+            detected_entity_types=tuple(v.detected_entity_types),
+            billing=(
+                Billing(unit=v.billing.unit, count=v.billing.count)
+                if v.HasField("billing")
+                else None
+            ),
+        )
+    elif which == "ip_threat":
+        v = pr.ip_threat
+        result = RuleResultIpThreat(
+            conclusion=_conclusion_from_proto(v.conclusion),
+            detected=v.detected,
+            risk_level=v.risk_level,
+            reputation=v.reputation,
+            activities=tuple(v.activities),
+            host=v.host,
+            ip=v.ip,
         )
     elif which in ("allowed_string_values", "denied_string_values", "string_length"):
         constraint_types: dict[str, InputConstraintType] = {
