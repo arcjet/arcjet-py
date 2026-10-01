@@ -45,6 +45,8 @@ class GuardPolicyDetectorKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper)
     GUARD_POLICY_DETECTOR_KIND_UNSPECIFIED: _ClassVar[GuardPolicyDetectorKind]
     GUARD_POLICY_DETECTOR_KIND_PROMPT_INJECTION: _ClassVar[GuardPolicyDetectorKind]
     GUARD_POLICY_DETECTOR_KIND_LOCAL_SENSITIVE_INFO: _ClassVar[GuardPolicyDetectorKind]
+    GUARD_POLICY_DETECTOR_KIND_SENSITIVE_INFO: _ClassVar[GuardPolicyDetectorKind]
+    GUARD_POLICY_DETECTOR_KIND_IP_THREAT: _ClassVar[GuardPolicyDetectorKind]
 
 class GuardPolicyBuilderOperator(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -93,6 +95,8 @@ GUARD_POLICY_RULE_KIND_DETECTOR: GuardPolicyRuleKind
 GUARD_POLICY_DETECTOR_KIND_UNSPECIFIED: GuardPolicyDetectorKind
 GUARD_POLICY_DETECTOR_KIND_PROMPT_INJECTION: GuardPolicyDetectorKind
 GUARD_POLICY_DETECTOR_KIND_LOCAL_SENSITIVE_INFO: GuardPolicyDetectorKind
+GUARD_POLICY_DETECTOR_KIND_SENSITIVE_INFO: GuardPolicyDetectorKind
+GUARD_POLICY_DETECTOR_KIND_IP_THREAT: GuardPolicyDetectorKind
 GUARD_POLICY_BUILDER_OPERATOR_UNSPECIFIED: GuardPolicyBuilderOperator
 GUARD_POLICY_BUILDER_OPERATOR_AND: GuardPolicyBuilderOperator
 GUARD_POLICY_BUILDER_OPERATOR_OR: GuardPolicyBuilderOperator
@@ -134,6 +138,7 @@ class GuardPolicy(_message.Message):
     DETECTORS_FIELD_NUMBER: _ClassVar[int]
     RULES_FIELD_NUMBER: _ClassVar[int]
     ARTIFACT_FIELD_NUMBER: _ClassVar[int]
+    CODING_AGENT_MOMENTS_FIELD_NUMBER: _ClassVar[int]
     id: str
     label: str
     requires_actor: bool
@@ -141,7 +146,8 @@ class GuardPolicy(_message.Message):
     detectors: _containers.RepeatedCompositeFieldContainer[GuardPolicyDetector]
     rules: _containers.RepeatedCompositeFieldContainer[GuardPolicyRuleDeclaration]
     artifact: str
-    def __init__(self, id: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardPolicyInputRequirement, _Mapping]]] = ..., detectors: _Optional[_Iterable[_Union[GuardPolicyDetector, _Mapping]]] = ..., rules: _Optional[_Iterable[_Union[GuardPolicyRuleDeclaration, _Mapping]]] = ..., artifact: _Optional[str] = ...) -> None: ...
+    coding_agent_moments: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardPolicyInputRequirement, _Mapping]]] = ..., detectors: _Optional[_Iterable[_Union[GuardPolicyDetector, _Mapping]]] = ..., rules: _Optional[_Iterable[_Union[GuardPolicyRuleDeclaration, _Mapping]]] = ..., artifact: _Optional[str] = ..., coding_agent_moments: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class GuardPolicyInputRequirement(_message.Message):
     __slots__ = ()
@@ -215,6 +221,7 @@ class GuardPolicyDefinitionEntry(_message.Message):
     RULES_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     TESTS_FIELD_NUMBER: _ClassVar[int]
+    CODING_AGENT_MOMENTS_FIELD_NUMBER: _ClassVar[int]
     id: str
     label: str
     requires_actor: bool
@@ -223,7 +230,8 @@ class GuardPolicyDefinitionEntry(_message.Message):
     rules: _containers.RepeatedCompositeFieldContainer[GuardPolicyRuleDeclaration]
     source: GuardPolicySource
     tests: _containers.RepeatedCompositeFieldContainer[GuardPolicyTest]
-    def __init__(self, id: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardPolicyInputRequirement, _Mapping]]] = ..., detectors: _Optional[_Iterable[_Union[GuardPolicyDetector, _Mapping]]] = ..., rules: _Optional[_Iterable[_Union[GuardPolicyRuleDeclaration, _Mapping]]] = ..., source: _Optional[_Union[GuardPolicySource, _Mapping]] = ..., tests: _Optional[_Iterable[_Union[GuardPolicyTest, _Mapping]]] = ...) -> None: ...
+    coding_agent_moments: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., label: _Optional[str] = ..., requires_actor: _Optional[bool] = ..., inputs: _Optional[_Iterable[_Union[GuardPolicyInputRequirement, _Mapping]]] = ..., detectors: _Optional[_Iterable[_Union[GuardPolicyDetector, _Mapping]]] = ..., rules: _Optional[_Iterable[_Union[GuardPolicyRuleDeclaration, _Mapping]]] = ..., source: _Optional[_Union[GuardPolicySource, _Mapping]] = ..., tests: _Optional[_Iterable[_Union[GuardPolicyTest, _Mapping]]] = ..., coding_agent_moments: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class GuardPolicySource(_message.Message):
     __slots__ = ()

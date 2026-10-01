@@ -1198,6 +1198,14 @@ decision = await aj.guard(
 print(decision.policy_evaluation, decision.policy_results)
 ```
 
+Each entry in `decision.policy_results` is a `PolicyRuleResult` whose `result`
+uses the same `RuleResult*` types as positional results. A policy rule that
+runs a detector on Arcjet reports `execution == "SERVER"`: sensitive
+information as `RuleResultSensitiveInfo` (with `billing`), and destination IP
+threat as `RuleResultIpThreat` (`detected`, `risk_level`, `reputation`,
+`activities`, `host`, `ip`; reason `"IP_THREAT"`). Server results never appear
+in `LocalDetectSensitiveInfo.results(decision)`.
+
 Rules are optional. Passing no rules (or ``rules=[]``) still calls Guard and
 sends the label, actor, and policy inputs, so a remotely configured policy can
 protect the action. An empty rules list does not mean “allow without checking.”
@@ -2199,7 +2207,7 @@ decision = await aj.guard(label="tools.weather", rules=[...])
 
 # Layer 1: conclusion and reason
 decision.conclusion  # "ALLOW" or "DENY"
-decision.reason  # "RATE_LIMIT", "PROMPT_INJECTION", "MODERATE_CONTENT", "SENSITIVE_INFO", "CUSTOM", "ERROR", etc.
+decision.reason  # "RATE_LIMIT", "PROMPT_INJECTION", "MODERATE_CONTENT", "SENSITIVE_INFO", "IP_THREAT", "CUSTOM", "ERROR", etc.
 
 # Layer 2: error/warning detection
 decision.has_failed_open()  # True if ALLOW only because a rule/decision could not be processed (fail-closed gate)
