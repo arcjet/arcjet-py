@@ -24,6 +24,7 @@ class GuardReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_REASON_SENSITIVE_INFO: _ClassVar[GuardReason]
     GUARD_REASON_MODERATE_CONTENT: _ClassVar[GuardReason]
     GUARD_REASON_INPUT_CONSTRAINT: _ClassVar[GuardReason]
+    GUARD_REASON_IP_THREAT: _ClassVar[GuardReason]
 
 class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -40,6 +41,8 @@ class GuardRuleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     GUARD_RULE_TYPE_POLICY_EXPRESSION: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: _ClassVar[GuardRuleType]
     GUARD_RULE_TYPE_LOCAL_CUSTOM: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_SENSITIVE_INFO: _ClassVar[GuardRuleType]
+    GUARD_RULE_TYPE_IP_THREAT: _ClassVar[GuardRuleType]
 
 class GuardRuleMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -100,6 +103,7 @@ GUARD_REASON_PROMPT_INJECTION: GuardReason
 GUARD_REASON_SENSITIVE_INFO: GuardReason
 GUARD_REASON_MODERATE_CONTENT: GuardReason
 GUARD_REASON_INPUT_CONSTRAINT: GuardReason
+GUARD_REASON_IP_THREAT: GuardReason
 GUARD_RULE_TYPE_UNSPECIFIED: GuardRuleType
 GUARD_RULE_TYPE_TOKEN_BUCKET: GuardRuleType
 GUARD_RULE_TYPE_FIXED_WINDOW: GuardRuleType
@@ -113,6 +117,8 @@ GUARD_RULE_TYPE_STRING_LIST_MEMBERSHIP: GuardRuleType
 GUARD_RULE_TYPE_POLICY_EXPRESSION: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_SENSITIVE_INFO: GuardRuleType
 GUARD_RULE_TYPE_LOCAL_CUSTOM: GuardRuleType
+GUARD_RULE_TYPE_SENSITIVE_INFO: GuardRuleType
+GUARD_RULE_TYPE_IP_THREAT: GuardRuleType
 GUARD_RULE_MODE_UNSPECIFIED: GuardRuleMode
 GUARD_RULE_MODE_LIVE: GuardRuleMode
 GUARD_RULE_MODE_DRY_RUN: GuardRuleMode
@@ -411,6 +417,38 @@ class GuardSensitiveInfoEntity(_message.Message):
     end: int
     def __init__(self, type: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
 
+class ResultIpThreat(_message.Message):
+    __slots__ = ()
+    CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_FIELD_NUMBER: _ClassVar[int]
+    RISK_LEVEL_FIELD_NUMBER: _ClassVar[int]
+    REPUTATION_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITIES_FIELD_NUMBER: _ClassVar[int]
+    HOST_FIELD_NUMBER: _ClassVar[int]
+    IP_FIELD_NUMBER: _ClassVar[int]
+    conclusion: GuardConclusion
+    detected: bool
+    risk_level: str
+    reputation: str
+    activities: _containers.RepeatedScalarFieldContainer[str]
+    host: str
+    ip: str
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., risk_level: _Optional[str] = ..., reputation: _Optional[str] = ..., activities: _Optional[_Iterable[str]] = ..., host: _Optional[str] = ..., ip: _Optional[str] = ...) -> None: ...
+
+class ResultSensitiveInfo(_message.Message):
+    __slots__ = ()
+    CONCLUSION_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_ENTITY_TYPES_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_ENTITIES_FIELD_NUMBER: _ClassVar[int]
+    BILLING_FIELD_NUMBER: _ClassVar[int]
+    conclusion: GuardConclusion
+    detected: bool
+    detected_entity_types: _containers.RepeatedScalarFieldContainer[str]
+    detected_entities: _containers.RepeatedCompositeFieldContainer[GuardSensitiveInfoEntity]
+    billing: Billing
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., detected_entity_types: _Optional[_Iterable[str]] = ..., detected_entities: _Optional[_Iterable[_Union[GuardSensitiveInfoEntity, _Mapping]]] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
+
 class ResultLocalCustom(_message.Message):
     __slots__ = ()
     class DataEntry(_message.Message):
@@ -517,6 +555,8 @@ class GuardPolicyRuleResult(_message.Message):
     LOCAL_SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     NOT_RUN_FIELD_NUMBER: _ClassVar[int]
+    SENSITIVE_INFO_FIELD_NUMBER: _ClassVar[int]
+    IP_THREAT_FIELD_NUMBER: _ClassVar[int]
     result_id: str
     policy_id: str
     policy_revision: str
@@ -534,7 +574,9 @@ class GuardPolicyRuleResult(_message.Message):
     local_sensitive_info: ResultLocalSensitiveInfo
     error: ResultError
     not_run: ResultNotRun
-    def __init__(self, result_id: _Optional[str] = ..., policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., allowed_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., denied_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_length: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_list_membership: _Optional[_Union[ResultStringListMembership, _Mapping]] = ..., policy_expression: _Optional[_Union[ResultPolicyExpression, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ...) -> None: ...
+    sensitive_info: ResultSensitiveInfo
+    ip_threat: ResultIpThreat
+    def __init__(self, result_id: _Optional[str] = ..., policy_id: _Optional[str] = ..., policy_revision: _Optional[str] = ..., rule_id: _Optional[str] = ..., type: _Optional[_Union[GuardRuleType, str]] = ..., mode: _Optional[_Union[GuardRuleMode, str]] = ..., execution: _Optional[_Union[GuardRuleExecution, str]] = ..., source: _Optional[_Union[GuardRuleSource, str]] = ..., prompt_injection: _Optional[_Union[ResultPromptInjection, _Mapping]] = ..., allowed_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., denied_string_values: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_length: _Optional[_Union[ResultStringConstraint, _Mapping]] = ..., string_list_membership: _Optional[_Union[ResultStringListMembership, _Mapping]] = ..., policy_expression: _Optional[_Union[ResultPolicyExpression, _Mapping]] = ..., local_sensitive_info: _Optional[_Union[ResultLocalSensitiveInfo, _Mapping]] = ..., error: _Optional[_Union[ResultError, _Mapping]] = ..., not_run: _Optional[_Union[ResultNotRun, _Mapping]] = ..., sensitive_info: _Optional[_Union[ResultSensitiveInfo, _Mapping]] = ..., ip_threat: _Optional[_Union[ResultIpThreat, _Mapping]] = ...) -> None: ...
 
 class GuardDecision(_message.Message):
     __slots__ = ()
