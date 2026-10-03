@@ -32,7 +32,10 @@ from .._checkpoint import (
     _classify_decision,
     _emit_capture,
     _guard_sync,
+    _outcome_for_completed_action,
     _resolve_correlation_id,
+    bound_rules,
+    rules_for_call,
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -250,7 +253,17 @@ def _prepared(
     inputs_src: InputResolver = policy.inputs if policy is not None else config.inputs
     actor, degraded = _resolve_one(actor_src, arguments, ctx)
     inputs, degraded = _resolve_one(inputs_src, arguments, ctx, so_far=degraded)
-    return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+    rules: Optional[tuple[RuleWithInput, ...]] = None
+    rules_src = _configured_rules(config, policy)
+    if callable(rules_src):
+        resolve_rules = cast(Callable[[Mapping[str, Any], Any], object], rules_src)
+        rules, degraded = _resolve_one(
+            lambda args, hook_ctx: bound_rules(resolve_rules(args, hook_ctx)),
+            arguments,
+            ctx,
+            so_far=degraded,
+        )
+    return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded, rules=rules)
 
 
 def _resolve_one(
@@ -267,18 +280,11 @@ def _resolve_one(
         return None, so_far or exc
 
 
-def _resolved_rules(
-    config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]
-) -> Sequence[RuleWithInput]:
-    if policy is not None:
-        return policy.rules
-    rules = config.rules
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any], Any], Sequence[RuleWithInput]],
-        rules,
-    )(_context_arguments(ctx), ctx)
+def _configured_rules(
+    config: _HookConfig, policy: Optional[ToolPolicy]
+) -> RulesResolver:
+    """The rules this call is configured with: its tool's policy, else the hook's."""
+    return policy.rules if policy is not None else config.rules
 
 
 def _resolved_metadata(
@@ -335,10 +341,9 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
         correlation_id = _correlation(config)
         metadata = _resolved_metadata(config, ctx, policy)
         prepared = _prepared(config, ctx, policy)
-        rules = _resolved_rules(config, ctx, policy)
         decision = _guard_sync(
             config.guard,
-            rules=rules,
+            rules=rules_for_call(prepared, _configured_rules(config, policy)),
             label=action,
             metadata=metadata,
             correlation_id=correlation_id,
@@ -389,13 +394,15 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
         )
         return _PreAbort(str(failure))
 
-    # "success" is the decision's outcome — the call was allowed to proceed —
-    # not the tool's. A hook cannot observe the body: CrewAI turns a failing
-    # tool into a result string, and a later hook may still abort the call.
+    # The decision's outcome — the call was allowed to proceed — not the
+    # tool's. A hook cannot observe the body: CrewAI turns a failing tool into
+    # a result string, and a later hook may still abort the call. `degraded`
+    # when policy did not judge all of it and `on_guard_error="allow"` let it
+    # proceed anyway.
     _emit_capture(
         client=config.guard,
         action=action,
-        outcome="success",
+        outcome=_outcome_for_completed_action(decision, degraded=prepared.degraded),
         correlation_id=correlation_id,
         decision=decision,
         metadata=metadata,
@@ -501,6 +508,9 @@ def register_arcjet_hooks(
         inputs: Policy inputs, or a callable of ``(arguments, ctx)``.
             *arguments* is the tool's own argument mapping, unfiltered.
         rules: Local rules, or a callable of ``(arguments, ctx)``.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as a failed *inputs* resolver: Guard is
+            called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of ``(arguments, ctx)``.
         correlation_id: Caller-owned Sequence id. Validated like
             :func:`~arcjet.guard.arcjet_sequence`. Falls back to the ambient
