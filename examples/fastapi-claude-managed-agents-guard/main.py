@@ -463,7 +463,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
                     result = await handle_send_email(
                         event,
                         send=raw_send,
-                        session_id=anthropic_session_id,
+                        anthropic_session_id=anthropic_session_id,
                     )
                     if result is not None:
                         await raw_send(
