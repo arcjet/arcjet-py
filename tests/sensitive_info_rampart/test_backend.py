@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from arcjet_sensitive_info_rampart import RampartOptions, merge_spans, rampart
 from arcjet_sensitive_info_rampart._entities import (
     from_analyze_entity,
     to_analyze_entity,
 )
+from arcjet_sensitive_info_rampart._model import RawToken, aggregate_tokens
 from arcjet_sensitive_info_rampart._recognizers import DetectedSpan
 
 from arcjet._analyze import SensitiveInfoEntitiesAllow, SensitiveInfoEntitiesDeny
@@ -151,6 +153,48 @@ class TestRampartBackend:
         result = backend.detect(_CTX, value, _allow("EMAIL"))
         assert _typenames(result.allowed) == ["EMAIL"]
         assert _typenames(result.denied) == []
+
+    @pytest.mark.parametrize(
+        ("tokens", "model_offsets"),
+        [
+            (
+                [
+                    RawToken("B-TAX_ID", 0.99, 0, 3),
+                    RawToken("I-TAX_ID", 0.99, 3, 16),
+                    RawToken("I-TAX_ID", 0.99, 16, 17),
+                    RawToken("I-TAX_ID", 0.99, 17, 33),
+                ],
+                (0, 33),
+            ),
+            (
+                [
+                    RawToken("O", 0.99, 0, 16),
+                    RawToken("B-TAX_ID", 0.99, 16, 17),
+                    RawToken("I-TAX_ID", 0.99, 17, 33),
+                ],
+                (16, 33),
+            ),
+        ],
+    )
+    def test_model_continuation_cannot_hide_validated_cards(
+        self, tokens, model_offsets
+    ):
+        value = "4111111111111111-5500000000000004"
+        model_spans = aggregate_tokens(value, tokens)
+        assert [(span.start, span.end, span.type) for span in model_spans] == [
+            (*model_offsets, "TAX_ID")
+        ]
+
+        backend = rampart(RampartOptions(run_model=lambda _value: model_spans))
+        result = backend.detect(_CTX, value, _deny("CREDIT_CARD_NUMBER"))
+        assert [
+            (entity.start, entity.end, from_analyze_entity(entity.identified_type))
+            for entity in result.denied
+        ] == [
+            (0, 16, "CREDIT_CARD_NUMBER"),
+            (17, 33, "CREDIT_CARD_NUMBER"),
+        ]
+        assert result.allowed == []
 
     def test_maps_offsets_and_types(self):
         backend = rampart(
