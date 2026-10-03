@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from guard_doubles import (
     NOT_BOUND_RULES,
+    NOT_METADATA,
     StubGuardClient,
     make_allow_decision,
     make_deny_decision,
@@ -416,6 +417,96 @@ class TestEvaluateToolInput:
             )
         assert verdict.behavior == "reject_content"
         assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a: static) if callable_metadata else static
+        verdict = asyncio.run(
+            evaluate_tool_input(_ctx(), _config(guard=client, metadata=metadata))
+        )
+        assert verdict.behavior == "allow"
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"openai-agents.tool": "echo", "team": "billing"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_tool_input(_ctx(), _config(guard=client, metadata=boom))
+        )
+        assert verdict.behavior == "reject_content"
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"openai-agents.tool": "echo"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_tool_input(
+                _ctx(), _config(guard=client, metadata=boom, on_guard_error="allow")
+            )
+        )
+        assert verdict.behavior == "allow"
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"openai-agents.tool": "echo"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_tool_input(
+                _ctx(), _config(guard=client, metadata=boom, on_guard_error="allow")
+            )
+        )
+        assert verdict.behavior == "reject_content"
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_tool_input(
+                    _ctx(), _config(guard=client, metadata=lambda _a: returned())
+                )
+            )
+        assert verdict.behavior == "reject_content"
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"openai-agents.tool": "echo"}
+        ]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
     def test_correlation_from_context_never_mints(self, reset_sequence_context) -> None:

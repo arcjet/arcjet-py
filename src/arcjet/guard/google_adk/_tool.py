@@ -79,6 +79,10 @@ def guard_tool(
             client is accepted.
         action: Checkpoint label, e.g. ``"email.sent"``, or a callable of
             the tool-call envelope (arguments plus ``tool_name``).
+            A string the callable returns is sent unchanged. One that
+            raises, or returns anything other than a string, is handled as a
+            failed *inputs* resolver: Guard is called with
+            ``"{tool_name}.invoked"`` and *on_guard_error* decides.
         actor: Who is acting, or a callable of that envelope.
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty
@@ -87,6 +91,10 @@ def guard_tool(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of that envelope.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         correlation_id: Caller-owned Sequence id. Preferred over
             *session_id* / *conversation_id*.
         session_id: Alias fallback when the application calls the id a

@@ -11,7 +11,7 @@ import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
 from arcjet._logging import logger
 from arcjet._metadata import Metadata
@@ -25,7 +25,10 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
     bound_rules,
+    resolved_action,
+    resolved_metadata,
     rules_for_call,
+    with_degraded,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
@@ -158,27 +161,6 @@ def prepared_inputs(
     )
 
 
-def _resolved_action(config: CallbackConfig, arguments: Mapping[str, Any]) -> str:
-    action = config.action
-    if action is None:
-        return default_action(arguments)
-    if not callable(action):
-        return action
-    return cast(Callable[[Mapping[str, Any]], str], action)(arguments)
-
-
-def _resolved_metadata(
-    config: CallbackConfig, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    metadata = config.metadata
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
-
-
 def _caller_owned_source(tool_context: Any) -> Any:
     """What :func:`google_adk_context` may read.
 
@@ -286,13 +268,19 @@ async def evaluate_before_tool(
 
     try:
         call = tool_call(tool, args)
-        action = _resolved_action(config, call)
+        action, action_failure = resolved_action(
+            config.action, default_action(call), call
+        )
         correlation_id = _correlation(config, tool_context)
-        extra = _resolved_metadata(config, call)
+        extra, metadata_failure = resolved_metadata(config.metadata, call)
         metadata = _merged_metadata(
             config, tool=tool, tool_context=tool_context, extra=extra
         )
-        prepared = prepared_inputs(config.actor, config.inputs, call, config.rules)
+        prepared = with_degraded(
+            prepared_inputs(config.actor, config.inputs, call, config.rules),
+            action_failure,
+            metadata_failure,
+        )
         rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config,

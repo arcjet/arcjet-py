@@ -215,6 +215,10 @@ def guard_events(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of the message arguments.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         correlation_id: Caller-owned Sequence id. Never minted. Never an
             Anthropic session / event id we treated as ours.
         session_id: Same, for an id the application calls a session.

@@ -35,7 +35,10 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
     bound_rules,
+    resolved_action,
+    resolved_metadata,
     rules_for_call,
+    with_degraded,
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -225,16 +228,16 @@ def _context_metadata(ctx: Any, extra: Optional[Metadata]) -> Metadata:
     return merged
 
 
-def _resolve_action(config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]) -> str:
+def _default_action(ctx: Any) -> str:
+    return f"{_context_tool_name(ctx) or 'tool'}.invoked"
+
+
+def _resolve_action(
+    config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]
+) -> tuple[str, Optional[BaseException]]:
     if policy is not None:
-        return policy.action
-    action = config.action
-    if action is None:
-        name = _context_tool_name(ctx) or "tool"
-        return f"{name}.invoked"
-    if callable(action):
-        return cast(Callable[[Any], str], action)(ctx)
-    return action
+        return policy.action, None
+    return resolved_action(config.action, _default_action(ctx), ctx)
 
 
 def _prepared(
@@ -289,16 +292,11 @@ def _configured_rules(
 
 def _resolved_metadata(
     config: _HookConfig, ctx: Any, policy: Optional[ToolPolicy]
-) -> Optional[Metadata]:
+) -> tuple[Optional[Metadata], Optional[BaseException]]:
     if policy is not None:
-        return _context_metadata(ctx, policy.metadata)
-    metadata = config.metadata
-    if callable(metadata):
-        resolved = cast(
-            Callable[[Mapping[str, Any], Any], Optional[Metadata]], metadata
-        )(_context_arguments(ctx), ctx)
-        return _context_metadata(ctx, resolved)
-    return _context_metadata(ctx, metadata)
+        return _context_metadata(ctx, policy.metadata), None
+    extra, failure = resolved_metadata(config.metadata, _context_arguments(ctx), ctx)
+    return _context_metadata(ctx, extra), failure
 
 
 def _correlation(config: _HookConfig) -> Optional[str]:
@@ -332,15 +330,17 @@ def evaluate_pre_tool_call(ctx: Any, config: _HookConfig) -> Optional[_PreAbort]
 
     # Bound before the attempt so the failure path can still name the action
     # and reach the same Sequence when a factory throws.
-    action = f"{name or 'tool'}.invoked"
+    action = _default_action(ctx)
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
 
     try:
-        action = _resolve_action(config, ctx, policy)
+        action, action_failure = _resolve_action(config, ctx, policy)
         correlation_id = _correlation(config)
-        metadata = _resolved_metadata(config, ctx, policy)
-        prepared = _prepared(config, ctx, policy)
+        metadata, metadata_failure = _resolved_metadata(config, ctx, policy)
+        prepared = with_degraded(
+            _prepared(config, ctx, policy), action_failure, metadata_failure
+        )
         decision = _guard_sync(
             config.guard,
             rules=rules_for_call(prepared, _configured_rules(config, policy)),
@@ -504,6 +504,10 @@ def register_arcjet_hooks(
         guard: A blocking Arcjet client. ``None`` uses the registered client.
         action: Checkpoint label, or a callable of the hook context. Defaults
             to ``"{sanitized_tool_name}.invoked"``.
+            A string the callable returns is sent unchanged. One that
+            raises, or returns anything other than a string, is handled as a
+            failed *inputs* resolver: Guard is called with
+            ``"{sanitized_tool_name}.invoked"`` and *on_guard_error* decides.
         actor: Who is acting, or a callable of ``(arguments, ctx)``.
         inputs: Policy inputs, or a callable of ``(arguments, ctx)``.
             *arguments* is the tool's own argument mapping, unfiltered.
@@ -512,6 +516,10 @@ def register_arcjet_hooks(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of ``(arguments, ctx)``.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         correlation_id: Caller-owned Sequence id. Validated like
             :func:`~arcjet.guard.arcjet_sequence`. Falls back to the ambient
             sequence. Never derived from ``crew.id`` / ``task.id``.

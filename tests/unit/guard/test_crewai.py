@@ -18,7 +18,10 @@ from typing import Any, cast
 
 import pytest
 from guard_doubles import (
+    INVALID_LABELS,
+    NOT_ACTION,
     NOT_BOUND_RULES,
+    NOT_METADATA,
     AsyncOnlyStubGuardClient,
     StubGuardClient,
     make_allow_decision,
@@ -284,6 +287,185 @@ class TestEvaluatePreToolCall:
         assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a, _c: static) if callable_metadata else static
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, metadata=metadata)
+        )
+        assert verdict is None
+        assert [guard["metadata"] for guard in client.guards] == [
+            {
+                "tool": "echo",
+                "agent": "researcher",
+                "task": "research",
+                "crew": "desk",
+                "team": "billing",
+            }
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, metadata=boom)
+        )
+        assert verdict is not None
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"tool": "echo", "agent": "researcher", "task": "research", "crew": "desk"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, metadata=boom, on_guard_error="allow")
+        )
+        assert verdict is None
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"tool": "echo", "agent": "researcher", "task": "research", "crew": "desk"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, metadata=boom, on_guard_error="allow")
+        )
+        assert verdict is not None
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = evaluate_pre_tool_call(
+                _ctx(), _hook_config(guard=client, metadata=lambda _a, _c: returned())
+            )
+        assert verdict is not None
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"tool": "echo", "agent": "researcher", "task": "research", "crew": "desk"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_action_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, action=boom)
+        )
+        assert verdict is not None
+        # Guard still sees the call, under the label used when no action is
+        # given, so remote policy for that label runs.
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["action"] == "echo.invoked"
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_action_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, action=boom, on_guard_error="allow")
+        )
+        assert verdict is None
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["action"] == "echo.invoked"
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_action_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, action=boom, on_guard_error="allow")
+        )
+        assert verdict is not None
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_ACTION.values(), ids=NOT_ACTION.keys())
+    def test_action_factory_returning_no_str_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = evaluate_pre_tool_call(
+                _ctx(), _hook_config(guard=client, action=lambda _c: returned())
+            )
+        assert verdict is not None
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "label", INVALID_LABELS.values(), ids=INVALID_LABELS.keys()
+    )
+    def test_action_factory_invalid_label_is_sent_unchanged(
+        self, reset_sequence_context, label: str
+    ) -> None:
+        # The service judges a label that exists only at call time; the SDK
+        # does not check it per call.
+        client = StubGuardClient(decision=make_allow_decision())
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, action=lambda _c: label)
+        )
+        assert verdict is None
+        assert [guard["label"] for guard in client.guards] == [label]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_action_factory_label_is_used(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, action=lambda _c: "custom.invoked")
+        )
+        assert verdict is None
+        assert [guard["label"] for guard in client.guards] == ["custom.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
     def test_failed_open_allow_proceeds_and_records_degraded(
         self, reset_sequence_context
     ) -> None:
@@ -296,16 +478,6 @@ class TestEvaluatePreToolCall:
         )
         assert abort is None
         assert client.captures[0]["metadata"]["outcome"] == "degraded"
-
-    def test_action_factory_throw_fail_closed(self, reset_sequence_context) -> None:
-        client = StubGuardClient(decision=make_allow_decision())
-
-        def boom(_ctx: object) -> str:
-            raise RuntimeError("no action")
-
-        abort = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client, action=boom))
-        assert abort is not None
-        assert "could not be evaluated" in abort.reason
 
     def test_ambient_sequence_is_used(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())

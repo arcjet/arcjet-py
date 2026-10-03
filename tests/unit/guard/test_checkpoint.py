@@ -9,10 +9,15 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+import warnings
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from guard_doubles import (
+    INVALID_LABELS,
+    NOT_ACTION,
+    NOT_METADATA,
     AsyncOnlyStubGuardClient,
     StubGuardClient,
     SyncOnlyStubGuardClient,
@@ -30,8 +35,11 @@ from arcjet.guard import (
 )
 from arcjet.guard._checkpoint import (
     ResolvedInputs,
+    resolved_action,
+    resolved_metadata,
     run_checkpoint,
     run_checkpoint_sync,
+    with_degraded,
 )
 from arcjet.guard._types import RuleResultError
 
@@ -1951,3 +1959,116 @@ class TestDegradedOutcome:
             assert capture["decision_id"] == "gdec_partial"
 
         asyncio.run(test())
+
+
+class TestResolvedMetadata:
+    """The metadata a surface sends for one call, and what stopped it resolving."""
+
+    def test_a_value_that_is_not_callable_is_returned_unchanged(self) -> None:
+        static = {"team": "billing"}
+        assert resolved_metadata(static, {"a": 1}) == (static, None)
+        assert resolved_metadata(None, {"a": 1}) == (None, None)
+
+    def test_a_callable_is_called_with_the_arguments(self) -> None:
+        seen: list[tuple[Any, ...]] = []
+
+        def resolve(*args: Any) -> dict[str, Any]:
+            seen.append(args)
+            return {"team": "billing"}
+
+        assert resolved_metadata(resolve, {"a": 1}, "ctx") == (
+            {"team": "billing"},
+            None,
+        )
+        assert seen == [({"a": 1}, "ctx")]
+
+    def test_a_callable_returning_none_is_not_a_failure(self) -> None:
+        assert resolved_metadata(lambda _a: None, {}) == (None, None)
+
+    def test_a_raising_callable_is_reported_not_raised(self) -> None:
+        failure = RuntimeError("no metadata")
+
+        def boom(_arguments: Any) -> dict[str, Any]:
+            raise failure
+
+        assert resolved_metadata(boom, {}) == (None, failure)
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_a_value_that_is_not_a_mapping_is_reported(
+        self, returned: Callable[[], Any]
+    ) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            metadata, failure = resolved_metadata(lambda _a: returned(), {})
+        assert metadata is None
+        assert isinstance(failure, TypeError)
+
+
+class TestResolvedAction:
+    """The label a surface sends for one call, and what stopped it resolving."""
+
+    def test_none_is_the_default(self) -> None:
+        assert resolved_action(None, "echo.invoked", {}) == ("echo.invoked", None)
+
+    def test_a_string_is_returned_unchanged(self) -> None:
+        # A configured string was checked at construction, or was derived by
+        # the surface; it is not judged again per call.
+        assert resolved_action("email.sent", "echo.invoked", {}) == ("email.sent", None)
+
+    def test_a_callable_is_called_with_the_arguments(self) -> None:
+        seen: list[tuple[Any, ...]] = []
+
+        def resolve(*args: Any) -> str:
+            seen.append(args)
+            return "email.sent"
+
+        assert resolved_action(resolve, "echo.invoked", {"a": 1}) == (
+            "email.sent",
+            None,
+        )
+        assert seen == [({"a": 1},)]
+
+    def test_a_raising_callable_gives_the_default(self) -> None:
+        failure = RuntimeError("no action")
+
+        def boom(_arguments: Any) -> str:
+            raise failure
+
+        assert resolved_action(boom, "echo.invoked", {}) == ("echo.invoked", failure)
+
+    @pytest.mark.parametrize("returned", NOT_ACTION.values(), ids=NOT_ACTION.keys())
+    def test_a_value_that_is_not_a_string_gives_the_default(
+        self, returned: Callable[[], Any]
+    ) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            action, failure = resolved_action(lambda _a: returned(), "echo.invoked", {})
+        assert action == "echo.invoked"
+        assert isinstance(failure, TypeError)
+
+    @pytest.mark.parametrize(
+        "label", INVALID_LABELS.values(), ids=INVALID_LABELS.keys()
+    )
+    def test_a_string_is_used_unchanged_even_if_no_policy_can_match_it(
+        self, label: str
+    ) -> None:
+        # Judged by the service, which reports AJ1023; never checked per call.
+        assert resolved_action(lambda _a: label, "echo.invoked", {}) == (label, None)
+
+
+class TestWithDegraded:
+    def test_no_failure_returns_the_inputs_unchanged(self) -> None:
+        prepared = ResolvedInputs(actor="u_1")
+        assert with_degraded(prepared, None, None) is prepared
+
+    def test_the_first_failure_given_is_reported(self) -> None:
+        first, second, own = RuntimeError("1"), RuntimeError("2"), RuntimeError("3")
+        prepared = ResolvedInputs(actor="u_1", degraded=own)
+        assert with_degraded(prepared, None, first, second) == ResolvedInputs(
+            actor="u_1", degraded=first
+        )
+
+    def test_the_inputs_own_failure_is_kept_when_none_is_given(self) -> None:
+        own = RuntimeError("own")
+        prepared = ResolvedInputs(degraded=own)
+        assert with_degraded(prepared, None).degraded is own

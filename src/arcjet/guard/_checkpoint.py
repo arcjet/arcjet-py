@@ -12,12 +12,13 @@ reads the same whichever SDK produced it.
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     Any,
     Awaitable,
     Callable,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     TypeVar,
@@ -102,11 +103,7 @@ def bound_rules(value: object) -> tuple[RuleWithInput, ...]:
     it, and dropping it unawaited leaves a ``RuntimeWarning`` to surface at an
     arbitrary later garbage collection.
     """
-    if inspect.isawaitable(value):
-        close = getattr(value, "close", None)
-        if callable(close):
-            close()
-        raise TypeError("A synchronous rules resolver must not return an awaitable")
+    _refuse_awaitable(value, "rules")
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise TypeError(
             f"A rules resolver must return a sequence of bound rules, got "
@@ -139,6 +136,96 @@ def rules_for_call(
     if callable(configured):
         return ()
     return cast("Sequence[RuleWithInput]", configured)
+
+
+def _refuse_awaitable(value: object, resolver: str) -> None:
+    """Raise ``TypeError`` when a synchronous *resolver* returned an awaitable.
+
+    The awaitable is closed first, so it does not leave a ``RuntimeWarning``
+    behind at a later garbage collection.
+    """
+    if inspect.isawaitable(value):
+        close = getattr(value, "close", None)
+        if callable(close):
+            close()
+        raise TypeError(
+            f"A synchronous {resolver} resolver must not return an awaitable"
+        )
+
+
+def resolved_metadata(
+    configured: object, *args: Any
+) -> tuple[Optional[Metadata], Optional[BaseException]]:
+    """The caller's metadata for one call, and what stopped it resolving.
+
+    *configured* is what the application passed as ``metadata``. Anything that
+    is not callable is returned unchanged. A callable is called with *args*.
+    If it raises, or returns something other than ``None`` or a mapping, the
+    metadata is ``None``, so the call carries only the metadata the surface
+    adds itself, and the failure is returned for the surface to report in
+    :attr:`ResolvedInputs.degraded`. Guard is still called, and
+    ``on_guard_error`` decides whether the call proceeds.
+    """
+    if not callable(configured):
+        return cast("Optional[Metadata]", configured), None
+    try:
+        value = cast(Callable[..., object], configured)(*args)
+        _refuse_awaitable(value, "metadata")
+        if value is not None and not isinstance(value, Mapping):
+            raise TypeError(
+                f"A metadata resolver must return a mapping or None, got "
+                f"{type(value).__name__}"
+            )
+    except Exception as exc:
+        return None, exc
+    return cast("Optional[Metadata]", value), None
+
+
+def resolved_action(
+    configured: object, default: str, *args: Any
+) -> tuple[str, Optional[BaseException]]:
+    """The guard label for one call, and what stopped it resolving.
+
+    *configured* is what the application passed as ``action``: ``None`` gives
+    *default*, a string is returned unchanged, and a callable is called with
+    *args*. A string the callable returns is used unchanged, whatever it
+    spells: a label that exists only at call time is judged by the service,
+    which reports a rejected one as unevaluated policy. If the callable raises,
+    or returns something other than a string, the label is *default* and the
+    failure is returned for the surface to report in
+    :attr:`ResolvedInputs.degraded`. Guard is still called, under the label the
+    surface uses when no ``action`` is given, so remote policy for that label
+    still runs and ``on_guard_error`` decides whether the call proceeds.
+    """
+    if configured is None:
+        return default, None
+    if not callable(configured):
+        return cast(str, configured), None
+    try:
+        value = cast(Callable[..., object], configured)(*args)
+        _refuse_awaitable(value, "action")
+        if not isinstance(value, str):
+            raise TypeError(
+                f"An action resolver must return a str, got {type(value).__name__}"
+            )
+    except Exception as exc:
+        return default, exc
+    return value, None
+
+
+def with_degraded(
+    prepared: ResolvedInputs, *failures: Optional[BaseException]
+) -> ResolvedInputs:
+    """*prepared*, also reporting *failures* in its ``degraded``.
+
+    For what a surface resolves outside its inputs, such as its ``action`` and
+    ``metadata``. The first failure given is reported, ahead of any *prepared*
+    already carries, so the cause names what the surface resolved first.
+    """
+    for failure in failures:
+        if failure is not None:
+            return replace(prepared, degraded=failure)
+    return prepared
 
 
 def _default_denied(action: str, decision: Decision) -> BaseException:

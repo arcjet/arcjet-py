@@ -263,3 +263,36 @@ NOT_BOUND_RULES: dict[str, Callable[[], Any]] = {
     ],
     "coroutine": _no_rules,
 }
+
+
+async def _no_metadata() -> dict[str, Any]:
+    return {}
+
+
+async def _an_action() -> str:
+    return "tool.invoked"
+
+
+#: What a metadata resolver can return that is neither a mapping nor ``None``,
+#: by test id. Called per test for the same reason as :data:`NOT_BOUND_RULES`.
+NOT_METADATA: dict[str, Callable[[], Any]] = {
+    "string": lambda: "not metadata",
+    "pairs": lambda: [("key", "value")],
+    "int": lambda: 1,
+    "coroutine": lambda: _no_metadata(),
+}
+
+#: What an action resolver can return that is not a string, by test id.
+NOT_ACTION: dict[str, Callable[[], Any]] = {
+    "none": lambda: None,
+    "bytes": lambda: b"send_email.invoked",
+    "coroutine": lambda: _an_action(),
+}
+
+#: Strings an action resolver can return that the SDK's own label check
+#: would refuse. They are sent unchanged: the service judges a label that
+#: exists only at call time.
+INVALID_LABELS: dict[str, str] = {
+    "uppercase": "sendEmail.invoked",
+    "empty": "",
+}

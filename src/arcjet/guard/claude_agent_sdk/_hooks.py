@@ -24,7 +24,7 @@ import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
@@ -39,7 +39,10 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
     bound_rules,
+    resolved_action,
+    resolved_metadata,
     rules_for_call,
+    with_degraded,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._label import assert_valid_action
@@ -183,17 +186,6 @@ def _prepared(
     )
 
 
-def _resolved_metadata(
-    metadata: MetadataResolver, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
-
-
 def _correlation(session_id: Optional[str], source: Mapping[str, Any]) -> Optional[str]:
     derived = claude_agent_context(source, session_id=session_id)
     return _resolve_correlation_id(derived.correlation_id)
@@ -242,14 +234,14 @@ async def _decide(
     return await asyncio.to_thread(partial(_guard_sync, guard, **kwargs))
 
 
-def _resolve_tool_action(config: _HookConfig, source: Mapping[str, Any]) -> str:
-    action = config.action
-    if action is None:
-        name = _tool_name(source) or "tool"
-        return f"{name}.invoked"
-    if callable(action):
-        return cast(Callable[[Mapping[str, Any]], str], action)(source)
-    return action
+def _default_tool_action(source: Mapping[str, Any]) -> str:
+    return f"{_tool_name(source) or 'tool'}.invoked"
+
+
+def _resolve_tool_action(
+    config: _HookConfig, source: Mapping[str, Any]
+) -> tuple[str, Optional[BaseException]]:
+    return resolved_action(config.action, _default_tool_action(source), source)
 
 
 async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseVerdict:
@@ -264,17 +256,21 @@ async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseV
     if is_excluded(name, config.exclude):
         return PreToolUseVerdict(deny=False)
 
-    action = f"{name or 'tool'}.invoked"
+    action = _default_tool_action(hook)
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
 
     try:
-        action = _resolve_tool_action(config, hook)
+        action, action_failure = _resolve_tool_action(config, hook)
         arguments = _tool_call(hook)
         correlation_id = _correlation(config.session_id, hook)
-        extra = _resolved_metadata(config.metadata, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(config.session_id, hook, extra, phase="before")
-        prepared = _prepared(config.actor, config.inputs, arguments, config.rules)
+        prepared = with_degraded(
+            _prepared(config.actor, config.inputs, arguments, config.rules),
+            action_failure,
+            metadata_failure,
+        )
         rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config.guard,
@@ -350,9 +346,12 @@ async def evaluate_user_prompt_submit(
 
     try:
         correlation_id = _correlation(config.session_id, hook)
-        extra = _resolved_metadata(config.metadata, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(config.session_id, hook, extra, phase="inbound")
-        prepared = _prepared(config.actor, config.inputs, arguments, config.rules)
+        prepared = with_degraded(
+            _prepared(config.actor, config.inputs, arguments, config.rules),
+            metadata_failure,
+        )
         rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config.guard,
@@ -445,9 +444,17 @@ def capture_post_tool_use(source: Any, config: _HookConfig) -> dict[str, Any]:
     """
     hook = _hook_mapping(source)
     try:
-        action = _resolve_tool_action(config, hook)
+        action, action_failure = _resolve_tool_action(config, hook)
         arguments = _tool_call(hook)
-        extra = _resolved_metadata(config.metadata, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
+        failure = action_failure or metadata_failure
+        if failure is not None:
+            logger.warning(
+                "arcjet: the Claude Agent SDK PostToolUse action or metadata "
+                "resolver failed; capturing %r without it",
+                action,
+                exc_info=failure,
+            )
         metadata = _merged_metadata(config.session_id, hook, extra, phase="after")
         _emit_capture(
             client=config.guard,
@@ -584,6 +591,10 @@ def guard_hooks(
             client is accepted.
         action: Checkpoint label, or a callable of the hook input. Defaults
             to ``"{tool_name}.invoked"`` when a tool hook is registered.
+            A string the callable returns is sent unchanged. One that
+            raises, or returns anything other than a string, is handled as a
+            failed *inputs* resolver: Guard is called with
+            ``"{tool_name}.invoked"`` and *on_guard_error* decides.
         actor: Who is acting, or a callable of the tool-call envelope (or
             ``{"prompt": ...}`` on inbound). Does not register a tool hook
             by itself — put it on *inbound* for inbound-only setups.
@@ -594,6 +605,10 @@ def guard_hooks(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of that envelope.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         session_id: Caller-owned UUID fallback. Hook ``session_id`` is
             preferred. Never minted.
         correlation_id: Alias of *session_id*. Ignored when *session_id*

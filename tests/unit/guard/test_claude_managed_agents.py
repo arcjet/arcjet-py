@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from guard_doubles import (
     NOT_BOUND_RULES,
+    NOT_METADATA,
     StubGuardClient,
     make_allow_decision,
     make_deny_decision,
@@ -568,6 +569,103 @@ class TestInboundGate:
         assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a: static) if callable_metadata else static
+        verdict = asyncio.run(
+            evaluate_user_message(
+                _user_message("hello"), _events_config(guard=client, metadata=metadata)
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.phase": "inbound", "team": "billing"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_user_message(
+                _user_message("hello"), _events_config(guard=client, metadata=boom)
+            )
+        )
+        assert verdict.deny is True
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.phase": "inbound"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_user_message(
+                _user_message("hello"),
+                _events_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.phase": "inbound"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_user_message(
+                _user_message("hello"),
+                _events_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.deny is True
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_user_message(
+                    _user_message("hello"),
+                    _events_config(guard=client, metadata=lambda _a: returned()),
+                )
+            )
+        assert verdict.deny is True
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.phase": "inbound"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
 
 class TestCustomToolGate:
     def test_deny_does_not_execute_and_sends_real_result(
@@ -791,6 +889,103 @@ class TestCustomToolGate:
             )
         assert verdict.deny is True
         assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a: static) if callable_metadata else static
+        verdict = asyncio.run(
+            evaluate_custom_tool(
+                _custom_tool_use(), _tool_config(guard=client, metadata=metadata)
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.tool": "send_email", "team": "billing"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_custom_tool(
+                _custom_tool_use(), _tool_config(guard=client, metadata=boom)
+            )
+        )
+        assert verdict.deny is True
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.tool": "send_email"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_custom_tool(
+                _custom_tool_use(),
+                _tool_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.tool": "send_email"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_custom_tool(
+                _custom_tool_use(),
+                _tool_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.deny is True
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_custom_tool(
+                    _custom_tool_use(),
+                    _tool_config(guard=client, metadata=lambda _a: returned()),
+                )
+            )
+        assert verdict.deny is True
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"claude-managed-agents.tool": "send_email"}
+        ]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
 

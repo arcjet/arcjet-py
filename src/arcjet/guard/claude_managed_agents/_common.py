@@ -14,7 +14,7 @@ import inspect
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, TypeVar, Union, cast
+from typing import Any, Optional, TypeVar, Union
 
 from arcjet._logging import logger
 from arcjet._metadata import Metadata
@@ -29,7 +29,9 @@ from .._checkpoint import (
     _resolve_correlation_id,
     bound_rules,
     rules_for_call,
+    with_degraded,
 )
+from .._checkpoint import resolved_metadata as _caller_metadata
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
@@ -115,17 +117,6 @@ def prepared_inputs(
         degraded=degraded,
         rules=resolved_rules,
     )
-
-
-def resolve_metadata_value(
-    metadata: MetadataResolver, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
 
 
 def merge_metadata(
@@ -216,14 +207,16 @@ async def evaluate_checkpoint(
         resolved_correlation = correlation_id_for(
             correlation_id=correlation_id, session_id=session_id
         )
-        extra = resolve_metadata_value(metadata, arguments)
+        extra, metadata_failure = _caller_metadata(metadata, arguments)
         resolved_metadata = merge_metadata(
             correlation_id=correlation_id,
             session_id=session_id,
             extra=extra,
             reserved=reserved_metadata,
         )
-        prepared = prepared_inputs(actor, inputs, arguments, rules)
+        prepared = with_degraded(
+            prepared_inputs(actor, inputs, arguments, rules), metadata_failure
+        )
         decision = await decide(
             guard,
             action=action,
