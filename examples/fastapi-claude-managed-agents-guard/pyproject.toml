@@ -13,6 +13,6 @@ dependencies = [
 
 [tool.uv]
 exclude-newer = "7 days"
-# arcjet 1.3.0 was uploaded on 2026-10-01, inside the 7-day window above.
-# Exempt only arcjet, with a fixed cutoff just after that upload.
-exclude-newer-package = { arcjet = "2026-10-02T00:00:00Z" }
+# arcjet is our own package, so it is exempt from the cooldown above: a new
+# release is usable here as soon as it is published.
+exclude-newer-package = { arcjet = false }
