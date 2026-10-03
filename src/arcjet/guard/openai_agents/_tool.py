@@ -37,6 +37,8 @@ from .._checkpoint import (
     _guard_sync,
     _outcome_for_completed_action,
     _resolve_correlation_id,
+    bound_rules,
+    rules_for_call,
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -139,21 +141,18 @@ def _prepared(config: _ToolConfig, arguments: Mapping[str, Any]) -> ResolvedInpu
         resolved_inputs = _resolve(config.inputs, arguments)
     except Exception as exc:
         degraded = degraded or exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    if callable(config.rules):
+        try:
+            resolved_rules = bound_rules(_resolve(config.rules, arguments))
+        except Exception as exc:
+            degraded = degraded or exc
     return ResolvedInputs(
-        actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
+        actor=resolved_actor,
+        inputs=resolved_inputs,
+        degraded=degraded,
+        rules=resolved_rules,
     )
-
-
-def _resolved_rules(
-    config: _ToolConfig, arguments: Mapping[str, Any]
-) -> Sequence[RuleWithInput]:
-    rules = config.rules
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-        rules,
-    )(arguments)
 
 
 def _resolved_metadata(
@@ -241,7 +240,7 @@ async def evaluate_tool_input(data: Any, config: _ToolConfig) -> ToolInputVerdic
         extra = _resolved_metadata(config, arguments)
         metadata = _merged_metadata(config, data, extra)
         prepared = _prepared(config, arguments)
-        rules = _resolved_rules(config, arguments)
+        rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config,
             action=action,
@@ -372,6 +371,9 @@ def guard_tool(
         inputs: Policy inputs, or a callable of the call's arguments.
         rules: Local rules, or a callable of the call's arguments. Empty
             still contacts Guard.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as a failed *inputs* resolver: Guard is
+            called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of the call's arguments.
         correlation_id: Caller-owned fallback Sequence id. The run context
             is preferred; then this; then :func:`~arcjet.guard.arcjet_sequence`.

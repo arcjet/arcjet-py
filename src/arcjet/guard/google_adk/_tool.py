@@ -83,6 +83,9 @@ def guard_tool(
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty
             still contacts Guard.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as a failed *inputs* resolver: Guard is
+            called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of that envelope.
         correlation_id: Caller-owned Sequence id. Preferred over
             *session_id* / *conversation_id*.

@@ -11,13 +11,15 @@ import asyncio
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+import warnings
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from guard_doubles import (
+    NOT_BOUND_RULES,
     StubGuardClient,
     make_allow_decision,
     make_deny_decision,
@@ -460,6 +462,45 @@ class TestEvaluateHandler:
             evaluate_handler({}, _tool_config(guard=client, rules=boom))
         )
         assert verdict.deny is True
+        # Guard still sees the call, without local rules, so remote policy runs.
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_rules_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = asyncio.run(
+            evaluate_handler(
+                {}, _tool_config(guard=client, rules=boom, on_guard_error="allow")
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_factory_returning_no_bound_rules_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_handler(
+                    {}, _tool_config(guard=client, rules=lambda _a: returned())
+                )
+            )
+        assert verdict.deny is True
+        assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
     def test_uses_policy_correlation_id_never_mints(
@@ -704,6 +745,58 @@ class TestEvaluateBeforeToolCall:
             evaluate_before_tool_call(_event(), _hook_config(guard=client, rules=rules))
         )
         assert seen == [{"value": "hello", "tool_name": "echo"}]
+
+    def test_rules_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(_event(), _hook_config(guard=client, rules=boom))
+        )
+        assert verdict.cancel is True
+        # Guard still sees the call, without local rules, so remote policy runs.
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_rules_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(),
+                _hook_config(guard=client, rules=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_factory_returning_no_bound_rules_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_before_tool_call(
+                    _event(), _hook_config(guard=client, rules=lambda _a: returned())
+                )
+            )
+        assert verdict.cancel is True
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
     def test_correlation_from_invocation_state(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())
