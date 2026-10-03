@@ -416,7 +416,9 @@ async def chat(request: Request, body: ChatRequest) -> Any:
         finished = False
         terminated = False
         interrupted = False
-        async with anthropic_client.beta.sessions.events.stream(
+        # `stream()` is a coroutine that resolves to the stream, so await it
+        # before entering the context manager.
+        async with await anthropic_client.beta.sessions.events.stream(
             session_id=anthropic_session_id,
         ) as stream:
             try:
@@ -463,7 +465,7 @@ async def chat(request: Request, body: ChatRequest) -> Any:
                     result = await handle_send_email(
                         event,
                         send=raw_send,
-                        session_id=anthropic_session_id,
+                        anthropic_session_id=anthropic_session_id,
                     )
                     if result is not None:
                         await raw_send(

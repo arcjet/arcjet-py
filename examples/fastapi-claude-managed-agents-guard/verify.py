@@ -184,7 +184,9 @@ async def scenario_allow() -> None:
     guard = ScenarioGuard(decision=_allow())
     send = RecordingSend()
     handler = _wrap(guard)
-    result = await handler(_tool_use(), send=send, session_id=ANTHROPIC_SESSION_ID)
+    result = await handler(
+        _tool_use(), send=send, anthropic_session_id=ANTHROPIC_SESSION_ID
+    )
     assert _SEND_CALLS == ["list"], _SEND_CALLS
     assert result == "Email sent to list"
     assert send.calls == []
@@ -195,7 +197,9 @@ async def scenario_deny() -> None:
     guard = ScenarioGuard(decision=_deny())
     send = RecordingSend()
     handler = _wrap(guard)
-    result = await handler(_tool_use(), send=send, session_id=ANTHROPIC_SESSION_ID)
+    result = await handler(
+        _tool_use(), send=send, anthropic_session_id=ANTHROPIC_SESSION_ID
+    )
     assert _SEND_CALLS == []
     assert result is None
     assert len(send.calls) == 1
@@ -216,7 +220,9 @@ async def scenario_unavailable() -> None:
     guard = ScenarioGuard(exception=RuntimeError("down"))
     send = RecordingSend()
     handler = _wrap(guard)
-    result = await handler(_tool_use(), send=send, session_id=ANTHROPIC_SESSION_ID)
+    result = await handler(
+        _tool_use(), send=send, anthropic_session_id=ANTHROPIC_SESSION_ID
+    )
     assert _SEND_CALLS == []
     assert result is None
     event = send.calls[0][1][0]
@@ -442,7 +448,7 @@ async def scenario_live_local_pii() -> None:
             "input": {"to": "alice@example.com", "body": "welcome to onboarding"},
         },
         send=send,
-        session_id=ANTHROPIC_SESSION_ID,
+        anthropic_session_id=ANTHROPIC_SESSION_ID,
     )
     await client.flush()
     assert _SEND_CALLS == [], _SEND_CALLS
