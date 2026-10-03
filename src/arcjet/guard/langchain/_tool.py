@@ -50,7 +50,12 @@ from pydantic.v1 import ValidationError as ValidationErrorV1
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
 
-from .._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
+from .._checkpoint import (
+    ResolvedInputs,
+    bound_rules,
+    run_checkpoint,
+    run_checkpoint_sync,
+)
 from .._client import _GuardClient
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -70,6 +75,17 @@ AsyncInputResolver = (
         [Mapping[str, Any], RunnableConfig], PolicyInputMap | Awaitable[PolicyInputMap]
     ]
 )
+RulesResolver = (
+    Sequence[RuleWithInput]
+    | Callable[[Mapping[str, Any], RunnableConfig], Sequence[RuleWithInput]]
+)
+AsyncRulesResolver = (
+    Sequence[RuleWithInput]
+    | Callable[
+        [Mapping[str, Any], RunnableConfig],
+        Sequence[RuleWithInput] | Awaitable[Sequence[RuleWithInput]],
+    ]
+)
 
 # The callable halves of the aliases above. `callable()` narrows a union
 # containing a Mapping to something no type checker will call, so the call
@@ -77,6 +93,10 @@ AsyncInputResolver = (
 _ActorFn = Callable[[RunnableConfig], "str | Awaitable[str]"]
 _InputsFn = Callable[
     [Mapping[str, Any], RunnableConfig], "PolicyInputMap | Awaitable[PolicyInputMap]"
+]
+_RulesFn = Callable[
+    [Mapping[str, Any], RunnableConfig],
+    "Sequence[RuleWithInput] | Awaitable[Sequence[RuleWithInput]]",
 ]
 
 
@@ -471,7 +491,8 @@ class _Guarded:
     action: str
     actor: ActorResolver | AsyncActorResolver | None
     inputs: InputResolver | AsyncInputResolver | None
-    rules: tuple[RuleWithInput, ...]
+    #: A tuple, or the resolver that produces one per call.
+    rules: tuple[RuleWithInput, ...] | _RulesFn
     on_guard_error: OnGuardError
     # Which of the client's two spellings answers each flavour, resolved once.
     # The client cannot change flavour for the life of a guarded tool, so
@@ -513,7 +534,10 @@ class _Guarded:
         """
         actor, degraded = _resolved(self._actor, call.config)
         inputs, degraded = _resolved(self._inputs, call, so_far=degraded)
-        return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+        rules, degraded = _resolved(self._rules, call, so_far=degraded)
+        return ResolvedInputs(
+            actor=actor, inputs=inputs, degraded=degraded, rules=rules
+        )
 
     async def prepared_async(self, call: _Call) -> ResolvedInputs:
         """The awaitable counterpart of :meth:`prepared`."""
@@ -521,7 +545,12 @@ class _Guarded:
         inputs, degraded = await _resolved_async(
             self._inputs_async, call, so_far=degraded
         )
-        return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+        rules, degraded = await _resolved_async(
+            self._rules_async, call, so_far=degraded
+        )
+        return ResolvedInputs(
+            actor=actor, inputs=inputs, degraded=degraded, rules=rules
+        )
 
     def checkpoint(self, call: _Call, run: Callable[[], Any]) -> Any:
         """Evaluate this call through the shared engine, then *run* it.
@@ -545,7 +574,7 @@ class _Guarded:
             action=self.action,
             guard=self.client,
             prepare=lambda: self.prepared(call),
-            rules=self.rules,
+            rules=self._fixed_rules,
             correlation_id=_correlation_from_config(call.config),
             on_guard_error=self.on_guard_error,
             denied_error=ArcjetToolDeniedError,
@@ -566,7 +595,7 @@ class _Guarded:
             action=self.action,
             guard=self.client,
             prepare=lambda: self.prepared_async(call),
-            rules=self.rules,
+            rules=self._fixed_rules,
             correlation_id=_correlation_from_config(call.config),
             on_guard_error=self.on_guard_error,
             denied_error=ArcjetToolDeniedError,
@@ -581,16 +610,25 @@ class _Guarded:
             return actor
         return cast(_ActorFn, actor)(config)
 
-    def _resolve_inputs(
-        self, call: _Call
-    ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
-        resolver = self.inputs
-        if not callable(resolver):
-            return resolver
-        # Parsed only here, because a resolver is the only thing that reads the
-        # arguments: a tool with no resolver configured is never parsed at all.
+    @property
+    def _fixed_rules(self) -> tuple[RuleWithInput, ...]:
+        """The rules the checkpoint uses when the call resolved none.
+
+        Empty for a rules resolver, so a resolver that fails leaves the call
+        evaluated by remote policy alone rather than by nothing.
+        """
+        rules = self.rules
+        return () if callable(rules) else rules
+
+    def _resolver_arguments(self, call: _Call) -> Mapping[str, Any] | None:
+        """The arguments a resolver reads, or ``None`` if the schema refused them.
+
+        Parsed only for a configured resolver, because a resolver is the only
+        thing that reads the arguments: a tool with no resolver configured is
+        never parsed at all.
+        """
         try:
-            arguments = _resolver_view(self.delegate, call)
+            return _resolver_view(self.delegate, call)
         except _SCHEMA_REJECTED as exc:
             if not call.validated:
                 # This surface runs the tool's body with the arguments as
@@ -610,7 +648,28 @@ class _Guarded:
             return None
         except Exception as exc:
             raise _UnreadableArguments from exc
+
+    def _resolve_inputs(
+        self, call: _Call
+    ) -> PolicyInputMap | None | Awaitable[PolicyInputMap | None]:
+        resolver = self.inputs
+        if not callable(resolver):
+            return resolver
+        arguments = self._resolver_arguments(call)
+        if arguments is None:
+            return None
         return cast(_InputsFn, resolver)(arguments, call.config)
+
+    def _resolve_rules(
+        self, call: _Call, resolver: _RulesFn
+    ) -> Sequence[RuleWithInput] | Awaitable[Sequence[RuleWithInput]]:
+        """What this call's rules resolver returns."""
+        arguments = self._resolver_arguments(call)
+        if arguments is None:
+            # The schema refused the call, so the tool's body never runs and a
+            # local rule has no effect to protect. Remote policy still runs.
+            return ()
+        return resolver(arguments, call.config)
 
     def _actor(self, config: RunnableConfig) -> str | None:
         return _not_awaited(self._resolve_actor(config), "actor")
@@ -623,6 +682,22 @@ class _Guarded:
 
     async def _inputs_async(self, call: _Call) -> PolicyInputMap | None:
         return await _awaited(self._resolve_inputs(call))
+
+    def _rules(self, call: _Call) -> tuple[RuleWithInput, ...] | None:
+        """This call's rules, or ``None`` when the tool has fixed rules."""
+        resolver = self.rules
+        if not callable(resolver):
+            return None
+        resolved = self._resolve_rules(call, cast(_RulesFn, resolver))
+        return bound_rules(_not_awaited(resolved, "rules"))
+
+    async def _rules_async(self, call: _Call) -> tuple[RuleWithInput, ...] | None:
+        """The awaitable counterpart of :meth:`_rules`."""
+        resolver = self.rules
+        if not callable(resolver):
+            return None
+        resolved = self._resolve_rules(call, cast(_RulesFn, resolver))
+        return bound_rules(await _awaited(resolved))
 
 
 def _unavailable(action: str, cause: BaseException | None) -> BaseException:
@@ -1223,7 +1298,7 @@ def _rebuild_guarded_tool(
     action: str,
     actor: ActorResolver | AsyncActorResolver | None,
     inputs: InputResolver | AsyncInputResolver | None,
-    rules: tuple[RuleWithInput, ...],
+    rules: RulesResolver | AsyncRulesResolver,
     on_guard_error: OnGuardError,
     state: dict[str, Any],
 ) -> BaseTool:
@@ -1641,7 +1716,7 @@ def guard_tool(
     action: str,
     actor: ActorResolver | AsyncActorResolver | None = None,
     inputs: InputResolver | AsyncInputResolver | None = None,
-    rules: Sequence[RuleWithInput] = (),
+    rules: RulesResolver | AsyncRulesResolver = (),
     on_guard_error: OnGuardError = "deny",
 ) -> BaseTool:
     """Wrap a LangChain tool with an Arcjet pre-execution checkpoint.
@@ -1664,6 +1739,16 @@ def guard_tool(
     ``has_failed_open()`` is true raises :class:`ArcjetToolUnavailableError`
     without executing the tool. Set ``on_guard_error="allow"`` to execute the
     tool in either case.
+
+    *rules* is a sequence of bound rules, or a callable that returns one for
+    each call. The callable takes the same ``(arguments, config)`` as an
+    *inputs* resolver, so a rule's input can come from the call, e.g.
+    ``lambda arguments, config: [bucket(key=..., requested=arguments["n"])]``.
+    It may return an awaitable on ``ainvoke``/``arun``, as an *inputs*
+    resolver may, and must not on the blocking entrypoints. A rules resolver
+    that raises or returns anything other than a sequence of bound rules is
+    treated as an *inputs* resolver failure: Guard is still called, without
+    local rules, and ``on_guard_error`` decides whether the tool runs.
 
     A real ``DENY`` decision blocks execution regardless of ``on_guard_error``
     and is represented by :class:`ArcjetToolDeniedError`; the wrapped tool's
@@ -1702,7 +1787,11 @@ def guard_tool(
         action=action,
         actor=actor,
         inputs=inputs,
-        rules=tuple(rules),
+        rules=(
+            cast(_RulesFn, rules)
+            if callable(rules)
+            else tuple(cast(Sequence[RuleWithInput], rules))
+        ),
         on_guard_error=on_guard_error,
         client=guard,
         blocking=_blocking(guard, "guard_sync", "guard"),

@@ -1222,3 +1222,190 @@ def test_a_policy_naming_no_tool_is_refused_when_the_tools_are_given() -> None:
 
     # Optional: without the tools, nothing is claimed either way.
     ArcjetMiddleware(policies={"get_wether": ToolPolicy(action="weather.read")})
+
+
+class TestRulesResolution:
+    """``ToolPolicy.rules`` may be a callable of the tool call's arguments."""
+
+    @staticmethod
+    def _request(args: dict[str, Any]) -> ToolCallRequest:
+        return ToolCallRequest(
+            tool_call={"name": "test_tool", "args": args, "id": "call_1"},
+            tool=None,
+            state={},
+            runtime=_runtime(),
+        )
+
+    @staticmethod
+    def _handler(calls: list[str]) -> Any:
+        def handler(request: ToolCallRequest) -> ToolMessage:
+            calls.append("ran")
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        return handler
+
+    def test_sync_rules_resolver_binds_rules_from_the_arguments(self) -> None:
+        """Each call's rules are bound from that call's own arguments."""
+        from arcjet.guard import LocalDetectSensitiveInfo, TokenBucket
+
+        bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        sensitive = LocalDetectSensitiveInfo(deny=["EMAIL"])
+        seen: list[Any] = []
+
+        def rules(args: Mapping[str, Any]) -> list[Any]:
+            seen.append(args)
+            return [
+                bucket(key=str(args["user"]), requested=int(args["count"])),
+                sensitive(str(args["body"])),
+            ]
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", rules=rules)},
+        )
+        calls: list[str] = []
+        first = self._request({"user": "u1", "count": 3, "body": "hello"})
+        second = self._request({"user": "u2", "count": 7, "body": "a@b.co"})
+        middleware.wrap_tool_call(first, self._handler(calls))
+        middleware.wrap_tool_call(second, self._handler(calls))
+
+        assert calls == ["ran", "ran"]
+        assert seen[0] is first.tool_call["args"]
+        sent = [guard["rules"] for guard in client.guards]
+        assert [(r[0].key, r[0].requested) for r in sent] == [("u1", 3), ("u2", 7)]
+        assert [r[1].text for r in sent] == ["hello", "a@b.co"]
+
+    def test_async_rules_resolver_is_awaited(self) -> None:
+        """``awrap_tool_call`` awaits a rules resolver, as it does ``inputs``."""
+        from arcjet.guard import TokenBucket
+
+        bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+
+        async def rules(args: Mapping[str, Any]) -> list[Any]:
+            await asyncio.sleep(0)
+            return [bucket(key="u", requested=int(args["count"]))]
+
+        async def handler(request: ToolCallRequest) -> ToolMessage:
+            return ToolMessage(content="result", tool_call_id="call_1")
+
+        client = _AsyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", rules=rules)},
+        )
+        asyncio.run(middleware.awrap_tool_call(self._request({"count": 5}), handler))
+
+        assert client.guards[0]["rules"][0].requested == 5
+
+    def test_sync_wrap_rejects_async_rules_resolver(self) -> None:
+        """The blocking hook cannot wait, so an awaitable is a failed resolver."""
+
+        async def rules(args: Mapping[str, Any]) -> list[Any]:
+            return []
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", rules=rules)},
+        )
+        calls: list[str] = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            with pytest.raises(ArcjetUnavailableError) as raised:
+                middleware.wrap_tool_call(self._request({}), self._handler(calls))
+
+        assert calls == []
+        assert isinstance(raised.value.__cause__, TypeError)
+
+    def test_a_list_of_rules_is_sent_unchanged(self) -> None:
+        from arcjet.guard import TokenBucket
+
+        bound = TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)(key="k")
+        rules = [bound]
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", rules=rules)},
+        )
+        middleware.wrap_tool_call(self._request({}), self._handler([]))
+
+        assert client.guards[0]["rules"] is rules
+
+    @pytest.mark.parametrize("flavour", ["sync", "async"])
+    def test_a_raising_rules_resolver_fails_closed_and_still_records(
+        self, flavour: str
+    ) -> None:
+        """Guard is still called, without local rules, and the call is denied."""
+
+        def rules(args: Mapping[str, Any]) -> list[Any]:
+            raise KeyError("count")
+
+        calls: list[str] = []
+        policies = {"test_tool": ToolPolicy(action="a", rules=rules)}
+        if flavour == "sync":
+            client: Any = _SyncGuardStub(decision=make_allow_decision())
+            middleware = ArcjetMiddleware(guard=client, policies=policies)
+            with pytest.raises(ArcjetUnavailableError) as raised:
+                middleware.wrap_tool_call(self._request({}), self._handler(calls))
+        else:
+
+            async def handler(request: ToolCallRequest) -> ToolMessage:
+                calls.append("ran")
+                return ToolMessage(content="result", tool_call_id="call_1")
+
+            client = _AsyncGuardStub(decision=make_allow_decision())
+            middleware = ArcjetMiddleware(guard=client, policies=policies)
+            with pytest.raises(ArcjetUnavailableError) as raised:
+                asyncio.run(middleware.awrap_tool_call(self._request({}), handler))
+
+        assert calls == []
+        assert isinstance(raised.value.__cause__, KeyError)
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[-1]["metadata"]["outcome"] == "unavailable"
+
+    def test_a_raising_rules_resolver_runs_the_tool_under_allow(self) -> None:
+        def rules(args: Mapping[str, Any]) -> list[Any]:
+            raise KeyError("count")
+
+        client = _SyncGuardStub(decision=make_allow_decision())
+        middleware = ArcjetMiddleware(
+            guard=client,
+            policies={"test_tool": ToolPolicy(action="a", rules=rules)},
+            on_guard_error="allow",
+        )
+        calls: list[str] = []
+        middleware.wrap_tool_call(self._request({}), self._handler(calls))
+
+        assert calls == ["ran"]
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[-1]["metadata"]["outcome"] == "degraded"
+
+    @pytest.mark.parametrize(
+        "returned",
+        [None, "not rules", 42, [object()], ["a string"]],
+        ids=["none", "string", "int", "object", "string-element"],
+    )
+    def test_a_rules_resolver_returning_no_bound_rules_fails_closed(
+        self, returned: Any
+    ) -> None:
+        from arcjet.guard import TokenBucket
+
+        unbound = TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)
+        for value in (returned, [unbound]):
+            client = _SyncGuardStub(decision=make_allow_decision())
+            middleware = ArcjetMiddleware(
+                guard=client,
+                policies={
+                    "test_tool": ToolPolicy(
+                        action="a", rules=lambda _args, v=value: cast(Any, v)
+                    )
+                },
+            )
+            calls: list[str] = []
+            with pytest.raises(ArcjetUnavailableError) as raised:
+                middleware.wrap_tool_call(self._request({}), self._handler(calls))
+
+            assert calls == []
+            assert isinstance(raised.value.__cause__, TypeError)
+            assert [guard["rules"] for guard in client.guards] == [()]

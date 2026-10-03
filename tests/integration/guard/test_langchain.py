@@ -6,6 +6,7 @@ import gc
 import pickle
 import threading
 import uuid
+import warnings
 import weakref
 from typing import Annotated, Any, cast
 
@@ -4322,3 +4323,264 @@ def test_wrapped_tool_exception_is_not_converted_by_arcjet() -> None:
         w.invoke(cast(Any, {"value": "x"}))
     assert not isinstance(ei.value, ArcjetToolDeniedError)
     assert not isinstance(ei.value, ArcjetToolUnavailableError)
+
+
+# --- rules= may be a callable of the call's arguments ------------------------
+
+
+def _send_tool() -> BaseTool:
+    """A tool whose arguments a rule can be bound from."""
+
+    def send(user: str, count: int, body: str) -> str:
+        return f"sent:{count}"
+
+    return StructuredTool.from_function(send, name="send", description="d")
+
+
+def test_a_rules_resolver_binds_rules_from_the_calls_arguments() -> None:
+    """Each call's rules are bound from that call's own arguments and config."""
+    from arcjet.guard import LocalDetectSensitiveInfo, TokenBucket
+
+    bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+    sensitive = LocalDetectSensitiveInfo(deny=["EMAIL"])
+    configs: list[Any] = []
+
+    def rules(arguments: Any, config: RunnableConfig) -> list[Any]:
+        configs.append(config)
+        return [
+            bucket(key=str(arguments["user"]), requested=int(arguments["count"])),
+            sensitive(str(arguments["body"])),
+        ]
+
+    client = ArcjetTestClient()
+    wrapped = guard_tool(
+        guard=client,
+        tool=_send_tool(),
+        action="message.sent",
+        rules=rules,
+        on_guard_error="allow",
+    )
+
+    assert (
+        wrapped.invoke(cast(Any, {"user": "u1", "count": 3, "body": "hi"})) == "sent:3"
+    )
+    assert (
+        wrapped.invoke(
+            cast(Any, {"user": "u2", "count": 7, "body": "a@b.co"}),
+            config={"configurable": {"tenant": "t1"}},
+        )
+        == "sent:7"
+    )
+
+    sent: list[Any] = [guard.rules for guard in client.guards]
+    assert [(r[0].key, r[0].requested) for r in sent] == [("u1", 3), ("u2", 7)]
+    assert [r[1].text for r in sent] == ["hi", "a@b.co"]
+    assert configs[1]["tenant"] == "t1"
+
+
+def test_an_async_rules_resolver_is_awaited_on_ainvoke() -> None:
+    """``ainvoke`` awaits a rules resolver, as it does an inputs resolver."""
+    from arcjet.guard import TokenBucket
+
+    bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+
+    async def rules(arguments: Any, _config: RunnableConfig) -> list[Any]:
+        await asyncio.sleep(0)
+        return [bucket(key="u", requested=int(arguments["count"]))]
+
+    client = ArcjetTestClient()
+    wrapped = guard_tool(
+        guard=client,
+        tool=_send_tool(),
+        action="message.sent",
+        rules=rules,
+        on_guard_error="allow",
+    )
+
+    result = asyncio.run(
+        wrapped.ainvoke(cast(Any, {"user": "u", "count": 4, "body": "x"}))
+    )
+    assert result == "sent:4"
+    assert cast(Any, client.guards[0].rules[0]).requested == 4
+
+
+def test_an_async_rules_resolver_fails_closed_on_invoke() -> None:
+    """The blocking checkpoint cannot wait on it, as with an inputs resolver."""
+    transport = _Transport()
+
+    async def rules(_arguments: Any, _config: RunnableConfig) -> list[Any]:
+        return []
+
+    wrapped = guard_tool(
+        guard=_guard(transport), tool=_send_tool(), action="m.sent", rules=rules
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        with pytest.raises(ArcjetToolUnavailableError) as raised:
+            wrapped.invoke(cast(Any, {"user": "u", "count": 1, "body": "x"}))
+    assert isinstance(raised.value.__cause__, TypeError)
+    assert transport.calls == 1
+
+
+def test_a_rules_list_is_sent_unchanged() -> None:
+    from arcjet.guard import TokenBucket
+
+    bound = TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)(key="k")
+    client = ArcjetTestClient()
+    wrapped = guard_tool(
+        guard=client,
+        tool=_send_tool(),
+        action="m.sent",
+        rules=[bound],
+        on_guard_error="allow",
+    )
+    wrapped.invoke(cast(Any, {"user": "u", "count": 1, "body": "x"}))
+
+    assert client.guards[0].rules == (bound,)
+    assert client.guards[0].rules[0] is bound
+
+
+@pytest.mark.parametrize("flavour", ["sync", "async"])
+def test_a_raising_rules_resolver_fails_closed_and_still_records(
+    flavour: str,
+) -> None:
+    """Guard is still called, without local rules, and the tool does not run."""
+    ran: list[int] = []
+
+    def send(user: str, count: int, body: str) -> str:
+        ran.append(count)
+        return "sent"
+
+    async def asend(user: str, count: int, body: str) -> str:
+        return send(user, count, body)
+
+    def rules(arguments: Any, _config: RunnableConfig) -> list[Any]:
+        raise KeyError("count")
+
+    tool_ = StructuredTool.from_function(
+        send, coroutine=asend, name="send", description="d"
+    )
+    args: Any = {"user": "u", "count": 1, "body": "x"}
+    if flavour == "sync":
+        transport = _Transport()
+        wrapped = guard_tool(
+            guard=_guard(transport), tool=tool_, action="m.sent", rules=rules
+        )
+        with pytest.raises(ArcjetToolUnavailableError) as raised:
+            wrapped.invoke(args)
+    else:
+        transport = _AsyncTransport()
+        wrapped = guard_tool(
+            guard=_aguard(transport), tool=tool_, action="m.sent", rules=rules
+        )
+        with pytest.raises(ArcjetToolUnavailableError) as raised:
+            asyncio.run(wrapped.ainvoke(args))
+
+    assert ran == []
+    assert isinstance(raised.value.__cause__, KeyError)
+    assert transport.calls == 1
+    assert transport.request is not None
+    assert list(transport.request.rule_submissions) == []
+
+
+def test_a_raising_rules_resolver_runs_the_tool_under_allow() -> None:
+    transport = _Transport()
+
+    def rules(arguments: Any, _config: RunnableConfig) -> list[Any]:
+        raise KeyError("count")
+
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=_send_tool(),
+        action="m.sent",
+        rules=rules,
+        on_guard_error="allow",
+    )
+
+    assert wrapped.invoke(cast(Any, {"user": "u", "count": 2, "body": "x"})) == "sent:2"
+    assert transport.calls == 1
+
+
+@pytest.mark.parametrize(
+    "returned",
+    [None, "not rules", 42, [object()], ["a string"], "unbound"],
+    ids=["none", "string", "int", "object", "string-element", "unbound-rule"],
+)
+def test_a_rules_resolver_returning_no_bound_rules_fails_closed(
+    returned: Any,
+) -> None:
+    from arcjet.guard import TokenBucket
+
+    if returned == "unbound":
+        returned = [TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)]
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=_send_tool(),
+        action="m.sent",
+        rules=lambda _arguments, _config: cast(Any, returned),
+    )
+
+    with pytest.raises(ArcjetToolUnavailableError) as raised:
+        wrapped.invoke(cast(Any, {"user": "u", "count": 1, "body": "x"}))
+    assert isinstance(raised.value.__cause__, TypeError)
+    assert transport.calls == 1
+
+
+def test_a_rules_resolver_is_skipped_when_the_tool_rejects_the_arguments() -> None:
+    """The tool's body never runs, so remote policy alone decides the call."""
+    transport = _Transport()
+    called: list[Any] = []
+
+    class Amount(BaseModel):
+        amount: int = Field(ge=0)
+
+    original = StructuredTool.from_function(
+        lambda amount: "charged", name="charge", description="d", args_schema=Amount
+    )
+    original.handle_validation_error = "the model sent bad arguments"
+    wrapped = guard_tool(
+        guard=_guard(transport),
+        tool=original,
+        action="charge.made",
+        rules=lambda arguments, _config: called.append(arguments) or [],
+    )
+
+    assert wrapped.invoke(cast(Any, {"amount": -5})) == "the model sent bad arguments"
+    assert called == []
+    assert transport.calls == 1
+    assert transport.request is not None
+    assert list(transport.request.rule_submissions) == []
+
+
+def test_a_guarded_tool_with_a_rules_resolver_pickles() -> None:
+    """The resolver travels with the policy, as an inputs resolver does."""
+    transport = _Transport()
+    wrapped = guard_tool(
+        guard=_guard(_Transport()),
+        tool=_PicklableSend(),
+        action="m.sent",
+        rules=_rules_from_count,
+    )
+    restored = _round_trip(wrapped, _guard(transport))
+
+    assert restored.invoke(cast(Any, {"user": "u", "count": 6, "body": "x"})) == "sent"
+    assert transport.request is not None
+    [submission] = transport.request.rule_submissions
+    assert submission.rule.token_bucket.input_requested == 6
+
+
+class _PicklableSend(BaseTool):
+    name: str = "send"
+    description: str = "d"
+
+    def _run(self, user: str, count: int, body: str) -> str:
+        return "sent"
+
+
+def _rules_from_count(arguments: Any, _config: Any) -> list[Any]:
+    from arcjet.guard import TokenBucket
+
+    bucket = TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=50)
+    return [bucket(key="u", requested=int(arguments["count"]))]

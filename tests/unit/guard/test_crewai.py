@@ -7,12 +7,14 @@ These tests import ``arcjet.guard.crewai`` helpers that do not load the peer.
 from __future__ import annotations
 
 import ast
+import asyncio
 import subprocess
 import sys
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from guard_doubles import (
@@ -27,6 +29,7 @@ from arcjet.guard import ArcjetDeniedError, ArcjetUnavailableError, arcjet_seque
 from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._types import RuleResultError
 from arcjet.guard.crewai import _import as import_module
+from arcjet.guard.crewai import _tool as tool_module
 from arcjet.guard.crewai._hooks import (
     ToolPolicy,
     _hook_config,
@@ -396,6 +399,198 @@ class TestVersionFloor:
         """The ImportError names what to install; this check stays quiet."""
         monkeypatch.setattr(import_module, "_installed_version", lambda: None)
         import_module._require_crewai()
+
+
+class _FakeBaseTool:
+    """Stands in for CrewAI's ``BaseTool`` so the wrap runs without CrewAI.
+
+    ``guard_tool`` asks CrewAI only for the class to check against; every
+    entrypoint it installs is read off the tool itself, so a class with the
+    same entrypoints exercises the same checkpoint.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[Mapping[str, Any]] = []
+
+    def model_copy(self) -> "_FakeBaseTool":
+        copy = type(self)()
+        copy.calls = self.calls
+        return copy
+
+    def run(self, *args: Any, **kwargs: Any) -> Any:
+        return self._run(*args, **kwargs)
+
+    async def arun(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._arun(*args, **kwargs)
+
+    def _run(self, **kwargs: Any) -> str:
+        self.calls.append(kwargs)
+        return "ran"
+
+    async def _arun(self, **kwargs: Any) -> str:
+        self.calls.append(kwargs)
+        return "ran"
+
+
+class TestGuardToolRules:
+    """``rules=`` may be a callable of the call's arguments."""
+
+    @pytest.fixture(autouse=True)
+    def _fake_crewai(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(tool_module, "load_crewai_base_tool", lambda: _FakeBaseTool)
+
+    def test_rules_are_bound_from_each_calls_arguments(self) -> None:
+        from arcjet.guard import LocalDetectSensitiveInfo, TokenBucket
+
+        bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        sensitive = LocalDetectSensitiveInfo(deny=["EMAIL"])
+        seen: list[Mapping[str, Any]] = []
+
+        def rules(arguments: Mapping[str, Any]) -> list[Any]:
+            seen.append(arguments)
+            return [
+                bucket(key=str(arguments["user"]), requested=int(arguments["count"])),
+                sensitive(str(arguments["body"])),
+            ]
+
+        client = StubGuardClient(decision=make_allow_decision())
+        tool = _FakeBaseTool()
+        guarded = guard_tool(guard=client, tool=tool, action="m.sent", rules=rules)
+
+        assert guarded.run(user="u1", count=3, body="hi") == "ran"
+        assert guarded.run(user="u2", count=7, body="a@b.co") == "ran"
+
+        assert seen == [
+            {"user": "u1", "count": 3, "body": "hi"},
+            {"user": "u2", "count": 7, "body": "a@b.co"},
+        ]
+        sent = [guard["rules"] for guard in client.guards]
+        assert [(r[0].key, r[0].requested) for r in sent] == [("u1", 3), ("u2", 7)]
+        assert [r[1].text for r in sent] == ["hi", "a@b.co"]
+        assert len(tool.calls) == 2
+
+    def test_rules_resolver_runs_on_the_async_entrypoint(self) -> None:
+        """Called synchronously there too, as *actor* and *inputs* are."""
+        from arcjet.guard import TokenBucket
+
+        bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+        client = StubGuardClient(decision=make_allow_decision())
+        guarded = guard_tool(
+            guard=client,
+            tool=_FakeBaseTool(),
+            action="m.sent",
+            rules=lambda arguments: [
+                bucket(key="u", requested=int(arguments["count"]))
+            ],
+        )
+
+        assert asyncio.run(guarded.arun(count=5)) == "ran"
+        assert client.guards[0]["rules"][0].requested == 5
+
+    def test_an_async_rules_resolver_fails_closed(self) -> None:
+        """*actor* and *inputs* are never awaited here, so rules are not either."""
+
+        async def rules(arguments: Mapping[str, Any]) -> list[Any]:
+            return []
+
+        client = StubGuardClient(decision=make_allow_decision())
+        tool = _FakeBaseTool()
+        guarded = guard_tool(
+            guard=client, tool=tool, action="m.sent", rules=cast(Any, rules)
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            with pytest.raises(ArcjetUnavailableError) as raised:
+                asyncio.run(guarded.arun(count=1))
+        assert isinstance(raised.value.__cause__, TypeError)
+        assert tool.calls == []
+
+    def test_a_list_of_rules_is_sent_unchanged(self) -> None:
+        from arcjet.guard import TokenBucket
+
+        rules = [TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)(key="k")]
+        client = StubGuardClient(decision=make_allow_decision())
+        guarded = guard_tool(
+            guard=client, tool=_FakeBaseTool(), action="m.sent", rules=rules
+        )
+        guarded.run(count=1)
+
+        assert client.guards[0]["rules"] is rules
+
+    def test_a_raising_rules_resolver_fails_closed_and_still_records(self) -> None:
+        def rules(arguments: Mapping[str, Any]) -> list[Any]:
+            raise KeyError("count")
+
+        client = StubGuardClient(decision=make_allow_decision())
+        tool = _FakeBaseTool()
+        guarded = guard_tool(guard=client, tool=tool, action="m.sent", rules=rules)
+
+        with pytest.raises(ArcjetUnavailableError) as raised:
+            guarded.run(user="u")
+        assert isinstance(raised.value.__cause__, KeyError)
+        assert tool.calls == []
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[-1]["metadata"]["outcome"] == "unavailable"
+
+    def test_a_raising_rules_resolver_runs_the_tool_under_allow(self) -> None:
+        def rules(arguments: Mapping[str, Any]) -> list[Any]:
+            raise KeyError("count")
+
+        client = StubGuardClient(decision=make_allow_decision())
+        tool = _FakeBaseTool()
+        guarded = guard_tool(
+            guard=client,
+            tool=tool,
+            action="m.sent",
+            rules=rules,
+            on_guard_error="allow",
+        )
+
+        assert guarded.run(user="u") == "ran"
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[-1]["metadata"]["outcome"] == "degraded"
+
+    @pytest.mark.parametrize(
+        "returned",
+        [None, "not rules", 42, [object()], ["a string"], "unbound"],
+        ids=["none", "string", "int", "object", "string-element", "unbound-rule"],
+    )
+    def test_a_rules_resolver_returning_no_bound_rules_fails_closed(
+        self, returned: Any
+    ) -> None:
+        from arcjet.guard import TokenBucket
+
+        if returned == "unbound":
+            returned = [TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)]
+        client = StubGuardClient(decision=make_allow_decision())
+        tool = _FakeBaseTool()
+        guarded = guard_tool(
+            guard=client,
+            tool=tool,
+            action="m.sent",
+            rules=lambda _arguments: cast(Any, returned),
+        )
+
+        with pytest.raises(ArcjetUnavailableError) as raised:
+            guarded.run(count=1)
+        assert isinstance(raised.value.__cause__, TypeError)
+        assert tool.calls == []
+        assert [guard["rules"] for guard in client.guards] == [()]
+
+    def test_unreadable_arguments_fail_closed_for_a_rules_resolver(self) -> None:
+        """Several positional values cannot be named for the resolver."""
+        client = StubGuardClient(decision=make_allow_decision())
+        guarded = guard_tool(
+            guard=client,
+            tool=_FakeBaseTool(),
+            action="m.sent",
+            rules=lambda _arguments: [],
+        )
+
+        with pytest.raises(ArcjetUnavailableError):
+            guarded._run("a", "b")
+        assert len(client.guards) == 1
 
 
 def test_public_errors_remain_for_guard_tool_path() -> None:

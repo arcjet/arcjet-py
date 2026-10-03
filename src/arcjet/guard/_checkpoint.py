@@ -11,6 +11,7 @@ reads the same whichever SDK produced it.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -20,6 +21,9 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
+    cast,
+    get_args,
+    get_origin,
 )
 
 from arcjet._logging import logger
@@ -69,6 +73,53 @@ class ResolvedInputs:
     Reporting it keeps the call on the record and leaves ``on_guard_error`` to
     decide whether an action the policy could not fully judge may proceed.
     """
+    rules: Optional[Sequence[RuleWithInput]] = None
+    """Local rules resolved for this call, replacing the checkpoint's own.
+
+    ``None`` means the surface resolved none, and the ``rules`` passed to the
+    checkpoint apply. A surface whose rules resolver failed leaves this
+    ``None``, passes ``()`` to the checkpoint, and reports the failure in
+    ``degraded``, so Guard is still called and remote policy still runs.
+    """
+
+
+#: The classes a bound rule can be. Read from the union rather than listed
+#: again, so a rule type added to it is accepted here without an edit.
+_BOUND_RULE_TYPES: tuple[type, ...] = tuple(
+    get_origin(member) or member for member in get_args(RuleWithInput)
+)
+
+
+def bound_rules(value: object) -> tuple[RuleWithInput, ...]:
+    """*value* as bound rules, or a ``TypeError`` saying why it is not.
+
+    For a rules resolver's return value. A resolver is application code, and
+    what it returns is only checked by a type checker the application may not
+    run, so a wrong value is reported here as a failed resolver rather than
+    reaching the client and failing there with a less specific error.
+
+    An awaitable is closed before raising: a blocking checkpoint cannot wait on
+    it, and dropping it unawaited leaves a ``RuntimeWarning`` to surface at an
+    arbitrary later garbage collection.
+    """
+    if inspect.isawaitable(value):
+        close = getattr(value, "close", None)
+        if callable(close):
+            close()
+        raise TypeError("A synchronous rules resolver must not return an awaitable")
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise TypeError(
+            f"A rules resolver must return a sequence of bound rules, got "
+            f"{type(value).__name__}"
+        )
+    for index, rule in enumerate(value):
+        if not isinstance(rule, _BOUND_RULE_TYPES):
+            raise TypeError(
+                f"A rules resolver returned {type(rule).__name__} at index "
+                f"{index}, which is not a bound rule. Bind each rule to its "
+                f"input first, e.g. TokenBucket(...)(key=...)"
+            )
+    return cast("tuple[RuleWithInput, ...]", tuple(value))
 
 
 def _default_denied(action: str, decision: Decision) -> BaseException:
@@ -305,7 +356,7 @@ def run_checkpoint_sync(
         prepared = prepare() if prepare is not None else ResolvedInputs(actor, inputs)
         decision = _guard_sync(
             guard,
-            rules=rules,
+            rules=prepared.rules if prepared.rules is not None else rules,
             label=action,
             metadata=metadata,
             correlation_id=resolved_correlation_id,
@@ -444,7 +495,7 @@ async def run_checkpoint(
         )
         decision = await _guard_async(
             guard,
-            rules=rules,
+            rules=prepared.rules if prepared.rules is not None else rules,
             label=action,
             metadata=metadata,
             correlation_id=resolved_correlation_id,

@@ -13,12 +13,17 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._metadata import Metadata
 
-from .._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
+from .._checkpoint import (
+    ResolvedInputs,
+    bound_rules,
+    run_checkpoint,
+    run_checkpoint_sync,
+)
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._label import assert_valid_action
@@ -44,6 +49,9 @@ _active: ContextVar[tuple[Any, ...]] = ContextVar(
 ActorResolver = str | Callable[[Mapping[str, Any]], Optional[str]] | None
 InputResolver = (
     PolicyInputMap | Callable[[Mapping[str, Any]], Optional[PolicyInputMap]] | None
+)
+RulesResolver = (
+    Sequence[RuleWithInput] | Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
 )
 
 
@@ -98,7 +106,7 @@ def guard_tool(
     action: str,
     actor: ActorResolver = None,
     inputs: InputResolver = None,
-    rules: Sequence[RuleWithInput] = (),
+    rules: RulesResolver = (),
     metadata: Optional[Metadata] = None,
     correlation_id: Optional[str] = None,
     on_guard_error: OnGuardError = "deny",
@@ -128,7 +136,14 @@ def guard_tool(
         action: Checkpoint label, e.g. ``"email.sent"``.
         actor: Who is acting, or a callable of the call's arguments.
         inputs: Policy inputs, or a callable of the call's arguments.
-        rules: Local rules. Empty still contacts Guard.
+        rules: Local rules, or a callable of the call's arguments returning
+            them, so a rule's input can come from the call, e.g.
+            ``lambda arguments: [bucket(key=..., requested=arguments["n"])]``.
+            It takes the same ``(arguments)`` as *actor* and *inputs*, and
+            like them is called synchronously on ``arun`` too. One that
+            raises, or returns anything other than a sequence of bound rules,
+            is handled as an *inputs* failure: Guard is called without local
+            rules and *on_guard_error* decides. Empty still contacts Guard.
         metadata: Capture metadata.
         correlation_id: Caller-owned Sequence id. Falls back to
             :func:`~arcjet.guard.arcjet_sequence`. Never minted.
@@ -158,6 +173,9 @@ def guard_tool(
     blocking = _blocking(guard, "guard_sync", "guard")
     awaitable = _awaitable(guard, "guard")
     guarded = _copy_tool(tool)
+    # Empty for a rules resolver, so a resolver that fails leaves the call
+    # evaluated by remote policy alone rather than by nothing.
+    fixed_rules: Sequence[RuleWithInput] = () if callable(rules) else rules
 
     def prepare(args: tuple[Any, ...], kwargs: dict[str, Any]) -> ResolvedInputs:
         """What the decision is made from; a failed resolver is reported.
@@ -170,11 +188,12 @@ def guard_tool(
         degraded: Optional[BaseException] = None
         resolved_actor: Optional[str] = None
         resolved_inputs: Optional[PolicyInputMap] = None
+        resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
 
         if arguments is _UNREADABLE:
             # Only a resolver reads the arguments, so a policy that does not
             # configure one is unaffected and the call proceeds.
-            if callable(actor) or callable(inputs):
+            if callable(actor) or callable(inputs) or callable(rules):
                 return ResolvedInputs(
                     degraded=_UnreadableArguments(
                         "the call's arguments could not be named: it passed "
@@ -192,8 +211,17 @@ def guard_tool(
             resolved_inputs = _resolve(inputs, arguments)
         except Exception as exc:
             degraded = degraded or exc
+        if callable(rules):
+            try:
+                resolve_rules = cast(Callable[[Mapping[str, Any]], object], rules)
+                resolved_rules = bound_rules(resolve_rules(arguments))
+            except Exception as exc:
+                degraded = degraded or exc
         return ResolvedInputs(
-            actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
+            actor=resolved_actor,
+            inputs=resolved_inputs,
+            degraded=degraded,
+            rules=resolved_rules,
         )
 
     def checkpoint_sync(
@@ -213,7 +241,7 @@ def guard_tool(
                 action=action,
                 guard=guard,
                 prepare=lambda: prepare(args, kwargs),
-                rules=rules,
+                rules=fixed_rules,
                 metadata=metadata,
                 correlation_id=correlation_id,
                 on_guard_error=on_guard_error,
@@ -242,7 +270,7 @@ def guard_tool(
                 action=action,
                 guard=guard,
                 prepare=lambda: _async_prepare(prepare, args, kwargs),
-                rules=rules,
+                rules=fixed_rules,
                 metadata=metadata,
                 correlation_id=correlation_id,
                 on_guard_error=on_guard_error,

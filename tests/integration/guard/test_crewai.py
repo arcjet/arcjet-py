@@ -424,3 +424,49 @@ def test_guard_tool_leaves_the_original_unwrapped() -> None:
     assert guarded is not original
     assert original.run(value="direct") == "direct"
     assert _ECHO_CALLS == ["direct"]
+
+
+class _CountArgs(BaseModel):
+    count: int = Field(description="how many")
+
+
+class _CountTool(BaseTool):
+    name: str = "count"
+    description: str = "counts"
+    args_schema: type[BaseModel] = _CountArgs
+
+    def _run(self, count: int) -> str:
+        _ECHO_CALLS.append(str(count))
+        return str(count)
+
+
+def test_guard_tool_binds_rules_from_the_calls_arguments() -> None:
+    """A rules resolver sees the arguments a real CrewAI tool is called with."""
+    from arcjet.guard import TokenBucket
+
+    bucket = TokenBucket(refill_rate=10, interval_seconds=60, max_tokens=100)
+    client = StubGuardClient(decision=make_allow_decision())
+    guarded = guard_tool(
+        guard=client,
+        tool=_CountTool(),
+        action="count.invoked",
+        rules=lambda arguments: [bucket(key="u", requested=int(arguments["count"]))],
+    )
+
+    assert guarded.run(count=4) == "4"
+    assert [guard["rules"][0].requested for guard in client.guards] == [4]
+
+
+def test_guard_tool_fails_closed_when_the_rules_resolver_raises() -> None:
+    def rules(arguments: Any) -> list[Any]:
+        raise KeyError("count")
+
+    client = StubGuardClient(decision=make_allow_decision())
+    guarded = guard_tool(
+        guard=client, tool=_CountTool(), action="count.invoked", rules=rules
+    )
+
+    with pytest.raises(ArcjetUnavailableError):
+        guarded.run(count=4)
+    assert _ECHO_CALLS == []
+    assert len(client.guards) == 1
