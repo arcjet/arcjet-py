@@ -11,13 +11,14 @@ import asyncio
 import subprocess
 import sys
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from guard_doubles import (
+    NOT_BOUND_RULES,
     AsyncOnlyStubGuardClient,
     StubGuardClient,
     make_allow_decision,
@@ -237,6 +238,64 @@ class TestEvaluatePreToolCall:
         assert "could not be evaluated" in abort.reason
         # Guard still saw the call — resolver failure is degraded, not skipped.
         assert len(client.guards) == 1
+
+    def test_rules_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any], _hook_ctx: Any) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = evaluate_pre_tool_call(_ctx(), _hook_config(guard=client, rules=boom))
+        assert verdict is not None
+        # Guard still sees the call, without local rules, so remote policy runs.
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_rules_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any], _hook_ctx: Any) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, rules=boom, on_guard_error="allow")
+        )
+        assert verdict is None
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_factory_returning_no_bound_rules_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = evaluate_pre_tool_call(
+                _ctx(), _hook_config(guard=client, rules=lambda _a, _c: returned())
+            )
+        assert verdict is not None
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_failed_open_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        decision = make_allow_decision(
+            results=(RuleResultError(code="TIMEOUT", message="deadline"),)
+        )
+        client = StubGuardClient(decision=decision)
+        abort = evaluate_pre_tool_call(
+            _ctx(), _hook_config(guard=client, on_guard_error="allow")
+        )
+        assert abort is None
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
 
     def test_action_factory_throw_fail_closed(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_allow_decision())

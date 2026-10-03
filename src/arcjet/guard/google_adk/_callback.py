@@ -24,6 +24,8 @@ from .._checkpoint import (
     _guard_sync,
     _outcome_for_completed_action,
     _resolve_correlation_id,
+    bound_rules,
+    rules_for_call,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
@@ -119,7 +121,10 @@ def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:
 
 
 def prepared_inputs(
-    actor: ActorResolver, inputs: InputResolver, arguments: Mapping[str, Any]
+    actor: ActorResolver,
+    inputs: InputResolver,
+    arguments: Mapping[str, Any],
+    rules: RulesResolver = (),
 ) -> ResolvedInputs:
     """What the decision is made from; a failed resolver is reported.
 
@@ -139,8 +144,17 @@ def prepared_inputs(
         resolved_inputs = _resolve(inputs, arguments)
     except Exception as exc:
         degraded = degraded or exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    if callable(rules):
+        try:
+            resolved_rules = bound_rules(_resolve(rules, arguments))
+        except Exception as exc:
+            degraded = degraded or exc
     return ResolvedInputs(
-        actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
+        actor=resolved_actor,
+        inputs=resolved_inputs,
+        degraded=degraded,
+        rules=resolved_rules,
     )
 
 
@@ -151,18 +165,6 @@ def _resolved_action(config: CallbackConfig, arguments: Mapping[str, Any]) -> st
     if not callable(action):
         return action
     return cast(Callable[[Mapping[str, Any]], str], action)(arguments)
-
-
-def _resolved_rules(
-    config: CallbackConfig, arguments: Mapping[str, Any]
-) -> Sequence[RuleWithInput]:
-    rules = config.rules
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-        rules,
-    )(arguments)
 
 
 def _resolved_metadata(
@@ -290,8 +292,8 @@ async def evaluate_before_tool(
         metadata = _merged_metadata(
             config, tool=tool, tool_context=tool_context, extra=extra
         )
-        prepared = prepared_inputs(config.actor, config.inputs, call)
-        rules = _resolved_rules(config, call)
+        prepared = prepared_inputs(config.actor, config.inputs, call, config.rules)
+        rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config,
             action=action,

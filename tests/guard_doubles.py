@@ -28,10 +28,10 @@ def reset_sequence_context():
         _correlation_id.reset(id_token)
 
 
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from arcjet._metadata import Metadata
-from arcjet.guard._rules import RuleWithInput
+from arcjet.guard._rules import RuleWithInput, TokenBucket
 from arcjet.guard._types import Decision, Reason
 
 
@@ -245,3 +245,21 @@ class SyncOnlyStubGuardClient:
                 "SyncOnlyStubGuardClient not configured with a decision"
             )
         return self.decision
+
+
+async def _no_rules() -> list[Any]:
+    return []
+
+
+#: What a rules resolver can return that is not a sequence of bound rules,
+#: by test id. Each entry makes its value when called, so a coroutine is never
+#: shared between tests and an unbound rule is never reused across them.
+NOT_BOUND_RULES: dict[str, Callable[[], Any]] = {
+    "none": lambda: None,
+    "string": lambda: "not rules",
+    "object": lambda: [object()],
+    "unbound-rule": lambda: [
+        TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)
+    ],
+    "coroutine": lambda: _no_rules(),
+}
