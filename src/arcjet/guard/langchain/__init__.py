@@ -31,8 +31,10 @@ from ._tool import (
     ArcjetToolUnavailableError,
     AsyncActorResolver,
     AsyncInputResolver,
+    AsyncRulesResolver,
     InputResolver,
     OnGuardError,
+    RulesResolver,
     guard_tool,
 )
 
@@ -73,8 +75,10 @@ __all__ = [
     "ArcjetCaptureHandler",
     "ArcjetMiddleware",
     "AsyncInputResolver",
+    "AsyncRulesResolver",
     "InputResolver",
     "OnGuardError",
+    "RulesResolver",
     "ToolPolicy",
     "guard_tool",
 ]

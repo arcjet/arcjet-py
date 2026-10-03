@@ -25,7 +25,12 @@ from langgraph.types import Command
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._metadata import Metadata
-from arcjet.guard._checkpoint import ResolvedInputs, run_checkpoint, run_checkpoint_sync
+from arcjet.guard._checkpoint import (
+    ResolvedInputs,
+    bound_rules,
+    run_checkpoint,
+    run_checkpoint_sync,
+)
 from arcjet.guard._client import _GuardClient
 from arcjet.guard._errors import OnGuardError
 from arcjet.guard._policy_input import PolicyInputMap
@@ -52,6 +57,16 @@ AsyncInputResolver = (
     PolicyInputMap
     | Callable[[Mapping[str, Any]], PolicyInputMap | Awaitable[PolicyInputMap]]
 )
+RulesResolver = (
+    Sequence[RuleWithInput] | Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
+)
+AsyncRulesResolver = (
+    Sequence[RuleWithInput]
+    | Callable[
+        [Mapping[str, Any]],
+        Sequence[RuleWithInput] | Awaitable[Sequence[RuleWithInput]],
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +76,14 @@ class ToolPolicy:
     Args:
         action: The label for this checkpoint, e.g. ``"email.sent"``.
             Convention is ``resource.verb`` in the past tense.
-        rules: Bound rule inputs. Empty is normal and still contacts Guard,
-            because the server selects remote policy by ``action``.
+        rules: Bound rule inputs, or a callable taking the tool call's parsed
+            arguments and returning them, so a rule's input can come from the
+            call. Empty is normal and still contacts Guard, because the server
+            selects remote policy by ``action``. The callable may return an
+            awaitable under ``awrap_tool_call``, as an ``inputs`` resolver may.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as an ``inputs`` resolver failure: Guard
+            is called without local rules and ``on_guard_error`` decides.
         actor: Who is acting — a string, or a callable taking the tool call's
             parsed arguments.
         inputs: Values offered for policy evaluation — a mapping, or a
@@ -71,7 +92,7 @@ class ToolPolicy:
     """
 
     action: str
-    rules: Sequence[RuleWithInput] = ()
+    rules: RulesResolver | AsyncRulesResolver = ()
     actor: Optional[ActorResolver | AsyncActorResolver] = None
     inputs: Optional[InputResolver | AsyncInputResolver] = None
     metadata: Optional[Metadata] = None
@@ -92,6 +113,27 @@ def _policy_inputs(policy: "ToolPolicy", args: Mapping[str, Any]) -> Any:
     if policy.inputs is None or not callable(policy.inputs):
         return policy.inputs
     return cast(Callable[[Mapping[str, Any]], Any], policy.inputs)(args)
+
+
+def _policy_rules(policy: "ToolPolicy", args: Mapping[str, Any]) -> Any:
+    """The value this policy's rules resolver returns. Only for a callable."""
+    return cast(Callable[[Mapping[str, Any]], Any], policy.rules)(args)
+
+
+def _fixed_rules(policy: "ToolPolicy") -> Sequence[RuleWithInput]:
+    """The rules the checkpoint uses when the call resolved none.
+
+    Empty for a rules resolver, so a resolver that fails leaves the call
+    evaluated by remote policy alone rather than by nothing.
+    """
+    rules = policy.rules
+    return () if callable(rules) else rules
+
+
+async def _awaited_rules(
+    policy: "ToolPolicy", args: Mapping[str, Any]
+) -> tuple[RuleWithInput, ...]:
+    return bound_rules(await _awaited(_policy_rules(policy, args)))
 
 
 class ArcjetMiddleware(AgentMiddleware):
@@ -193,14 +235,24 @@ class ArcjetMiddleware(AgentMiddleware):
                 lambda: _not_awaited(_policy_inputs(policy, args), "input"),
                 so_far=degraded,
             )
-            return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+            rules: Optional[tuple[RuleWithInput, ...]] = None
+            if callable(policy.rules):
+                rules, degraded = _resolved(
+                    lambda: bound_rules(
+                        _not_awaited(_policy_rules(policy, args), "rules")
+                    ),
+                    so_far=degraded,
+                )
+            return ResolvedInputs(
+                actor=actor, inputs=inputs, degraded=degraded, rules=rules
+            )
 
         return run_checkpoint_sync(
             lambda: handler(request),
             action=policy.action,
             guard=self._guard,
             prepare=prepare,
-            rules=policy.rules,
+            rules=_fixed_rules(policy),
             metadata=policy.metadata,
             # The same ID a guarded tool reads, so an agent that mixes the two
             # produces one Sequence rather than splitting the run between them.
@@ -251,14 +303,22 @@ class ArcjetMiddleware(AgentMiddleware):
                 lambda: _awaited(_policy_inputs(policy, args)),
                 so_far=degraded,
             )
-            return ResolvedInputs(actor=actor, inputs=inputs, degraded=degraded)
+            rules: Optional[tuple[RuleWithInput, ...]] = None
+            if callable(policy.rules):
+                rules, degraded = await _resolved_async(
+                    lambda: _awaited_rules(policy, args),
+                    so_far=degraded,
+                )
+            return ResolvedInputs(
+                actor=actor, inputs=inputs, degraded=degraded, rules=rules
+            )
 
         return await run_checkpoint(
             lambda: handler(request),
             action=policy.action,
             guard=self._guard,
             prepare=prepare,
-            rules=policy.rules,
+            rules=_fixed_rules(policy),
             metadata=policy.metadata,
             # The same ID a guarded tool reads, so an agent that mixes the two
             # produces one Sequence rather than splitting the run between them.

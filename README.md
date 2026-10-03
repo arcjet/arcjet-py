@@ -1266,9 +1266,35 @@ denial is not counted as a failure. What the handler returns is formatted by
 LangChain's own code, so a denial reaches the model shaped exactly as the tool's
 own error would have been.
 
+`rules` is a list, or a callable that returns one for each call. It takes the
+same `(arguments, config)` as `inputs`, so a rule can be bound from the call's
+arguments — a token bucket that charges each recipient for the segments the
+call sends, or a local sensitive-information check over the text it sends:
+
+```py
+from arcjet.guard import LocalDetectSensitiveInfo, TokenBucket
+
+credits = TokenBucket(refill_rate=100, interval_seconds=60, max_tokens=1000)
+no_emails = LocalDetectSensitiveInfo(deny=["EMAIL"])
+
+guarded_send_sms = guard_tool(
+    guard=aj,
+    tool=send_sms_tool,
+    action="sms.sent",
+    rules=lambda arguments, config: [
+        credits(key=arguments["to"], requested=arguments["segments"]),
+        no_emails(arguments["body"]),
+    ],
+)
+```
+
+On `ainvoke()` / `arun()` it may be an async function; on the blocking
+entrypoints it must not be.
+
 If a resolver fails, Guard still sees the call — the decision is made without
 that input rather than not made at all — and `on_guard_error` decides whether
-the call may run.
+the call may run. A rules resolver that raises, or returns anything but a list
+of bound rules, fails the same way: Guard is called with no local rules.
 
 Configure the tool before you guard it. The guarded tool carries a copy of the
 tool's state, but the wrapped tool is what executes, so anything you change on
@@ -1375,6 +1401,13 @@ agent = create_agent(
 
 Tools without a policy pass through unguarded, so you protect the ones that do
 something consequential and leave the rest alone.
+
+A `ToolPolicy`'s `actor`, `inputs` and `rules` may each be a callable of the
+tool call's parsed arguments, so a rule can be bound from them:
+`rules=lambda arguments: [credits(key="u_1", requested=arguments["count"])]`.
+Under `awrap_tool_call` the callable may be async. A rules callable that fails
+is handled like a failed `inputs` callable: Guard is called with no local rules
+and `on_guard_error` decides.
 
 Pass `tools=` the same sequence you gave `create_agent`. A policy is matched by
 tool name, so without it a typo — or a renamed `@tool` function — leaves that
@@ -1493,6 +1526,13 @@ guarded_send = guard_tool(
 )
 guarded_send.run(to="a@example.com", body="…")
 ```
+
+`rules` may be a callable of the call's arguments, like `actor` and `inputs`,
+so a rule can be bound from them:
+`rules=lambda arguments: [no_emails(arguments["body"])]`. It is called
+synchronously on `arun()` too. A rules callable that fails is handled like a
+failed `inputs` callable: Guard is called with no local rules and
+`on_guard_error` decides.
 
 A wrapped tool raises `ArcjetDeniedError` / `ArcjetUnavailableError` — the
 only CrewAI surface that uses those types. `guard_tool` returns a *copy*
