@@ -279,14 +279,14 @@ NOT_METADATA: dict[str, Callable[[], Any]] = {
     "string": lambda: "not metadata",
     "pairs": lambda: [("key", "value")],
     "int": lambda: 1,
-    "coroutine": lambda: _no_metadata(),
+    "coroutine": _no_metadata,
 }
 
 #: What an action resolver can return that is not a string, by test id.
 NOT_ACTION: dict[str, Callable[[], Any]] = {
     "none": lambda: None,
     "bytes": lambda: b"send_email.invoked",
-    "coroutine": lambda: _an_action(),
+    "coroutine": _an_action,
 }
 
 #: Strings an action resolver can return that the SDK's own label check
