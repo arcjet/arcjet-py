@@ -492,6 +492,20 @@ class TestArgumentsFromHandler:
 
 
 class TestEvaluatePreToolUse:
+    def test_default_label_lowercases_a_built_in_tool_name(
+        self, reset_sequence_context
+    ) -> None:
+        # Claude Code's built-in tools are PascalCase; "Bash.invoked" is a
+        # label the service rejects, which refuses the call under "deny".
+        client = StubGuardClient(decision=make_allow_decision())
+        verdict = asyncio.run(
+            evaluate_pre_tool_use(
+                _pre_input(tool_name="Bash"), _hook_config(guard=client)
+            )
+        )
+        assert client.guards[0]["label"] == "bash.invoked"
+        assert verdict.deny is False
+
     def test_deny_is_permission_decision_deny(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())
         verdict = asyncio.run(

@@ -26,6 +26,7 @@ from .._checkpoint import (
     _resolve_correlation_id,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
+from .._label import default_tool_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
@@ -105,11 +106,9 @@ def tool_call(tool: Any, args: Any) -> dict[str, Any]:
 
 
 def default_action(call: Mapping[str, Any]) -> str:
-    """``"{tool_name}.invoked"``, or ``"tool.invoked"`` when the name is empty."""
+    """The default label for *call*; see :func:`default_tool_action`."""
     name = call.get("tool_name")
-    if isinstance(name, str) and name:
-        return f"{name}.invoked"
-    return "tool.invoked"
+    return default_tool_action(name if isinstance(name, str) else None)
 
 
 def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:

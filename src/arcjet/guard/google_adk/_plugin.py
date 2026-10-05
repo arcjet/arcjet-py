@@ -133,7 +133,8 @@ def guard_plugin(
         guard: The Arcjet client. An async client is preferred; a blocking
             client is accepted.
         action: Checkpoint label, or a callable of the tool-call
-            envelope. Defaults to ``"{tool_name}.invoked"``.
+            envelope. Defaults to ``"{tool_name}.invoked"``, with the name
+            made usable by :func:`~arcjet.guard.to_guard_label`.
         actor: Who is acting, or a callable of that envelope.
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 from guard_doubles import StubGuardClient, make_allow_decision
+from hypothesis import given
+from hypothesis import strategies as st
 
 from arcjet.guard import (
     ArcjetInvalidLabelError,
@@ -18,9 +20,10 @@ from arcjet.guard import (
     ArcjetWarning,
     Decision,
     guard_action_sync,
+    to_guard_label,
     validate_guard_label,
 )
-from arcjet.guard._label import MAX_LABEL_BYTES, label_problem
+from arcjet.guard._label import MAX_LABEL_BYTES, default_tool_action, label_problem
 
 _CASES_PATH = Path(__file__).parents[2] / "fixtures" / "guard-label-cases.json"
 _DOC = json.loads(_CASES_PATH.read_text(encoding="utf-8"))
@@ -196,3 +199,78 @@ class TestARejectedLabelIsUnevaluatedPolicy:
             guard=client,  # type: ignore[arg-type]
         )
         assert out == "ran"
+
+
+_VALID_LABELS = [c["label"] for c in _CASES if c["valid"]] + ["a" * MAX_LABEL_BYTES]
+
+
+class TestToGuardLabel:
+    @pytest.mark.parametrize("label", _VALID_LABELS)
+    def test_a_usable_label_is_returned_unchanged(self, label: str) -> None:
+        # A label that works today selects a published policy; changing it
+        # would stop that policy matching.
+        assert to_guard_label(label) == label
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("Bash", "bash"),
+            ("WebFetch", "webfetch"),
+            ("Send Email", "send_email"),
+            ("getWeather", "getweather"),
+            ("a/b:c", "a_b_c"),
+            ("  --Foo__Bar..  ", "foo__bar"),
+            ("Ünïcode", "n_code"),
+            ("mcp__github__create_issue", "mcp__github__create_issue"),
+        ],
+    )
+    def test_examples(self, text: str, expected: str) -> None:
+        assert to_guard_label(text) == expected
+
+    def test_a_long_result_is_cut_to_the_limit(self) -> None:
+        assert to_guard_label("A" * 300) == "a" * MAX_LABEL_BYTES
+
+    def test_a_cut_that_ends_on_punctuation_is_trimmed(self) -> None:
+        text = "a" * (MAX_LABEL_BYTES - 1) + "-" + "b" * 10
+        assert to_guard_label(text) == "a" * (MAX_LABEL_BYTES - 1)
+
+    @pytest.mark.parametrize("text", ["", "   ", "---", "日本語", "._-"])
+    def test_text_with_no_ascii_letter_or_digit_raises(self, text: str) -> None:
+        with pytest.raises(ValueError, match="no guard label"):
+            to_guard_label(text)
+
+    @given(st.text())
+    def test_the_result_is_always_usable(self, text: str) -> None:
+        try:
+            label = to_guard_label(text)
+        except ValueError:
+            assert not any(ch.isascii() and ch.isalnum() for ch in text)
+            return
+        assert label_problem(label) is None
+        if label_problem(text) is None:
+            assert label == text
+
+
+class TestDefaultToolAction:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("Bash", "bash.invoked"),
+            ("send_email", "send_email.invoked"),
+            ("mcp__github__create_issue", "mcp__github__create_issue.invoked"),
+            ("", "tool.invoked"),
+            (None, "tool.invoked"),
+            ("日本語", "tool.invoked"),
+        ],
+    )
+    def test_examples(self, name: str | None, expected: str) -> None:
+        assert default_tool_action(name) == expected
+
+    @given(st.one_of(st.none(), st.text()))
+    def test_the_result_is_always_usable(self, name: str | None) -> None:
+        assert label_problem(default_tool_action(name)) is None
+
+    def test_a_long_name_still_fits(self) -> None:
+        label = default_tool_action("x" * 300)
+        assert label.endswith(".invoked")
+        assert len(label) == MAX_LABEL_BYTES

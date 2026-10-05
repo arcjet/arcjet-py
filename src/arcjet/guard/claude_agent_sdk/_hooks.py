@@ -40,7 +40,7 @@ from .._checkpoint import (
     _resolve_correlation_id,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
-from .._label import assert_valid_action
+from .._label import assert_valid_action, default_tool_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
@@ -244,8 +244,7 @@ async def _decide(
 def _resolve_tool_action(config: _HookConfig, source: Mapping[str, Any]) -> str:
     action = config.action
     if action is None:
-        name = _tool_name(source) or "tool"
-        return f"{name}.invoked"
+        return default_tool_action(_tool_name(source))
     if callable(action):
         return cast(Callable[[Mapping[str, Any]], str], action)(source)
     return action
@@ -263,7 +262,7 @@ async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseV
     if is_excluded(name, config.exclude):
         return PreToolUseVerdict(deny=False)
 
-    action = f"{name or 'tool'}.invoked"
+    action = default_tool_action(name)
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
 
@@ -582,7 +581,9 @@ def guard_hooks(
         guard: The Arcjet client. An async client is preferred; a blocking
             client is accepted.
         action: Checkpoint label, or a callable of the hook input. Defaults
-            to ``"{tool_name}.invoked"`` when a tool hook is registered.
+            to ``"{tool_name}.invoked"`` when a tool hook is registered, with
+            the name made usable by :func:`~arcjet.guard.to_guard_label`
+            (``Bash`` gives ``bash.invoked``).
         actor: Who is acting, or a callable of the tool-call envelope (or
             ``{"prompt": ...}`` on inbound). Does not register a tool hook
             by itself — put it on *inbound* for inbound-only setups.

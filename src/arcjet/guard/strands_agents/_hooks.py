@@ -52,7 +52,7 @@ from .._checkpoint import (
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
-from .._label import assert_valid_action
+from .._label import assert_valid_action, default_tool_action
 from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
@@ -245,8 +245,7 @@ async def _decide(
 def _resolve_tool_action(config: _HookConfig, source: Any) -> str:
     action = config.action
     if action is None:
-        name = _tool_name(source) or "tool"
-        return f"{name}.invoked"
+        return default_tool_action(_tool_name(source))
     if callable(action):
         return cast(Callable[[Mapping[str, Any]], str], action)(_tool_call(source))
     return action
@@ -267,7 +266,7 @@ async def evaluate_before_tool_call(
         return BeforeToolCallVerdict(cancel=False)
 
     name = _tool_name(source)
-    action = f"{name or 'tool'}.invoked"
+    action = default_tool_action(name)
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
 
@@ -490,7 +489,8 @@ def guard_hooks(
         guard: The Arcjet client. An async client is preferred; a blocking
             client is accepted.
         action: Checkpoint label, or a callable of the tool-call envelope.
-            Defaults to ``"{tool_name}.invoked"``.
+            Defaults to ``"{tool_name}.invoked"``, with the name made usable
+            by :func:`~arcjet.guard.to_guard_label`.
         actor: Who is acting, or a callable of that envelope.
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty still

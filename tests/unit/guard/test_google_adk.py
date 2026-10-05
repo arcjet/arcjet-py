@@ -651,6 +651,7 @@ class TestEvaluateBeforeTool:
     def test_default_action_uses_tool_name(self) -> None:
         assert default_action({"tool_name": "send_email"}) == "send_email.invoked"
         assert default_action({}) == "tool.invoked"
+        assert default_action({"tool_name": "SendEmail"}) == "sendemail.invoked"
 
     def test_tool_name_wins_over_argument(self) -> None:
         call = tool_call(_tool("send_email"), {"tool_name": "forged"})

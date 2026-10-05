@@ -737,6 +737,17 @@ class TestEvaluateBeforeToolCall:
         asyncio.run(evaluate_before_tool_call(_event(), _hook_config(guard=client)))
         assert client.guards[0]["label"] == "echo.invoked"
 
+    def test_default_action_makes_the_tool_name_usable(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        event = _event(
+            selected_tool=SimpleNamespace(tool_name="Echo Tool"),
+            tool_use={"name": "Echo Tool", "input": {}, "toolUseId": "tu_1"},
+        )
+        asyncio.run(evaluate_before_tool_call(event, _hook_config(guard=client)))
+        assert client.guards[0]["label"] == "echo_tool.invoked"
+
 
 class TestCaptureAfterToolCall:
     def test_is_capture_only_and_does_not_re_evaluate(

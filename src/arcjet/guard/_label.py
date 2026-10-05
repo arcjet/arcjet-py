@@ -20,19 +20,26 @@ copy is current, because the monorepo is private and this repository is public
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 __all__ = [
     "MAX_LABEL_BYTES",
     "assert_valid_action",
+    "default_tool_action",
     "label_problem",
     "label_rejected_by_service",
+    "to_guard_label",
     "validate_guard_label",
 ]
 
 MAX_LABEL_BYTES = 256
 
 _EXTRA = frozenset("-._")
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_UNUSABLE_RUN = re.compile(r"[^a-z0-9._-]+")
+_EDGES = "-._"
 
 
 def _is_lower_ascii_letter_or_digit(ch: str) -> bool:
@@ -94,6 +101,60 @@ def validate_guard_label(label: str) -> None:
             validate_guard_label("getWeather.invoked")  # raises
     """
     assert_valid_action(label, "validate_guard_label")
+
+
+def to_guard_label(text: str) -> str:
+    """*text* as a usable guard label.
+
+    ASCII capitals become lowercase, each run of characters a label cannot hold
+    becomes one ``_``, and ``-``, ``.`` and ``_`` are removed from both ends. A
+    result over 256 bytes is cut to 256 and its end trimmed again. A label that
+    is already usable is returned unchanged, so a policy published for one keeps
+    matching.
+
+    Use it to build a label from a name the application does not control, such
+    as a tool name:
+
+    Example:
+        ::
+
+            from arcjet.guard import to_guard_label
+
+            to_guard_label("Bash")  # "bash"
+            to_guard_label("Send Email")  # "send_email"
+            f"{to_guard_label('getWeather')}.invoked"  # "getweather.invoked"
+
+    Raises:
+        ValueError: *text* contains no ASCII letter or digit, so no label can
+            be made from it.
+    """
+    label = _UNUSABLE_RUN.sub("_", text.translate(_ASCII_LOWER)).strip(_EDGES)
+    if len(label) > MAX_LABEL_BYTES:
+        label = label[:MAX_LABEL_BYTES].rstrip(_EDGES)
+    if label == "":
+        raise ValueError(f"no guard label can be made from {text!r}")
+    return label
+
+
+_DEFAULT_SUFFIX = ".invoked"
+
+
+def default_tool_action(name: Optional[str]) -> str:
+    """The label a tool hook uses when the application gave no ``action``.
+
+    ``"{tool_name}.invoked"`` with the name made usable by
+    :func:`to_guard_label`, so a built-in tool such as ``Bash`` is labelled
+    ``bash.invoked`` rather than one the service rejects. ``"tool.invoked"``
+    when the name is empty or has no ASCII letter or digit.
+    """
+    try:
+        stem = to_guard_label(name or "")
+    except ValueError:
+        stem = "tool"
+    limit = MAX_LABEL_BYTES - len(_DEFAULT_SUFFIX)
+    if len(stem) > limit:
+        stem = stem[:limit].rstrip(_EDGES)
+    return f"{stem}{_DEFAULT_SUFFIX}"
 
 
 def label_rejected_by_service(decision: Any) -> bool:

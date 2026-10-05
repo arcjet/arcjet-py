@@ -1642,7 +1642,12 @@ it does not replace the JS page
 [`/guards/claude-agent-sdk/`](https://docs.arcjet.com/guards/claude-agent-sdk/).
 
 ```py
-from arcjet.guard import DetectPromptInjection, TokenBucket, launch_arcjet
+from arcjet.guard import (
+    DetectPromptInjection,
+    TokenBucket,
+    launch_arcjet,
+    to_guard_label,
+)
 from arcjet.guard.claude_agent_sdk import (
     claude_agent_context,
     guard_hooks,
@@ -1671,7 +1676,8 @@ guarded_send = guard_tool(
 hooks = guard_hooks(
     guard=aj,
     session_id=session_id,
-    action=lambda hook: f"{hook['tool_name']}.invoked",
+    # Built-in tool names such as "Bash" are not usable labels as they stand.
+    action=lambda hook: f"{to_guard_label(hook['tool_name'])}.invoked",
     rules=lambda call: [mcp_limit(key=call["tool_name"], requested=1)],
     exclude=[{"server": "mail", "name": "send_email"}],
     inbound={
@@ -1712,7 +1718,9 @@ reported `mcp__{server}__{name}` name is not double-gated. A bare authored
 name does not match every server's tool of that name. `PostToolUse` is
 capture-only (`claude.phase: after`) and is not skipped by `exclude`.
 `actor=` / `inputs=` next to `inbound=` do not install a tool gate; pass
-`tools=True` for the default `{tool_name}.invoked` gate with empty rules.
+`tools=True` for the default `{tool_name}.invoked` gate with empty rules; the
+default passes the name through `to_guard_label`, so `Bash` is gated as
+`bash.invoked`.
 
 `claude_agent_context` reads hook `session_id` first, then the
 caller-owned `session_id=` fallback, then `arcjet_sequence()`. It never
@@ -1811,7 +1819,7 @@ it does not replace the JS page
 [`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).
 
 ```py
-from arcjet.guard import TokenBucket, launch_arcjet, server_input
+from arcjet.guard import TokenBucket, launch_arcjet, server_input, to_guard_label
 from arcjet.guard.strands_agents import (
     guard_hooks,
     guard_tool,
@@ -1840,7 +1848,7 @@ guarded_send = guard_tool(
 
 hooks = guard_hooks(
     guard=aj,
-    action=lambda call: f"{call['tool_name']}.invoked",
+    action=lambda call: f"{to_guard_label(call['tool_name'])}.invoked",
     rules=lambda call: [mcp_limit(key=call["tool_name"], requested=1)],
     session_id=session_id,
 )

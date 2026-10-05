@@ -82,7 +82,7 @@ from ._errors import (
     ArcjetUnavailableError,
     OnGuardError,
 )
-from ._label import validate_guard_label
+from ._label import to_guard_label, validate_guard_label
 from ._policy_input import PolicyInput, PolicyInputMap, local_input, server_input
 from ._registry import (
     capture,
@@ -226,5 +226,6 @@ __all__ = [
     "flush_sync",
     "guard",
     "guard_sync",
+    "to_guard_label",
     "validate_guard_label",
 ]
