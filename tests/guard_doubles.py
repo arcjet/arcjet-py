@@ -261,5 +261,5 @@ NOT_BOUND_RULES: dict[str, Callable[[], Any]] = {
     "unbound-rule": lambda: [
         TokenBucket(refill_rate=1, interval_seconds=60, max_tokens=5)
     ],
-    "coroutine": lambda: _no_rules(),
+    "coroutine": _no_rules,
 }
