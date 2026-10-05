@@ -27,6 +27,8 @@ from .._checkpoint import (
     _guard_sync,
     _outcome_for_completed_action,
     _resolve_correlation_id,
+    bound_rules,
+    rules_for_call,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._policy_input import PolicyInputMap
@@ -85,7 +87,10 @@ def _resolve(source: Any, arguments: Mapping[str, Any]) -> Any:
 
 
 def prepared_inputs(
-    actor: ActorResolver, inputs: InputResolver, arguments: Mapping[str, Any]
+    actor: ActorResolver,
+    inputs: InputResolver,
+    arguments: Mapping[str, Any],
+    rules: RulesResolver = (),
 ) -> ResolvedInputs:
     degraded: Optional[BaseException] = None
     resolved_actor: Optional[str] = None
@@ -98,20 +103,18 @@ def prepared_inputs(
         resolved_inputs = _resolve(inputs, arguments)
     except Exception as exc:
         degraded = degraded or exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    if callable(rules):
+        try:
+            resolved_rules = bound_rules(_resolve(rules, arguments))
+        except Exception as exc:
+            degraded = degraded or exc
     return ResolvedInputs(
-        actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
+        actor=resolved_actor,
+        inputs=resolved_inputs,
+        degraded=degraded,
+        rules=resolved_rules,
     )
-
-
-def resolved_rules(
-    rules: RulesResolver, arguments: Mapping[str, Any]
-) -> Sequence[RuleWithInput]:
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-        rules,
-    )(arguments)
 
 
 def resolve_metadata_value(
@@ -220,15 +223,14 @@ async def evaluate_checkpoint(
             extra=extra,
             reserved=reserved_metadata,
         )
-        prepared = prepared_inputs(actor, inputs, arguments)
-        resolved_rules_list = resolved_rules(rules, arguments)
+        prepared = prepared_inputs(actor, inputs, arguments, rules)
         decision = await decide(
             guard,
             action=action,
             correlation_id=resolved_correlation,
             metadata=resolved_metadata,
             prepared=prepared,
-            rules=resolved_rules_list,
+            rules=rules_for_call(prepared, rules),
         )
         failure = _classify_decision(
             decision,

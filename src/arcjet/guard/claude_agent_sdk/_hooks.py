@@ -38,6 +38,8 @@ from .._checkpoint import (
     _guard_sync,
     _outcome_for_completed_action,
     _resolve_correlation_id,
+    bound_rules,
+    rules_for_call,
 )
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
 from .._label import assert_valid_action
@@ -154,6 +156,7 @@ def _prepared(
     actor: ActorResolver,
     inputs: InputResolver,
     arguments: Mapping[str, Any],
+    rules: RulesResolver = (),
 ) -> ResolvedInputs:
     degraded: Optional[BaseException] = None
     resolved_actor: Optional[str] = None
@@ -166,20 +169,18 @@ def _prepared(
         resolved_inputs = _resolve(inputs, arguments)
     except Exception as exc:
         degraded = degraded or exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    if callable(rules):
+        try:
+            resolved_rules = bound_rules(_resolve(rules, arguments))
+        except Exception as exc:
+            degraded = degraded or exc
     return ResolvedInputs(
-        actor=resolved_actor, inputs=resolved_inputs, degraded=degraded
+        actor=resolved_actor,
+        inputs=resolved_inputs,
+        degraded=degraded,
+        rules=resolved_rules,
     )
-
-
-def _resolved_rules(
-    rules: RulesResolver, arguments: Mapping[str, Any]
-) -> Sequence[RuleWithInput]:
-    if not callable(rules):
-        return rules
-    return cast(
-        Callable[[Mapping[str, Any]], Sequence[RuleWithInput]],
-        rules,
-    )(arguments)
 
 
 def _resolved_metadata(
@@ -273,8 +274,8 @@ async def evaluate_pre_tool_use(source: Any, config: _HookConfig) -> PreToolUseV
         correlation_id = _correlation(config.session_id, hook)
         extra = _resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(config.session_id, hook, extra, phase="before")
-        prepared = _prepared(config.actor, config.inputs, arguments)
-        rules = _resolved_rules(config.rules, arguments)
+        prepared = _prepared(config.actor, config.inputs, arguments, config.rules)
+        rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config.guard,
             action=action,
@@ -351,8 +352,8 @@ async def evaluate_user_prompt_submit(
         correlation_id = _correlation(config.session_id, hook)
         extra = _resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(config.session_id, hook, extra, phase="inbound")
-        prepared = _prepared(config.actor, config.inputs, arguments)
-        rules = _resolved_rules(config.rules, arguments)
+        prepared = _prepared(config.actor, config.inputs, arguments, config.rules)
+        rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config.guard,
             action=action,
@@ -589,6 +590,9 @@ def guard_hooks(
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty still
             contacts Guard.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as a failed *inputs* resolver: Guard is
+            called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of that envelope.
         session_id: Caller-owned UUID fallback. Hook ``session_id`` is
             preferred. Never minted.

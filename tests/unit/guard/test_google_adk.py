@@ -11,13 +11,15 @@ import asyncio
 import inspect
 import subprocess
 import sys
-from collections.abc import Mapping
+import warnings
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from guard_doubles import (
+    NOT_BOUND_RULES,
     StubGuardClient,
     make_allow_decision,
     make_deny_decision,
@@ -557,6 +559,51 @@ class TestEvaluateBeforeTool:
             )
         )
         assert verdict.deny is True
+        # Guard still sees the call, without local rules, so remote policy runs.
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_rules_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_arguments: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        verdict = _run(
+            evaluate_before_tool(
+                tool=_tool(),
+                args={"value": "hello"},
+                tool_context={},
+                config=_config(guard=client, rules=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_factory_returning_no_bound_rules_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = _run(
+                evaluate_before_tool(
+                    tool=_tool(),
+                    args={"value": "hello"},
+                    tool_context={},
+                    config=_config(guard=client, rules=lambda _a: returned()),
+                )
+            )
+        assert verdict.deny is True
+        assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
     def test_correlation_from_state_never_mints(self, reset_sequence_context) -> None:

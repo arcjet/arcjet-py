@@ -122,6 +122,25 @@ def bound_rules(value: object) -> tuple[RuleWithInput, ...]:
     return cast("tuple[RuleWithInput, ...]", tuple(value))
 
 
+def rules_for_call(
+    prepared: ResolvedInputs, configured: object
+) -> Sequence[RuleWithInput]:
+    """The local rules Guard is called with for one call.
+
+    For a surface that calls Guard itself rather than through
+    :func:`run_checkpoint`. *configured* is what the application passed as
+    ``rules``: a sequence, which is used as it is, or a resolver, whose
+    validated result *prepared* carries. A resolver that failed left nothing
+    there, and the call goes to Guard with no local rules, so remote policy
+    still evaluates it and ``prepared.degraded`` reports why.
+    """
+    if prepared.rules is not None:
+        return prepared.rules
+    if callable(configured):
+        return ()
+    return cast("Sequence[RuleWithInput]", configured)
+
+
 def _default_denied(action: str, decision: Decision) -> BaseException:
     return ArcjetDeniedError(action, decision)
 

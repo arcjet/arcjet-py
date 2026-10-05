@@ -211,6 +211,9 @@ def guard_events(
         actor: Who is acting, or a callable of the message arguments.
         inputs: Policy inputs, or a callable of the message arguments.
         rules: Local rules, or a callable of the message arguments.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled as a failed *inputs* resolver: Guard is
+            called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of the message arguments.
         correlation_id: Caller-owned Sequence id. Never minted. Never an
             Anthropic session / event id we treated as ours.
