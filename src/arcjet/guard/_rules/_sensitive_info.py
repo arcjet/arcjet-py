@@ -117,9 +117,10 @@ class LocalDetectSensitiveInfo:
         deny: Entity types to detect and block on.
         mode: ``"LIVE"`` (default) enforces; ``"DRY_RUN"`` evaluates only.
         label: Optional human-readable label for observability.
-            Validated server-side as a slug: lowercase letters, digits,
-            dash (``-``), and dot (``.``) only; must start and end with a
-            lowercase letter or digit; max 256 bytes.
+            Validated server-side: ASCII letters of either case, digits,
+            dash (``-``), dot (``.``) and underscore (``_``); must start and
+            end with a letter or digit; max 256 bytes; matched
+            case-sensitively.
         metadata: Optional metadata for analytics — string keys mapped to any
             JSON-serializable value, including nested objects and arrays.
         backend: Alternative detection backend (default: the bundled WASM
