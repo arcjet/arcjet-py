@@ -19,7 +19,10 @@ from typing import Any
 
 import pytest
 from guard_doubles import (
+    INVALID_LABELS,
+    NOT_ACTION,
     NOT_BOUND_RULES,
+    NOT_METADATA,
     StubGuardClient,
     make_allow_decision,
     make_deny_decision,
@@ -503,6 +506,96 @@ class TestEvaluateHandler:
         assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a: static) if callable_metadata else static
+        verdict = asyncio.run(
+            evaluate_handler({}, _tool_config(guard=client, metadata=metadata))
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo", "team": "billing"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_handler({}, _tool_config(guard=client, metadata=boom))
+        )
+        assert verdict.deny is True
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_handler(
+                {}, _tool_config(guard=client, metadata=boom, on_guard_error="allow")
+            )
+        )
+        assert verdict.deny is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_handler(
+                {}, _tool_config(guard=client, metadata=boom, on_guard_error="allow")
+            )
+        )
+        assert verdict.deny is True
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_handler(
+                    {}, _tool_config(guard=client, metadata=lambda _a: returned())
+                )
+            )
+        assert verdict.deny is True
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
     def test_uses_policy_correlation_id_never_mints(
         self, reset_sequence_context
     ) -> None:
@@ -798,6 +891,203 @@ class TestEvaluateBeforeToolCall:
         assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
+    @pytest.mark.parametrize(
+        "callable_metadata", [False, True], ids=["static", "callable"]
+    )
+    def test_metadata_is_merged_and_not_degraded(
+        self, reset_sequence_context, callable_metadata: bool
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        static = {"team": "billing"}
+        metadata: Any = (lambda _a: static) if callable_metadata else static
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(), _hook_config(guard=client, metadata=metadata)
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo", "strands.phase": "before", "team": "billing"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(), _hook_config(guard=client, metadata=boom)
+            )
+        )
+        assert verdict.cancel is True
+        # Guard still sees the call, with the metadata the helper adds itself.
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo", "strands.phase": "before"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(),
+                _hook_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo", "strands.phase": "before"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_metadata_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(),
+                _hook_config(guard=client, metadata=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.cancel is True
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_METADATA.values(), ids=NOT_METADATA.keys())
+    def test_metadata_factory_returning_no_mapping_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_before_tool_call(
+                    _event(), _hook_config(guard=client, metadata=lambda _a: returned())
+                )
+            )
+        assert verdict.cancel is True
+        assert [guard["metadata"] for guard in client.guards] == [
+            {"strands.tool": "echo", "strands.phase": "before"}
+        ]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_action_factory_throw_fail_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(_event(), _hook_config(guard=client, action=boom))
+        )
+        assert verdict.cancel is True
+        # Guard still sees the call, under the label used when no action is
+        # given, so remote policy for that label runs.
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["action"] == "echo.invoked"
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_action_factory_throw_allow_proceeds_and_records_degraded(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(),
+                _hook_config(guard=client, action=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["action"] == "echo.invoked"
+        assert client.captures[0]["metadata"]["outcome"] == "degraded"
+        assert client.captures[0]["decision_id"] == "gdec_test_allow"
+
+    def test_action_factory_throw_still_honours_a_deny(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(),
+                _hook_config(guard=client, action=boom, on_guard_error="allow"),
+            )
+        )
+        assert verdict.cancel is True
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+        assert client.captures[0]["decision_id"] == "gdec_test_deny"
+
+    @pytest.mark.parametrize("returned", NOT_ACTION.values(), ids=NOT_ACTION.keys())
+    def test_action_factory_returning_no_str_fail_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            verdict = asyncio.run(
+                evaluate_before_tool_call(
+                    _event(), _hook_config(guard=client, action=lambda _a: returned())
+                )
+            )
+        assert verdict.cancel is True
+        assert [guard["label"] for guard in client.guards] == ["echo.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "label", INVALID_LABELS.values(), ids=INVALID_LABELS.keys()
+    )
+    def test_action_factory_invalid_label_is_sent_unchanged(
+        self, reset_sequence_context, label: str
+    ) -> None:
+        # The service judges a label that exists only at call time; the SDK
+        # does not check it per call.
+        client = StubGuardClient(decision=make_allow_decision())
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(), _hook_config(guard=client, action=lambda _a: label)
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["label"] for guard in client.guards] == [label]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_action_factory_label_is_used(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        verdict = asyncio.run(
+            evaluate_before_tool_call(
+                _event(), _hook_config(guard=client, action=lambda _a: "custom.invoked")
+            )
+        )
+        assert verdict.cancel is False
+        assert [guard["label"] for guard in client.guards] == ["custom.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
     def test_correlation_from_invocation_state(self, reset_sequence_context) -> None:
         client = StubGuardClient(decision=make_deny_decision())
         asyncio.run(
@@ -876,6 +1166,32 @@ class TestCaptureAfterToolCall:
             raise RuntimeError("metadata exploded")
 
         capture_after_tool_call(_event(), _hook_config(metadata=boom))
+
+    def test_action_factory_throw_still_captures_under_the_default_action(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> str:
+            raise RuntimeError("no action")
+
+        capture_after_tool_call(_event(), _hook_config(guard=client, action=boom))
+        assert client.guards == []
+        assert [capture["action"] for capture in client.captures] == ["echo.invoked"]
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_metadata_factory_throw_still_captures_without_it(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(*_args: Any) -> dict[str, Any]:
+            raise RuntimeError("no metadata")
+
+        capture_after_tool_call(_event(), _hook_config(guard=client, metadata=boom))
+        assert [capture["metadata"] for capture in client.captures] == [
+            {"strands.tool": "echo", "strands.phase": "after", "outcome": "success"}
+        ]
 
 
 class TestAfterOutcome:

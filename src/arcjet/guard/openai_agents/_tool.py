@@ -23,7 +23,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
@@ -38,7 +38,9 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
     bound_rules,
+    resolved_metadata,
     rules_for_call,
+    with_degraded,
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -155,18 +157,6 @@ def _prepared(config: _ToolConfig, arguments: Mapping[str, Any]) -> ResolvedInpu
     )
 
 
-def _resolved_metadata(
-    config: _ToolConfig, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    metadata = config.metadata
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
-
-
 def _correlation(config: _ToolConfig, data: Any) -> Optional[str]:
     """Caller-owned id from the run context, then the wrap, then the sequence."""
     ctx = getattr(data, "context", data)
@@ -237,9 +227,9 @@ async def evaluate_tool_input(data: Any, config: _ToolConfig) -> ToolInputVerdic
     try:
         arguments = _arguments_from_tool_context(getattr(data, "context", data))
         correlation_id = _correlation(config, data)
-        extra = _resolved_metadata(config, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(config, data, extra)
-        prepared = _prepared(config, arguments)
+        prepared = with_degraded(_prepared(config, arguments), metadata_failure)
         rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config,
@@ -375,6 +365,10 @@ def guard_tool(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of the call's arguments.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         correlation_id: Caller-owned fallback Sequence id. The run context
             is preferred; then this; then :func:`~arcjet.guard.arcjet_sequence`.
             Never minted.

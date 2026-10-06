@@ -34,7 +34,7 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
@@ -50,7 +50,10 @@ from .._checkpoint import (
     _outcome_for_completed_action,
     _resolve_correlation_id,
     bound_rules,
+    resolved_action,
+    resolved_metadata,
     rules_for_call,
+    with_degraded,
 )
 from .._context import _validated
 from .._errors import ArcjetDeniedError, ArcjetUnavailableError, OnGuardError
@@ -184,17 +187,6 @@ def _prepared(
     )
 
 
-def _resolved_metadata(
-    metadata: MetadataResolver, arguments: Mapping[str, Any]
-) -> Optional[Metadata]:
-    if callable(metadata):
-        return cast(
-            Callable[[Mapping[str, Any]], Optional[Metadata]],
-            metadata,
-        )(arguments)
-    return metadata
-
-
 def _correlation(correlation_id: Optional[str], source: Any) -> Optional[str]:
     derived = strands_agent_context(source, correlation_id=correlation_id)
     return _resolve_correlation_id(derived.correlation_id)
@@ -243,14 +235,16 @@ async def _decide(
     return await asyncio.to_thread(partial(_guard_sync, guard, **kwargs))
 
 
-def _resolve_tool_action(config: _HookConfig, source: Any) -> str:
-    action = config.action
-    if action is None:
-        name = _tool_name(source) or "tool"
-        return f"{name}.invoked"
-    if callable(action):
-        return cast(Callable[[Mapping[str, Any]], str], action)(_tool_call(source))
-    return action
+def _default_tool_action(source: Any) -> str:
+    return f"{_tool_name(source) or 'tool'}.invoked"
+
+
+def _resolve_tool_action(
+    config: _HookConfig, source: Any
+) -> tuple[str, Optional[BaseException]]:
+    return resolved_action(
+        config.action, _default_tool_action(source), _tool_call(source)
+    )
 
 
 async def evaluate_before_tool_call(
@@ -267,20 +261,23 @@ async def evaluate_before_tool_call(
     if _is_already_guarded(selected):
         return BeforeToolCallVerdict(cancel=False)
 
-    name = _tool_name(source)
-    action = f"{name or 'tool'}.invoked"
+    action = _default_tool_action(source)
     correlation_id = _resolve_correlation_id(None)
     metadata: Optional[Metadata] = None
 
     try:
-        action = _resolve_tool_action(config, source)
+        action, action_failure = _resolve_tool_action(config, source)
         arguments = _tool_call(source)
         correlation_id = _correlation(config.correlation_id, source)
-        extra = _resolved_metadata(config.metadata, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
         metadata = _merged_metadata(
             config.correlation_id, source, extra, phase="before"
         )
-        prepared = _prepared(config.actor, config.inputs, arguments, config.rules)
+        prepared = with_degraded(
+            _prepared(config.actor, config.inputs, arguments, config.rules),
+            action_failure,
+            metadata_failure,
+        )
         rules = rules_for_call(prepared, config.rules)
         decision = await _decide(
             config.guard,
@@ -389,9 +386,17 @@ def capture_after_tool_call(source: Any, config: _HookConfig) -> None:
     as ``success``. ``retry`` is never set.
     """
     try:
-        action = _resolve_tool_action(config, source)
+        action, action_failure = _resolve_tool_action(config, source)
         arguments = _tool_call(source)
-        extra = _resolved_metadata(config.metadata, arguments)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
+        failure = action_failure or metadata_failure
+        if failure is not None:
+            logger.warning(
+                "arcjet: the Strands Agents AfterToolCallEvent action or "
+                "metadata resolver failed; capturing %r without it",
+                action,
+                exc_info=failure,
+            )
         metadata = _merged_metadata(config.correlation_id, source, extra, phase="after")
         _emit_capture(
             client=config.guard,
@@ -492,6 +497,10 @@ def guard_hooks(
             client is accepted.
         action: Checkpoint label, or a callable of the tool-call envelope.
             Defaults to ``"{tool_name}.invoked"``.
+            A string the callable returns is sent unchanged. One that
+            raises, or returns anything other than a string, is handled as a
+            failed *inputs* resolver: Guard is called with
+            ``"{tool_name}.invoked"`` and *on_guard_error* decides.
         actor: Who is acting, or a callable of that envelope.
         inputs: Policy inputs, or a callable of that envelope.
         rules: Local rules, or a callable of that envelope. Empty still
@@ -500,6 +509,10 @@ def guard_hooks(
             bound rules, is handled as a failed *inputs* resolver: Guard is
             called without local rules and *on_guard_error* decides.
         metadata: Capture metadata, or a callable of that envelope.
+            One that raises, or returns anything other than a mapping or
+            ``None``, is handled as a failed *inputs* resolver: Guard is
+            called without the callable's metadata and *on_guard_error*
+            decides.
         correlation_id: Caller-owned Sequence id fallback. Invocation
             state is preferred. Never minted.
         session_id: Alias of *correlation_id* when the application calls
