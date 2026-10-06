@@ -35,8 +35,8 @@ MAX_LABEL_BYTES = 256
 _EXTRA = frozenset("-._")
 
 
-def _is_lower_ascii_letter_or_digit(ch: str) -> bool:
-    return ("a" <= ch <= "z") or ("0" <= ch <= "9")
+def _is_ascii_letter_or_digit(ch: str) -> bool:
+    return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
 
 
 def label_problem(label: str) -> Optional[str]:
@@ -50,16 +50,14 @@ def label_problem(label: str) -> Optional[str]:
         return "empty"
     if len(label.encode("utf-8")) > MAX_LABEL_BYTES:
         return f"longer than {MAX_LABEL_BYTES} bytes"
-    if not _is_lower_ascii_letter_or_digit(label[0]):
-        return "must start with a lowercase letter or digit"
-    if not _is_lower_ascii_letter_or_digit(label[-1]):
-        return "must end with a lowercase letter or digit"
+    if not _is_ascii_letter_or_digit(label[0]):
+        return "must start with an ASCII letter or digit"
+    if not _is_ascii_letter_or_digit(label[-1]):
+        return "must end with an ASCII letter or digit"
 
     for ch in label:
-        if _is_lower_ascii_letter_or_digit(ch) or ch in _EXTRA:
+        if _is_ascii_letter_or_digit(ch) or ch in _EXTRA:
             continue
-        if "A" <= ch <= "Z":
-            return f"uppercase letter {ch!r}"
         return f"invalid character {ch!r}"
 
     return None
@@ -91,7 +89,8 @@ def validate_guard_label(label: str) -> None:
             from arcjet.guard import validate_guard_label
 
             validate_guard_label("send_email.invoked")  # returns
-            validate_guard_label("getWeather.invoked")  # raises
+            validate_guard_label("getWeather.invoked")  # returns
+            validate_guard_label("get weather.invoked")  # raises
     """
     assert_valid_action(label, "validate_guard_label")
 

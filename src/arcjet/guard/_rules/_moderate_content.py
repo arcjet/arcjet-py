@@ -77,10 +77,10 @@ class ModerateContent:
 
     Args:
         mode: ``"LIVE"`` or ``"DRY_RUN"``.
-        label: Optional observability label. Validated server-side as a
-            slug: lowercase letters, digits, dash (``-``), and dot (``.``)
-            only; must start and end with a lowercase letter or digit;
-            max 256 bytes.
+        label: Optional observability label. Validated server-side: ASCII
+            letters of either case, digits, dash (``-``), dot (``.``) and
+            underscore (``_``); must start and end with a letter or digit;
+            max 256 bytes; matched case-sensitively.
         metadata: Config-level metadata — string keys mapped to any
             JSON-serializable value, including nested objects and arrays.
             Merged with per-input metadata on each call: the merge is

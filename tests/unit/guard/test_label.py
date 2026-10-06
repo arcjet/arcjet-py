@@ -62,18 +62,20 @@ def test_reports_an_over_long_label_by_length_not_by_its_first_odd_character() -
 
 def test_validate_guard_label_raises_naming_the_label_and_the_reason() -> None:
     with pytest.raises(ArcjetInvalidLabelError) as excinfo:
-        validate_guard_label("getWeather.invoked")
+        validate_guard_label("get weather.invoked")
     message = str(excinfo.value)
-    assert "getWeather.invoked" in message
-    assert "uppercase" in message
+    assert "get weather.invoked" in message
+    assert "invalid character ' '" in message
 
 
 def test_validate_guard_label_accepts_a_label_the_service_accepts() -> None:
     validate_guard_label("send_email.invoked")
+    validate_guard_label("getWeather.invoked")
+    validate_guard_label("Bash.invoked")
 
 
 def test_the_reported_problem_names_the_offending_character() -> None:
-    assert "'W'" in (label_problem("getWeather.invoked") or "")
+    assert "'é'" in (label_problem("café.invoked") or "")
     assert "' '" in (label_problem("tools.a b") or "")
 
 
@@ -93,7 +95,7 @@ class TestAdapterEntryPointsRefuseABadLabel:
 
         for policy_type in (CrewToolPolicy, LangChainToolPolicy):
             with pytest.raises(ArcjetInvalidLabelError):
-                policy_type(action="getWeather.invoked")
+                policy_type(action="get weather.invoked")
             policy_type(action="send_email.invoked")
 
     def test_wrapper_factories(self) -> None:
@@ -101,11 +103,11 @@ class TestAdapterEntryPointsRefuseABadLabel:
 
         with pytest.raises(ArcjetInvalidLabelError):
             guard_events(
-                guard=object(), send=lambda *a, **k: None, action="getWeather.invoked"
+                guard=object(), send=lambda *a, **k: None, action="get weather.invoked"
             )
         with pytest.raises(ArcjetInvalidLabelError):
             guard_custom_tool(
-                guard=object(), run=lambda e: None, action="getWeather.invoked"
+                guard=object(), run=lambda e: None, action="get weather.invoked"
             )
 
     def test_hooks_check_only_a_literal_action(self) -> None:
@@ -115,13 +117,13 @@ class TestAdapterEntryPointsRefuseABadLabel:
 
         for factory in (claude_guard_hooks, strands_guard_hooks, register_arcjet_hooks):
             with pytest.raises(ArcjetInvalidLabelError):
-                factory(guard=object(), action="getWeather.invoked")
+                factory(guard=object(), action="get weather.invoked")
 
             # A callable is only resolvable per call, so it must not be refused
             # here. Anything else the adapter raises — a missing optional peer,
             # for instance — is not what this asserts.
             try:
-                factory(guard=object(), action=lambda *a, **k: "getWeather.invoked")
+                factory(guard=object(), action=lambda *a, **k: "get weather.invoked")
             except ArcjetInvalidLabelError:  # pragma: no cover - the failure case
                 pytest.fail("a callable action must not be refused at construction")
             except Exception:

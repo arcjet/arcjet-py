@@ -275,13 +275,13 @@ class TestActionLabel:
     """
 
     def test_warns_and_still_sends_an_action_no_policy_can_match(self) -> None:
-        event, diag = _normalize(action="getWeather.invoked")
+        event, diag = _normalize(action="get weather.invoked")
 
         assert event is not None, "the event must not be dropped"
-        assert event.action == "getWeather.invoked", "sent as written"
+        assert event.action == "get weather.invoked", "sent as written"
         assert [w.code for w in event.local_warnings] == ["AJ1023"]
         assert "no policy will match it" in event.local_warnings[0].message
-        assert "uppercase letter" in event.local_warnings[0].message
+        assert "invalid character" in event.local_warnings[0].message
         assert diag.just_codes == ["AJ1023"]
 
     def test_a_valid_action_warns_about_nothing(self) -> None:
@@ -294,4 +294,4 @@ class TestActionLabel:
     def test_capture_action_never_raises(self) -> None:
         from arcjet.guard import capture_action
 
-        capture_action(action="getWeather.invoked")
+        capture_action(action="get weather.invoked")
