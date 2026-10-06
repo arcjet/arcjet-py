@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
-from guard_doubles import StubGuardClient, make_allow_decision
+from guard_doubles import INVALID_LABELS, StubGuardClient, make_allow_decision
 
 from arcjet.guard import (
     ArcjetInvalidLabelError,
@@ -66,6 +66,12 @@ def test_validate_guard_label_raises_naming_the_label_and_the_reason() -> None:
     message = str(excinfo.value)
     assert "get weather.invoked" in message
     assert "invalid character ' '" in message
+
+
+@pytest.mark.parametrize("label", INVALID_LABELS.values(), ids=INVALID_LABELS.keys())
+def test_the_invalid_label_fixture_holds_labels_the_check_refuses(label: str) -> None:
+    # Other suites rely on these being refused; a grammar change must move them.
+    assert label_problem(label) is not None
 
 
 def test_validate_guard_label_accepts_a_label_the_service_accepts() -> None:

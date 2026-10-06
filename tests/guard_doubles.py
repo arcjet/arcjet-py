@@ -293,6 +293,6 @@ NOT_ACTION: dict[str, Callable[[], Any]] = {
 #: would refuse. They are sent unchanged: the service judges a label that
 #: exists only at call time.
 INVALID_LABELS: dict[str, str] = {
-    "uppercase": "sendEmail.invoked",
+    "space": "send email.invoked",
     "empty": "",
 }
