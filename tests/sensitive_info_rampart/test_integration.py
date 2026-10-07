@@ -53,6 +53,77 @@ def test_model_detects_name_and_email():
     assert denied & {"GIVEN_NAME", "SURNAME"}
 
 
+def test_model_returns_whole_entities_when_subwords_repeat_begin_labels():
+    import logging
+
+    from arcjet_sensitive_info_rampart import rampart
+
+    from arcjet._analyze import SensitiveInfoEntitiesAllow
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    backend = rampart()
+    context = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    examples = [
+        (
+            "This Agreement is entered into by and between John Anderson "
+            "(Taxpayer Identification Number 123-45-6789) and the financial "
+            "institution holding the IBAN US64SVBKUS6S3300958879. Mr. Anderson,",
+            ("US64SVBKUS6S3300958879",),
+        ),
+        (
+            "Name: Aurélie Henry-Leroy\nBBAN: LVLU04836212442259\n"
+            "Property Address: 1199 Perez Burgs\n",
+            ("Aurélie", "LVLU04836212442259", "1199"),
+        ),
+        (
+            "je viens d'emménager au 27A, Allée des Chênes, 2350 Luxembourg",
+            ("27A", "Allée des Chênes", "2350", "Luxembourg"),
+        ),
+    ]
+
+    for text, values in examples:
+        result = backend.detect(context, text, SensitiveInfoEntitiesAllow(entities=[]))
+        for value in values:
+            start = text.index(value)
+            end = start + len(value)
+            overlapping = [
+                (entity.start, entity.end)
+                for entity in result.denied
+                if entity.start < end and entity.end > start
+            ]
+            assert overlapping == [(start, end)], (value, overlapping)
+
+
+def test_model_does_not_join_touching_emails_across_a_separator():
+    import logging
+
+    from arcjet_sensitive_info_rampart import RampartOptions, rampart
+    from arcjet_sensitive_info_rampart._entities import to_analyze_entity
+
+    from arcjet._analyze import SensitiveInfoEntitiesDeny
+    from arcjet._sensitive_info_backend import SensitiveInfoBackendContext
+
+    text = "Email alice@example.com$bob@example.com"
+    separator = text.index("$")
+    context = SensitiveInfoBackendContext(log=logging.getLogger("test"))
+    entities = SensitiveInfoEntitiesDeny(entities=[to_analyze_entity("EMAIL")])
+
+    # Run the model without recognizers so their higher precedence cannot hide
+    # an incorrect model span that crosses two distinct email addresses.
+    model_only = rampart(RampartOptions(recognizers=()))
+    result = model_only.detect(context, text, entities)
+    assert not any(
+        span.start < separator and span.end > separator + 1 for span in result.denied
+    )
+
+    # The default validated recognizer still returns complete email addresses.
+    result = rampart().detect(context, text, entities)
+    assert [text[span.start : span.end] for span in result.denied] == [
+        "alice@example.com",
+        "bob@example.com",
+    ]
+
+
 def test_model_distinguishes_bank_accounts_and_routing_numbers_from_phones():
     import logging
 
