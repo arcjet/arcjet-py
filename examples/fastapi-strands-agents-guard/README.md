@@ -4,10 +4,8 @@ A FastAPI server with a Strands Agents agent that uses Arcjet to protect the
 HTTP request, screen inbound user text, authorize one authored `@tool`, and
 deny an unwrapped tool.
 
-The Strands Agents adapter is unpublished. This example pins
-`arcjet[strands-agents]` to SHA `a630806169b92757192f3f5cce2e305827b26567`
-(branch `david/cursor/strands-agents-guard`). That is not a PyPI release. The
-extra pulls `strands-agents>=1.11.0,<2`. See
+This example uses the current SDK checkout. The extra pulls
+`strands-agents>=1.11.0,<2`. See
 [`/guards/strands-agents-py/`](https://docs.arcjet.com/guards/strands-agents-py/)
 — not the JS page
 [`/guards/strands-agents/`](https://docs.arcjet.com/guards/strands-agents/).

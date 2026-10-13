@@ -69,8 +69,8 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "1.0.0"
-source = { git = "https://github.com/arcjet/arcjet-py?rev=a630806169b92757192f3f5cce2e305827b26567#a630806169b92757192f3f5cce2e305827b26567" }
+version = "1.4.0"
+source = { editable = "../../" }
 dependencies = [
     { name = "connect-python" },
     { name = "pyqwest" },
@@ -80,6 +80,44 @@ dependencies = [
 [package.optional-dependencies]
 strands-agents = [
     { name = "strands-agents" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", marker = "extra == 'claude-managed-agents'", specifier = ">=0.92.0,<2" },
+    { name = "arcjet-sensitive-info-rampart", marker = "extra == 'sensitive-info-rampart'", editable = "../../sensitive-info-rampart" },
+    { name = "claude-agent-sdk", marker = "extra == 'claude-agent-sdk'", specifier = ">=0.2.127,<1" },
+    { name = "connect-python", specifier = ">=0.8.1" },
+    { name = "google-adk", marker = "extra == 'google-adk'", specifier = ">=2.0.0,<3" },
+    { name = "langchain", marker = "extra == 'langchain-agents'", specifier = ">=1.3,<2" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1.2.5,<2" },
+    { name = "langchain-core", marker = "extra == 'langchain-agents'", specifier = ">=1.2.5,<2" },
+    { name = "langgraph", marker = "extra == 'langchain-agents'", specifier = ">=1.2,<2" },
+    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.19.0,<1" },
+    { name = "pyqwest", specifier = ">=0.9.0,<0.10.0" },
+    { name = "strands-agents", marker = "extra == 'strands-agents'", specifier = ">=1.11.0,<2" },
+    { name = "wasmtime", specifier = ">=47.0.1,<47.1.0" },
+]
+provides-extras = ["sensitive-info-rampart", "langchain", "langchain-agents", "openai-agents", "claude-agent-sdk", "claude-managed-agents", "strands-agents", "google-adk"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "arcjet-sensitive-info-rampart", editable = "../../sensitive-info-rampart" },
+    { name = "fastapi", specifier = "==0.141.1" },
+    { name = "flask", specifier = "==3.1.3" },
+    { name = "griffe", specifier = "==2.3.0" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "hypothesis", specifier = ">=6.100.0" },
+    { name = "langchain", specifier = ">=1,<2" },
+    { name = "langchain-core", specifier = ">=1.2.5,<2" },
+    { name = "pyright", specifier = "==1.1.414" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-benchmark", specifier = ">=5.1.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "ruff", specifier = "==0.16.10" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
+    { name = "ty", specifier = "==0.0.23" },
+    { name = "types-protobuf", specifier = "==7.35.1.20260906" },
 ]
 
 [[package]]
@@ -387,7 +425,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arcjet", extras = ["strands-agents"], git = "https://github.com/arcjet/arcjet-py?rev=a630806169b92757192f3f5cce2e305827b26567" },
+    { name = "arcjet", extras = ["strands-agents"], editable = "../../" },
     { name = "fastapi", extras = ["standard"], specifier = "==0.141.1" },
     { name = "strands-agents", extras = ["anthropic"], specifier = ">=1.11.0,<2" },
 ]

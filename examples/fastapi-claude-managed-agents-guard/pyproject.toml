@@ -4,10 +4,10 @@ version = "0.1.0"
 description = "Arcjet Python SDK Example FastAPI + Claude Managed Agents Guard Application"
 readme = "README.md"
 requires-python = ">=3.10"
-# The Claude Managed Agents adapter ships in the PyPI release of arcjet 1.3.0.
+# The Claude Managed Agents adapter ships in the PyPI release of arcjet 1.4.0.
 # The extra pulls `anthropic>=0.92.0,<2`. No chromadb.
 dependencies = [
-    "arcjet[claude-managed-agents]==1.3.0",
+    "arcjet[claude-managed-agents]==1.4.0",
     "fastapi[standard]==0.141.1",
 ]
 
