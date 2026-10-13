@@ -13,8 +13,8 @@ dependencies = [
 [tool.uv]
 exclude-newer = "7 days"
 
-# Unpublished adapter on this branch. Use the local checkout so the shop
-# tracks the SDK under review. The extra pulls `google-adk>=2.0.0,<3`.
+# Use the local checkout so the shop tracks the current SDK. The extra pulls
+# `google-adk>=2.0.0,<3`.
 # No chromadb.
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
