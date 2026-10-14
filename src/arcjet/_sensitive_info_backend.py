@@ -1,10 +1,8 @@
 """Pluggable detection backend for the sensitive information rule.
 
-The default backend uses the bundled ``arcjet-analyze`` WebAssembly engine,
-which detects email addresses, phone numbers, IP addresses, and credit card
-numbers entirely locally. Provide a custom backend — for example
-``arcjet-sensitive-info-rampart``, which runs an on-device NER model — to detect
-additional sensitive information without changing the rest of the rule.
+The recommended backend is ``arcjet-sensitive-info-rampart``
+(``pip install "arcjet[sensitive-info-rampart]"``), which runs the on-device
+Rampart NER model entirely locally. Pass ``backend=rampart()`` to the rule.
 
 Backends are **synchronous** in the Python SDK: local rule evaluation runs on
 the synchronous request path and model inference is blocking, so a backend's
@@ -156,17 +154,13 @@ class SensitiveInfoBackendOptions:
 class SensitiveInfoBackend(Protocol):
     """Pluggable detection backend for the sensitive info rule.
 
-    The default backend uses the bundled ``arcjet-analyze`` WebAssembly engine,
-    which detects email addresses, phone numbers, IP addresses, and credit card
-    numbers entirely locally. Provide a custom backend — for example
-    ``arcjet-sensitive-info-rampart``, which runs an on-device NER model — to
-    detect additional sensitive information without changing the rest of the
-    rule.
+    The recommended backend is ``arcjet_sensitive_info_rampart.rampart()``,
+    which runs the on-device Rampart NER model entirely locally. Implement this
+    protocol only to plug in your own detector.
 
     A backend receives the text to scan together with the configured allow/deny
     ``entities`` and must return which detected spans are ``allowed`` and which
-    are ``denied``. This matches the shape of ``detect_sensitive_info`` in
-    ``arcjet._analyze``, so the default backend is a thin wrapper over it.
+    are ``denied``.
     """
 
     def detect(

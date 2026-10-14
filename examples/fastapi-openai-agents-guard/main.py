@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from agents import Agent, Runner, function_tool
+from arcjet_sensitive_info_rampart import rampart
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -85,7 +86,10 @@ guard_client = launch_arcjet(key=ARCJET_KEY)
 
 # Rule configuration is built once; each request binds its own input to it.
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 
 # Overridable so a dated snapshot does not pin the example shut.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

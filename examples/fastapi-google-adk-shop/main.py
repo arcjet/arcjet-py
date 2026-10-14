@@ -16,6 +16,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Optional, TypedDict
 
+from arcjet_sensitive_info_rampart import rampart
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from google.adk.agents import LlmAgent
@@ -61,7 +62,10 @@ aj = arcjet(
 guard_client = launch_arcjet(key=ARCJET_KEY)
 
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 
 REFUNDS: list[dict[str, Any]] = []
 _MAX_SESSION_ID_BYTES = 256

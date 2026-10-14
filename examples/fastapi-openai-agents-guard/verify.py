@@ -29,6 +29,7 @@ from agents.items import ModelResponse
 from agents.models.interface import Model, ModelProvider, ModelTracing
 from agents.run_config import RunConfig
 from agents.usage import Usage
+from arcjet_sensitive_info_rampart import rampart
 from fastapi.testclient import TestClient
 from openai.types.responses import (
     ResponseFunctionToolCall,
@@ -573,7 +574,7 @@ async def scenario_live_local_pii() -> None:
 
     key = os.environ["ARCJET_KEY"]
     client = launch_arcjet(key=key)
-    detect = LocalDetectSensitiveInfo(deny=["EMAIL"])
+    detect = LocalDetectSensitiveInfo(deny=["EMAIL"], backend=rampart())
     _ECHO_CALLS.clear()
     guarded = guard_tool(
         guard=client,

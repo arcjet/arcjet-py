@@ -1,14 +1,13 @@
 import logging
 import os
 
+# The Rampart backend ships in the optional `arcjet[sensitive-info-rampart]`
+# extra. Install it with: pip install "arcjet[sensitive-info-rampart]"
+from arcjet_sensitive_info_rampart import rampart
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from arcjet import Mode, arcjet, detect_sensitive_info, shield
-
-# The Rampart backend ships in the optional `arcjet[sensitive-info-rampart]`
-# extra. Install it with: pip install "arcjet[sensitive-info-rampart]"
-from arcjet_sensitive_info_rampart import rampart
 
 app = FastAPI()
 
@@ -28,10 +27,10 @@ aj = arcjet(
         # Shield protects your app from common attacks e.g. SQL injection
         shield(mode=Mode.LIVE),
         # Detect and block sensitive information using the on-device Rampart NER
-        # model. This detects names, addresses, and government/financial
-        # identifiers in addition to the four types the default engine detects —
-        # all locally, so no data leaves your environment. The model loads on
-        # the first request, then is reused.
+        # model. This detects names, addresses, contact details, and
+        # government/financial identifiers — all locally, so no data leaves
+        # your environment. The model loads on the first request, then is
+        # reused.
         detect_sensitive_info(
             mode=Mode.LIVE,
             deny=[

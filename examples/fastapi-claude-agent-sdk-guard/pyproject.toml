@@ -5,7 +5,7 @@ description = "Arcjet Python SDK Example FastAPI + Claude Agent SDK Guard Applic
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arcjet[claude-agent-sdk]",
+    "arcjet[claude-agent-sdk,sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",
 ]
 
@@ -17,3 +17,4 @@ exclude-newer = "7 days"
 # `claude-agent-sdk>=0.2.127,<1`. No chromadb.
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

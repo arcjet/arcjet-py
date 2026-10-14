@@ -5,14 +5,15 @@ description = "Arcjet Python SDK Example FastAPI + Claude Managed Agents Guard A
 readme = "README.md"
 requires-python = ">=3.10"
 # The Claude Managed Agents adapter ships in the PyPI release of arcjet 1.4.0.
-# The extra pulls `anthropic>=0.92.0,<2`. No chromadb.
+# The extra pulls `anthropic>=0.92.0,<2`. No chromadb. `sensitive-info-rampart`
+# pulls the on-device Rampart sensitive info backend.
 dependencies = [
-    "arcjet[claude-managed-agents]==1.4.0",
+    "arcjet[claude-managed-agents,sensitive-info-rampart]==1.4.0",
     "fastapi[standard]==0.141.1",
 ]
 
 [tool.uv]
 exclude-newer = "7 days"
-# arcjet is our own package, so it is exempt from the cooldown above: a new
-# release is usable here as soon as it is published.
-exclude-newer-package = { arcjet = false }
+# arcjet and its Rampart backend are our own packages, so they are exempt from
+# the cooldown above: a new release is usable here as soon as it is published.
+exclude-newer-package = { arcjet = false, arcjet-sensitive-info-rampart = false }

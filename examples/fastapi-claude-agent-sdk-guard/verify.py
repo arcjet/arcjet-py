@@ -15,6 +15,7 @@ import sys
 from collections.abc import Sequence
 from typing import Any, Literal, Optional
 
+from arcjet_sensitive_info_rampart import rampart
 from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, tool
 from fastapi.testclient import TestClient
 
@@ -356,7 +357,7 @@ async def scenario_live_local_pii() -> None:
 
     key = os.environ["ARCJET_KEY"]
     client = launch_arcjet(key=key)
-    detect = LocalDetectSensitiveInfo(deny=["EMAIL"])
+    detect = LocalDetectSensitiveInfo(deny=["EMAIL"], backend=rampart())
     _SEND_CALLS.clear()
     guarded = guard_tool(
         guard=client,

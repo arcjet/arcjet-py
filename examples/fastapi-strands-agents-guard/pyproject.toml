@@ -5,7 +5,7 @@ description = "Arcjet Python SDK Example FastAPI + Strands Agents Guard Applicat
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arcjet[strands-agents]",
+    "arcjet[strands-agents,sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",
     "strands-agents[anthropic]>=1.11.0,<2",
 ]
@@ -17,3 +17,4 @@ exclude-newer = "7 days"
 # adapter. The Anthropic extra lets the example run without Bedrock.
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

@@ -5,7 +5,7 @@ description = "Arcjet Python SDK Example FastAPI + LangChain Application"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arcjet",
+    "arcjet[sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",
     "langchain==1.4.3",
     "langchain-openai==1.6.7",
@@ -16,3 +16,4 @@ exclude-newer = "7 days"
 
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

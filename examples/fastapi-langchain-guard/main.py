@@ -11,6 +11,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
+from arcjet_sensitive_info_rampart import rampart
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
 from langchain.agents import create_agent
@@ -62,7 +63,10 @@ llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
 
 # Rule configuration is built once; each request binds its own input to it.
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 
 
 @tool

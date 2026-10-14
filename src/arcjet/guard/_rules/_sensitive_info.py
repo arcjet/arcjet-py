@@ -50,7 +50,7 @@ class SensitiveInfoConfig:
     """Entity types to detect and **deny** on."""
 
     backend: SensitiveInfoBackend | None = None
-    """Alternative detection backend (default: the bundled WASM engine)."""
+    """Detection backend. Use ``arcjet_sensitive_info_rampart.rampart()``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,17 +100,18 @@ class SensitiveInfoWithInput:
 class LocalDetectSensitiveInfo:
     """Sensitive information detection rule (local evaluation).
 
-    Detects PII (email addresses, phone numbers, etc.) in text locally,
-    using the bundled WASM backend by default or an alternative ``backend``
-    when one is configured.  The raw text never leaves the SDK — only a
-    SHA-256 hash is sent to the server alongside the locally-computed result.
+    Detects PII (names, addresses, email addresses, phone numbers,
+    government/financial identifiers, etc.) in text locally with the
+    on-device Rampart NER model — pass ``backend=rampart()`` from
+    ``arcjet-sensitive-info-rampart``
+    (``pip install "arcjet[sensitive-info-rampart]"``).  The raw text never
+    leaves the SDK — only a SHA-256 hash is sent to the server alongside the
+    locally-computed result.
 
     Specify either ``allow`` or ``deny`` to control which entity types
-    are evaluated.  The default (WASM) backend detects ``"EMAIL"``,
-    ``"PHONE_NUMBER"``, ``"IP_ADDRESS"``, and ``"CREDIT_CARD_NUMBER"``.
-    Additional types (names, addresses, SSN, tax IDs, etc.) are only detected
-    when a ``backend`` that supports them is configured, such as
-    ``arcjet_sensitive_info_rampart.rampart()``.
+    are evaluated.  See
+    :data:`~arcjet.guard._types.SENSITIVE_INFO_ENTITY_TYPES` for the types
+    Rampart detects.
 
     Args:
         allow: Entity types to detect and report without blocking.
@@ -123,17 +124,21 @@ class LocalDetectSensitiveInfo:
             case-sensitively.
         metadata: Optional metadata for analytics — string keys mapped to any
             JSON-serializable value, including nested objects and arrays.
-        backend: Alternative detection backend (default: the bundled WASM
-            engine).
+        backend: Detection backend. Use
+            ``arcjet_sensitive_info_rampart.rampart()``.
 
     Raises:
         ArcjetError: If any entity type in *allow* or *deny* is not a
-            recognized type; if both *allow* and *deny* are specified; or if a
-            backend-only type is listed without a supporting *backend*.
+            recognized type; if both *allow* and *deny* are specified; or if
+            *backend* is invalid, or omitted when a listed type requires it.
 
     Example::
 
-        sensitive = LocalDetectSensitiveInfo(deny=["EMAIL"])
+        from arcjet_sensitive_info_rampart import rampart
+
+        sensitive = LocalDetectSensitiveInfo(
+            deny=["EMAIL", "GIVEN_NAME"], backend=rampart()
+        )
         decision = await arcjet.guard(
             label="tools.weather",
             rules=[sensitive(user_message)],

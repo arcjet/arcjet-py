@@ -4,13 +4,13 @@
 code. Implement rate limiting, bot protection, email verification, and defense
 against common attacks.
 
-This package is an alternative **detection backend** for Arcjet's
+This package is the recommended **detection backend** for Arcjet's
 [sensitive information][sensitive-info] rule. It runs the on-device
 [Rampart][rampart] named-entity-recognition model — a ~15&nbsp;MB quantized ONNX
-model — so the rule can detect names, addresses, and government/financial
-identifiers in addition to the four types the default WebAssembly engine
-detects. Everything runs locally; no data leaves your environment, and the model
-weights are bundled so nothing is fetched at runtime.
+model — so the rule can detect names, addresses, government/financial
+identifiers, and contact details. Everything runs locally; no data leaves your
+environment, and the model weights are bundled so nothing is fetched at
+runtime.
 
 ## Installation
 
@@ -24,8 +24,8 @@ pip install "arcjet[sensitive-info-rampart]"
 ## Usage
 
 Pass the backend to the `detect_sensitive_info` rule via its `backend` option.
-The rest of the rule — `mode`, `allow`/`deny`, and the result shape — is
-unchanged.
+The rest of the rule — `mode`, `allow`/`deny`, and the result shape — works as
+documented for the rule.
 
 ```python
 import os
@@ -59,9 +59,6 @@ from arcjet_sensitive_info_rampart import rampart
 
 sensitive = LocalDetectSensitiveInfo(deny=["GIVEN_NAME", "SSN"], backend=rampart())
 ```
-
-Without a `backend`, the rule continues to use the default WebAssembly engine —
-this package is entirely opt-in.
 
 ## Detected entities
 

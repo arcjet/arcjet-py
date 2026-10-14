@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from anthropic import APIError, AsyncAnthropic
+from arcjet_sensitive_info_rampart import rampart
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -100,7 +101,10 @@ anthropic_client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 # Rule configuration is built once; each request binds its own input to it.
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 
 # Cached Anthropic resources. Creating an agent / environment on every
 # request would leave junk in the org. Override with ANTHROPIC_AGENT_ID /

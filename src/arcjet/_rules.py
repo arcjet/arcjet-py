@@ -475,6 +475,7 @@ class SensitiveInfoEntityType(str, Enum):
     Example::
 
         from arcjet import detect_sensitive_info, SensitiveInfoEntityType, Mode
+        from arcjet_sensitive_info_rampart import rampart
 
         rules = [
             detect_sensitive_info(
@@ -483,21 +484,22 @@ class SensitiveInfoEntityType(str, Enum):
                     SensitiveInfoEntityType.EMAIL,
                     SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
                 ],
+                backend=rampart(),
             )
         ]
     """
 
     EMAIL = "EMAIL"
-    """Email addresses. Detected natively by the default (WASM) backend."""
+    """Email addresses."""
 
     PHONE_NUMBER = "PHONE_NUMBER"
-    """Phone numbers. Detected natively by the default (WASM) backend."""
+    """Phone numbers."""
 
     IP_ADDRESS = "IP_ADDRESS"
-    """IP addresses. Detected natively by the default (WASM) backend."""
+    """IP addresses."""
 
     CREDIT_CARD_NUMBER = "CREDIT_CARD_NUMBER"
-    """Credit card numbers. Detected natively by the default (WASM) backend."""
+    """Credit card numbers."""
 
     # The following types are only detected when a ``backend`` that supports
     # them is configured (such as ``arcjet-sensitive-info-rampart``). Listing one
@@ -505,52 +507,52 @@ class SensitiveInfoEntityType(str, Enum):
     # ``detect`` function) raises, since the default backend can never match it.
 
     GIVEN_NAME = "GIVEN_NAME"
-    """Given (first) names. Backend-only."""
+    """Given (first) names."""
 
     SURNAME = "SURNAME"
-    """Surnames (last names). Backend-only."""
+    """Surnames (last names)."""
 
     SSN = "SSN"
-    """US Social Security numbers. Backend-only."""
+    """US Social Security numbers."""
 
     URL = "URL"
-    """URLs. Backend-only."""
+    """URLs."""
 
     TAX_ID = "TAX_ID"
-    """Tax identifiers. Backend-only."""
+    """Tax identifiers."""
 
     BANK_ACCOUNT = "BANK_ACCOUNT"
-    """Bank account numbers. Backend-only."""
+    """Bank account numbers."""
 
     ROUTING_NUMBER = "ROUTING_NUMBER"
-    """Bank routing numbers. Backend-only."""
+    """Bank routing numbers."""
 
     GOVERNMENT_ID = "GOVERNMENT_ID"
-    """Government identifiers. Backend-only."""
+    """Government identifiers."""
 
     PASSPORT = "PASSPORT"
-    """Passport numbers. Backend-only."""
+    """Passport numbers."""
 
     DRIVERS_LICENSE = "DRIVERS_LICENSE"
-    """Driver's license numbers. Backend-only."""
+    """Driver's license numbers."""
 
     BUILDING_NUMBER = "BUILDING_NUMBER"
-    """Street/building numbers. Backend-only."""
+    """Street/building numbers."""
 
     STREET_NAME = "STREET_NAME"
-    """Street names. Backend-only."""
+    """Street names."""
 
     SECONDARY_ADDRESS = "SECONDARY_ADDRESS"
-    """Secondary address lines (apartment, suite, etc.). Backend-only."""
+    """Secondary address lines (apartment, suite, etc.)."""
 
     CITY = "CITY"
-    """Cities. Backend-only."""
+    """Cities."""
 
     STATE = "STATE"
-    """States/regions. Backend-only."""
+    """States/regions."""
 
     ZIP_CODE = "ZIP_CODE"
-    """Postal/ZIP codes. Backend-only."""
+    """Postal/ZIP codes."""
 
 
 # Fail fast if the enum drifts from the frozensets in ``_sensitive_info_backend``
@@ -1234,9 +1236,14 @@ def detect_sensitive_info(
     """Detect sensitive information (PII) in request content.
 
     Scans the content passed to ``protect(sensitive_info_value=...)`` for
-    sensitive data like email addresses, phone numbers, IP addresses, and
-    credit card numbers. Use ``deny`` to block requests containing specific
-    entity types, or ``allow`` to permit only certain types.
+    sensitive data like names, addresses, email addresses, phone numbers, and
+    government/financial identifiers. Use ``deny`` to block requests
+    containing specific entity types, or ``allow`` to permit only certain
+    types.
+
+    Pass ``backend=rampart()`` from ``arcjet-sensitive-info-rampart``
+    (``pip install "arcjet[sensitive-info-rampart]"``) to run detection with
+    the on-device Rampart NER model. This is the recommended configuration.
 
     When this rule is configured, you **must** pass
     ``sensitive_info_value=...`` to every ``protect()`` call, otherwise
@@ -1250,20 +1257,11 @@ def detect_sensitive_info(
         allow: Entity types to permit. All other detected types are denied.
         deny: Entity types to deny.
         context_window_size: Optional context window size for detection.
-        detect: Optional custom detection callback. Receives a list of tokens
-            and returns a same-length sequence where each element is either
-            an entity type name (e.g. ``"CUSTOM_PII"``) or ``None`` for no
-            detection. The WASM component calls this during analysis to
-            supplement its built-in detectors.
+        detect: Optional custom detection callback. Not used by the Rampart
+            backend; add a Rampart recognizer instead.
         characteristics: Optional characteristics for rate limiting.
-        backend: Alternative detection backend (default: the
-            bundled WebAssembly engine). Provide a backend such as
-            ``arcjet_sensitive_info_rampart.rampart()`` to detect sensitive
-            information with an on-device model. Types beyond ``EMAIL``,
-            ``PHONE_NUMBER``, ``IP_ADDRESS``, and ``CREDIT_CARD_NUMBER`` are
-            only detected when a backend that supports them is configured (or a
-            custom ``detect`` function is provided) — listing one in
-            ``allow``/``deny`` without either raises ``ValueError``.
+        backend: Detection backend. Use
+            ``arcjet_sensitive_info_rampart.rampart()``.
 
     Returns:
         A ``SensitiveInfoDetection`` rule to include in the ``rules`` list
@@ -1272,6 +1270,7 @@ def detect_sensitive_info(
     Example::
 
         from arcjet import detect_sensitive_info, SensitiveInfoEntityType, Mode
+        from arcjet_sensitive_info_rampart import rampart
 
         rules = [
             detect_sensitive_info(
@@ -1279,27 +1278,13 @@ def detect_sensitive_info(
                 deny=[
                     SensitiveInfoEntityType.EMAIL,
                     SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
+                    SensitiveInfoEntityType.GIVEN_NAME,
                 ],
+                backend=rampart(),
             )
         ]
         # Then pass the content to scan on each protect() call:
         # decision = await aj.protect(request, sensitive_info_value="...")
-
-    Example with a custom detect callback::
-
-        def my_detect(tokens: list[str]) -> list[str | None]:
-            return [
-                "CUSTOM_PII" if "secret" in t.lower() else None
-                for t in tokens
-            ]
-
-        rules = [
-            detect_sensitive_info(
-                mode=Mode.LIVE,
-                deny=["CUSTOM_PII"],
-                detect=my_detect,
-            )
-        ]
     """
     allow_tuple: tuple[SensitiveInfoSpecifier, ...] = tuple(
         e if isinstance(e, SensitiveInfoEntityType) else str(e) for e in allow

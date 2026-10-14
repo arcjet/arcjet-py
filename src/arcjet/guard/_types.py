@@ -96,13 +96,17 @@ SENSITIVE_INFO_ENTITY_TYPES: frozenset[str] = (
 """All recognized sensitive information entity types.  Custom entity types are
 not supported in ``arcjet.guard`` — use a custom rule instead.
 
-The four in :data:`NATIVE_SENSITIVE_INFO_ENTITY_TYPES` are detected by the
-default (WASM) backend.  The remaining types are detected only when a
-``SensitiveInfoBackend`` that supports them is configured via the ``backend``
-option (such as ``arcjet-sensitive-info-rampart``).  Listing one of them without
-such a backend is a configuration error — :class:`LocalDetectSensitiveInfo`
-raises rather than accepting a rule that can never match:
+All of them are detected by the Rampart backend
+(``arcjet_sensitive_info_rampart.rampart()``), configured via the ``backend``
+option of :class:`LocalDetectSensitiveInfo`.  Names, addresses, and
+government/financial identifiers (``"GIVEN_NAME"`` through ``"ZIP_CODE"``
+below) need ``backend=rampart()``; listing one without it raises a
+configuration error (see :class:`LocalDetectSensitiveInfo`).
 
+- ``"EMAIL"`` — Email addresses
+- ``"PHONE_NUMBER"`` — Phone numbers
+- ``"IP_ADDRESS"`` — IPv4 and IPv6 addresses
+- ``"CREDIT_CARD_NUMBER"`` — Credit/debit card numbers
 - ``"GIVEN_NAME"`` — Given (first) names
 - ``"SURNAME"`` — Surnames (last names)
 - ``"SSN"`` — US Social Security numbers

@@ -1,6 +1,7 @@
 import logging
 import os
 
+from arcjet_sensitive_info_rampart import rampart
 from flask import Flask, jsonify, request
 
 from arcjet import (
@@ -46,6 +47,7 @@ aj = arcjet_sync(
                 SensitiveInfoEntityType.CREDIT_CARD_NUMBER,
                 SensitiveInfoEntityType.PHONE_NUMBER,
             ],
+            backend=rampart(),  # on-device Rampart NER model
         ),
         # Create a token bucket rate limit. Other algorithms are supported
         token_bucket(
