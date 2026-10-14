@@ -1627,6 +1627,23 @@ class TestEvaluateResult:
         assert [guard["rules"] for guard in client.guards] == [()]
         assert client.captures[0]["metadata"]["outcome"] == "unavailable"
 
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_callable_returning_no_bound_rules_fails_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=lambda _envelope: returned(),
+            result_action="echo.invoked.result",
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is True
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
     def test_rules_callable_raising_allow_keeps_the_result(
         self, reset_sequence_context
     ) -> None:
