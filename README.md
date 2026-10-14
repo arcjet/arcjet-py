@@ -1694,6 +1694,31 @@ rules on `guard_hooks(..., inbound=...)`. A deny is `{"decision": "block"}`.
 `protect()` and the request path are fail-open — the caller must check
 `has_failed_open()`. These helpers default to `on_guard_error="deny"`.
 
+#### Screen an authored tool's result
+
+`guard_tool(..., result_rules=...)` makes a second Guard call after the
+handler returns and before the model reads its result. The callable receives
+`{"arguments": ..., "result": ..., "text": ...}`: `result` is the handler's
+return value unchanged and `text` is every text block in it, joined in order
+and never shortened. A DENY, or an unevaluated policy under the default
+`on_guard_error="deny"`, returns the same `is_error` envelope in place of the
+result. The call is labelled `result_action`, which defaults to the tool's
+`action` followed by `.result`, so remote policy and rate limits on `action`
+see each call once.
+
+```py
+guarded_fetch = guard_tool(
+    guard=aj,
+    tool=fetch_page,
+    action="page.fetched",
+    session_id=session_id,
+    result_rules=lambda r: [DetectPromptInjection()(r["text"])],
+)
+```
+
+This covers tools you write. Results from built-ins and other MCP servers
+are not screened: `PostToolUse` is capture-only.
+
 #### `can_use_tool` is not a policy gate
 
 `can_use_tool` is ask-only HITL. `allowed_tools`, allow rules, and
