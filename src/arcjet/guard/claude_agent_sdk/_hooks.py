@@ -1,4 +1,4 @@
-"""Claude Agent SDK ``PreToolUse`` / ``UserPromptSubmit`` hooks.
+"""Claude Agent SDK ``PreToolUse`` / ``PostToolUse`` / ``UserPromptSubmit`` hooks.
 
 Unwrapped built-ins and MCP tools have no authored handler to wrap.
 ``PreToolUse`` with ``permissionDecision: "deny"`` is the only deny that
@@ -8,14 +8,19 @@ still runs under ``allowed_tools`` / ``bypassPermissions``.
 Inbound text is screened on ``UserPromptSubmit`` via ``inbound=``. There
 is no ``guard_inbound`` helper. A deny is ``{"decision": "block"}``.
 
+Tool results are screened on ``PostToolUse`` via ``tool_results=``. A
+deny replaces the result through ``updatedToolOutput`` where the shape is
+known (see :mod:`._tool_results`) and stops the run everywhere else.
+
 ``can_use_tool`` is not a policy gate and is not wrapped.
 
 ``PreToolUse`` fires for every tool and the input carries only a name,
 never the brand :func:`guard_tool` applies. List wrapped tools in
 ``exclude`` as ``{"server": ..., "name": ...}`` so they match
-``mcp__{server}__{name}`` exactly. ``PostToolUse`` is capture only and
-is not skipped by *exclude*. ``rules`` / ``actor`` / ``inputs`` /
-``metadata`` see ``tool_input`` plus ``tool_name``.
+``mcp__{server}__{name}`` exactly. The ``PostToolUse`` capture and the
+``tool_results`` screen are not skipped by *exclude*. ``rules`` /
+``actor`` / ``inputs`` / ``metadata`` see ``tool_input`` plus
+``tool_name``.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ import asyncio
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from arcjet._errors import ArcjetMisconfiguration
 from arcjet._logging import logger
@@ -74,6 +79,7 @@ RulesResolver = Union[
 MetadataResolver = Union[
     Metadata, Callable[[Mapping[str, Any]], Optional[Metadata]], None
 ]
+ResultRulesResolver = Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +112,7 @@ class _ToolResultsConfig:
     guard: Any
     action: ActionResolver
     actor: ActorResolver
-    rules: Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
+    rules: ResultRulesResolver
     metadata: MetadataResolver
     session_id: Optional[str]
     on_guard_error: OnGuardError
@@ -659,11 +665,12 @@ def post_tool_use_output(verdict: PostToolUseVerdict, source: Any) -> dict[str, 
 
 
 def _inbound_session_id(
-    inbound: Mapping[str, Any], session_id: Optional[str]
+    inbound: Mapping[str, Any], session_id: Optional[str], *, option: str = "inbound"
 ) -> Optional[str]:
-    """Inbound ``session_id`` overrides the top-level fallback when the key is present.
+    """The mapping's ``session_id`` overrides the top-level fallback when the
+    key is present.
 
-    ``{"session_id": None}`` is an explicit clear: inbound stays
+    ``{"session_id": None}`` is an explicit clear: the path stays
     uncorrelated rather than inheriting *session_id*. Omit the key to
     inherit.
     """
@@ -674,10 +681,50 @@ def _inbound_session_id(
         return None
     if not isinstance(raw, str):
         raise TypeError(
-            "guard_hooks(inbound=...) session_id must be a str UUID, "
+            f"guard_hooks({option}=...) session_id must be a str UUID, "
             f"got {type(raw).__name__}"
         )
     return _require_session_id(raw)
+
+
+def _tool_results_config(
+    *,
+    guard: Any,
+    session_id: Optional[str],
+    on_guard_error: OnGuardError,
+    tool_results: Mapping[str, Any],
+) -> _ToolResultsConfig:
+    rules = tool_results.get("rules")
+    if rules is None:
+        raise ArcjetMisconfiguration(
+            "guard_hooks(tool_results=...) needs rules=, a callable of the "
+            "tool's result that returns the rules to screen it with"
+        )
+    if not callable(rules):
+        raise TypeError(
+            "guard_hooks(tool_results=...) rules is a callable of the tool's "
+            "result, since a rule has to be bound to text the tool has not "
+            f"returned yet; got {type(rules).__name__}"
+        )
+    action = tool_results.get("action")
+    if isinstance(action, str):
+        assert_valid_action(action, "guard_hooks")
+    results_error = tool_results.get("on_guard_error", on_guard_error)
+    if results_error not in ("allow", "deny"):
+        raise ArcjetMisconfiguration(
+            f"on_guard_error must be 'allow' or 'deny', got {results_error!r}. "
+            f"It decides whether a tool's result reaches the model when policy "
+            f"could not be evaluated, so there is no safe value to guess."
+        )
+    return _ToolResultsConfig(
+        guard=tool_results.get("guard", guard),
+        action=action,
+        actor=tool_results.get("actor"),
+        rules=cast(ResultRulesResolver, rules),
+        metadata=tool_results.get("metadata"),
+        session_id=_inbound_session_id(tool_results, session_id, option="tool_results"),
+        on_guard_error=results_error,
+    )
 
 
 def _inbound_config(
@@ -748,6 +795,7 @@ def guard_hooks(
     exclude: Sequence[ExcludeEntry] | None = None,
     tools: bool = False,
     inbound: Optional[Mapping[str, Any]] = None,
+    tool_results: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, list[Any]]:
     """Build Claude Agent SDK hooks that fail closed.
 
@@ -760,8 +808,14 @@ def guard_hooks(
       *exclude* as ``{"server": ..., "name": ...}`` (qualified to
       ``mcp__{server}__{name}``) or as the exact reported name. A bare
       authored name does not match every server.
-    * ``PostToolUse`` — capture only (``claude.phase: after``). Never
-      blocks. *exclude* does not skip this.
+    * ``PostToolUse`` — capture (``claude.phase: after``) when a tool hook
+      is registered; never blocks, and *exclude* does not skip it. When
+      *tool_results* is set, it also screens every tool's result before the
+      model reads it (``claude.phase: result``): on DENY a tool in
+      ``REPLACEABLE_BUILTIN_TOOLS`` or any ``mcp__`` tool has its result
+      replaced with the denial envelope, and any other tool stops the run
+      with ``continue: false``. A stopped session still holds the original
+      result and must not be resumed.
     * ``UserPromptSubmit`` — when *inbound* is set, ``{"decision":
       "block"}`` is the inbound path. There is no ``guard_inbound``.
 
@@ -811,12 +865,22 @@ def guard_hooks(
             ``session_id`` key, including ``None``, overrides the
             top-level fallback (``None`` leaves inbound uncorrelated
             rather than inheriting).
+        tool_results: PostToolUse result policy. Requires ``rules``, a
+            callable of ``{"tool_name", "tool_input", "tool_response",
+            "text"}``, where ``text`` is the result's text, never
+            shortened. Optional ``action`` (default
+            ``"{tool_name}.result"``), ``actor``, ``metadata``,
+            ``on_guard_error``, ``session_id`` and ``guard``, as for
+            *inbound*. No policy inputs are sent. Registers PostToolUse on
+            its own; it does not install the PreToolUse gate.
 
     Raises:
         ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or
-            ``"deny"``, *inbound* is missing ``action``, or neither a
-            tool hook nor inbound was requested.
-        TypeError: *tools* is not a bool, or *inbound* is not a mapping.
+            ``"deny"``, *inbound* is missing ``action``, *tool_results* is
+            missing ``rules``, or no tool hook, inbound or tool_results
+            was requested.
+        TypeError: *tools* is not a bool, *inbound* or *tool_results* is
+            not a mapping, or ``tool_results["rules"]`` is not callable.
         ValueError: *session_id* / *correlation_id* is not a UUID, or an
             exclude entry cannot be qualified.
         ImportError: the ``claude-agent-sdk`` extra is not installed.
@@ -844,6 +908,11 @@ def guard_hooks(
             "guard_hooks(inbound=...) is a mapping with at least action=; "
             "there is no guard_inbound helper"
         )
+    if tool_results is not None and not isinstance(tool_results, Mapping):
+        raise TypeError(
+            "guard_hooks(tool_results=...) is a mapping with at least rules=; "
+            f"got {type(tool_results).__name__}"
+        )
 
     want_tools = _tool_hooks_requested(
         action=action,
@@ -851,12 +920,23 @@ def guard_hooks(
         exclude=exclude,
         tools=tools,
     )
-    if not want_tools and inbound is None:
+    if not want_tools and inbound is None and tool_results is None:
         raise ArcjetMisconfiguration(
             "guard_hooks() needs a tool policy (action= / rules= / "
-            "tools=True / exclude=) and/or inbound= for UserPromptSubmit. "
-            "There is no guard_inbound helper and no guard_can_use_tool."
+            "tools=True / exclude=), inbound= for UserPromptSubmit, and/or "
+            "tool_results= for PostToolUse. There is no guard_inbound helper "
+            "and no guard_can_use_tool."
         )
+    results_config = (
+        _tool_results_config(
+            guard=guard,
+            session_id=owned,
+            on_guard_error=on_guard_error,
+            tool_results=tool_results,
+        )
+        if tool_results is not None
+        else None
+    )
 
     inbound_config = (
         _inbound_config(
@@ -871,6 +951,7 @@ def guard_hooks(
 
     hook_matcher = load_hook_matcher()
     hooks: dict[str, list[Any]] = {}
+    config: Optional[_HookConfig] = None
 
     if want_tools:
         config = _HookConfig(
@@ -887,13 +968,15 @@ def guard_hooks(
             ),
         )
 
+        tool_config = config
+
         async def pre_tool_use(
             input_data: Any, _tool_use_id: Optional[str], _context: Any
         ) -> dict[str, Any]:
             try:
-                verdict = await evaluate_pre_tool_use(input_data, config)
+                verdict = await evaluate_pre_tool_use(input_data, tool_config)
             except Exception:
-                if config.on_guard_error == "allow":
+                if tool_config.on_guard_error == "allow":
                     logger.warning(
                         "arcjet: the Claude Agent SDK PreToolUse hook failed; "
                         "the tool proceeds because on_guard_error is 'allow'"
@@ -904,12 +987,33 @@ def guard_hooks(
                 )
             return pre_tool_use_output(verdict)
 
+        hooks["PreToolUse"] = [hook_matcher(matcher=None, hooks=[pre_tool_use])]
+
+    if config is not None or results_config is not None:
+        capture_config = config
+
         async def post_tool_use(
             input_data: Any, _tool_use_id: Optional[str], _context: Any
         ) -> dict[str, Any]:
-            return capture_post_tool_use(input_data, config)
+            if capture_config is not None:
+                capture_post_tool_use(input_data, capture_config)
+            if results_config is None:
+                return {}
+            try:
+                verdict = await evaluate_post_tool_use(input_data, results_config)
+            except Exception:
+                if results_config.on_guard_error == "allow":
+                    logger.warning(
+                        "arcjet: the Claude Agent SDK PostToolUse screen failed; "
+                        "the tool result reaches the model because "
+                        "on_guard_error is 'allow'"
+                    )
+                    return {}
+                verdict = PostToolUseVerdict(
+                    deny=True, payload=payload_from_block(None)
+                )
+            return post_tool_use_output(verdict, input_data)
 
-        hooks["PreToolUse"] = [hook_matcher(matcher=None, hooks=[pre_tool_use])]
         hooks["PostToolUse"] = [hook_matcher(matcher=None, hooks=[post_tool_use])]
 
     if inbound_config is not None:

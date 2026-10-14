@@ -231,7 +231,14 @@ import arcjet.guard.claude_agent_sdk as adapter
 assert callable(adapter.guard_tool)
 assert callable(adapter.guard_hooks)
 assert callable(adapter.claude_agent_context)
-assert adapter.__all__ == ["guard_tool", "guard_hooks", "claude_agent_context"]
+assert adapter.__all__ == [
+    "guard_tool",
+    "guard_hooks",
+    "claude_agent_context",
+    "REPLACEABLE_BUILTIN_TOOLS",
+    "can_replace_result",
+]
+assert adapter.can_replace_result("Bash")
 assert not hasattr(adapter, "guard_inbound")
 assert not hasattr(adapter, "guard_can_use_tool")
 try:
@@ -1504,7 +1511,13 @@ class TestFailClosedHelperVsFailOpenProtect:
 def test_public_exports_are_only_the_locked_names() -> None:
     from arcjet.guard import claude_agent_sdk as adapter
 
-    assert adapter.__all__ == ["guard_tool", "guard_hooks", "claude_agent_context"]
+    assert adapter.__all__ == [
+        "guard_tool",
+        "guard_hooks",
+        "claude_agent_context",
+        "REPLACEABLE_BUILTIN_TOOLS",
+        "can_replace_result",
+    ]
     assert not hasattr(adapter, "guard_inbound")
     assert not hasattr(adapter, "guard_can_use_tool")
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -16,7 +17,12 @@ from guard_doubles import (
     make_deny_decision,
 )
 
+from arcjet._errors import ArcjetMisconfiguration
 from arcjet.guard import DetectPromptInjection
+from arcjet.guard import claude_agent_sdk as public
+from arcjet.guard._errors import ArcjetInvalidLabelError
+from arcjet.guard.claude_agent_sdk import _hooks as hooks_module
+from arcjet.guard.claude_agent_sdk import guard_hooks
 from arcjet.guard.claude_agent_sdk._hooks import (
     PostToolUseVerdict,
     _ToolResultsConfig,
@@ -309,3 +315,104 @@ class TestEvaluatePostToolUse:
         verdict = asyncio.run(evaluate_post_tool_use(_hook(), _config()))
         assert isinstance(verdict, PostToolUseVerdict)
         assert verdict.deny is False
+
+
+@dataclass
+class _Matcher:
+    """Stands in for the SDK's ``HookMatcher`` so the extra is not needed."""
+
+    matcher: Any
+    hooks: list[Any]
+
+
+@pytest.fixture
+def stub_matcher(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hooks_module, "load_hook_matcher", lambda: _Matcher)
+
+
+def _post_tool_use(hooks: dict[str, list[Any]], hook: Mapping[str, Any]) -> Any:
+    [matcher] = hooks["PostToolUse"]
+    [callback] = matcher.hooks
+    return asyncio.run(callback(hook, "toolu_1", None))
+
+
+@pytest.mark.usefixtures("stub_matcher")
+class TestGuardHooksToolResults:
+    def test_tool_results_alone_registers_post_tool_use_only(self) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+        hooks = guard_hooks(guard=client, tool_results={"rules": _screen})
+        assert set(hooks) == {"PostToolUse"}
+        output = _post_tool_use(hooks, _hook())
+        assert "updatedToolOutput" in output["hookSpecificOutput"]
+        assert [c["metadata"]["claude.phase"] for c in client.captures] == ["result"]
+
+    def test_with_a_tool_gate_it_captures_then_screens(self) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        hooks = guard_hooks(guard=client, tools=True, tool_results={"rules": _screen})
+        assert set(hooks) == {"PreToolUse", "PostToolUse"}
+        assert _post_tool_use(hooks, _hook()) == {}
+        assert [c["metadata"]["claude.phase"] for c in client.captures] == [
+            "after",
+            "result",
+        ]
+
+    def test_without_tool_results_post_tool_use_only_captures(self) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+        hooks = guard_hooks(guard=client, tools=True)
+        assert _post_tool_use(hooks, _hook()) == {}
+        assert client.guards == []
+
+    def test_mapping_overrides(self) -> None:
+        top = StubGuardClient(decision=make_deny_decision())
+        own = StubGuardClient(decision=make_allow_decision())
+        hooks = guard_hooks(
+            guard=top,
+            tool_results={
+                "rules": _screen,
+                "guard": own,
+                "action": "tool.screened",
+                "on_guard_error": "allow",
+                "session_id": None,
+            },
+            session_id=SESSION_ID,
+        )
+        hook = dict(_hook())
+        del hook["session_id"]
+        assert _post_tool_use(hooks, hook) == {}
+        assert top.guards == []
+        assert own.guards[0]["label"] == "tool.screened"
+        assert own.guards[0]["correlation_id"] is None
+
+    def test_rules_are_required(self) -> None:
+        with pytest.raises(ArcjetMisconfiguration, match="rules="):
+            guard_hooks(tool_results={})
+
+    def test_rules_must_be_callable(self) -> None:
+        with pytest.raises(TypeError, match="callable"):
+            guard_hooks(tool_results={"rules": [DetectPromptInjection()("x")]})
+
+    def test_tool_results_must_be_a_mapping(self) -> None:
+        with pytest.raises(TypeError, match="mapping"):
+            guard_hooks(tool_results=[_screen])  # type: ignore[arg-type]
+
+    def test_action_is_validated(self) -> None:
+        with pytest.raises(ArcjetInvalidLabelError):
+            guard_hooks(tool_results={"rules": _screen, "action": "not a label!"})
+
+    def test_on_guard_error_is_validated(self) -> None:
+        with pytest.raises(ArcjetMisconfiguration, match="on_guard_error"):
+            guard_hooks(tool_results={"rules": _screen, "on_guard_error": "maybe"})
+
+    def test_session_id_must_be_a_string(self) -> None:
+        with pytest.raises(TypeError, match="tool_results"):
+            guard_hooks(tool_results={"rules": _screen, "session_id": 1})
+
+    def test_nothing_requested_names_tool_results(self) -> None:
+        with pytest.raises(ArcjetMisconfiguration, match="tool_results="):
+            guard_hooks()
+
+
+def test_public_names() -> None:
+    assert public.REPLACEABLE_BUILTIN_TOOLS is REPLACEABLE_BUILTIN_TOOLS
+    assert public.can_replace_result is can_replace_result
+    assert {"REPLACEABLE_BUILTIN_TOOLS", "can_replace_result"} <= set(public.__all__)
