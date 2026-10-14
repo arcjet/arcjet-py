@@ -19,6 +19,7 @@ _EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(_EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(_EXAMPLE_DIR))
 
+from arcjet_sensitive_info_rampart import rampart
 from crewai.hooks import HookAborted, InterceptionPoint, clear_hooks, get_hooks
 from crewai.hooks.tool_hooks import (
     ToolCallHookContext,
@@ -37,7 +38,10 @@ from arcjet.guard import (
 )
 
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 from arcjet.guard._types import Decision, Reason, RuleResultError
 from arcjet.guard.crewai import (
     guard_tool,
@@ -639,7 +643,7 @@ def scenario_live_local_pii() -> None:
 
     key = os.environ["ARCJET_KEY"]
     client = launch_arcjet_sync(key=key)
-    detect = LocalDetectSensitiveInfo(deny=["EMAIL"])
+    detect = LocalDetectSensitiveInfo(deny=["EMAIL"], backend=rampart())
     _SEND_CALLS.clear()
     _reset_hooks()
     handle = register_arcjet_hooks(

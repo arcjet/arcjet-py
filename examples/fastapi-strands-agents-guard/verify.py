@@ -21,6 +21,7 @@ _EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(_EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(_EXAMPLE_DIR))
 
+from arcjet_sensitive_info_rampart import rampart
 from fastapi.testclient import TestClient
 from strands import tool
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
@@ -402,7 +403,7 @@ async def scenario_live_local_pii() -> None:
 
     key = os.environ["ARCJET_KEY"]
     client = launch_arcjet(key=key)
-    detect = LocalDetectSensitiveInfo(deny=["EMAIL"])
+    detect = LocalDetectSensitiveInfo(deny=["EMAIL"], backend=rampart())
     _SEND_CALLS.clear()
     guarded = guard_tool(
         guard=client,

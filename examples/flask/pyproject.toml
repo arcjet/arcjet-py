@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["arcjet", "flask>=3.1.2"]
+dependencies = ["arcjet[sensitive-info-rampart]", "flask>=3.1.2"]
 
 [tool.uv]
 exclude-newer = "7 days"
 
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

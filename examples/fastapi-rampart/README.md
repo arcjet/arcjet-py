@@ -2,9 +2,8 @@
 
 This FastAPI example uses the on-device [Rampart](https://huggingface.co/nationaldesignstudio/rampart)
 NER model backend (`arcjet[sensitive-info-rampart]`) to detect names, addresses,
-and government/financial identifiers in addition to the four types the default
-WebAssembly engine detects. Everything runs locally — no data leaves your
-environment.
+contact details, and government/financial identifiers. Everything runs
+locally — no data leaves your environment.
 
 ## Setup
 

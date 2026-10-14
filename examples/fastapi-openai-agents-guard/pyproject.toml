@@ -5,7 +5,7 @@ description = "Arcjet Python SDK Example FastAPI + OpenAI Agents Guard Applicati
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arcjet[openai-agents]",
+    "arcjet[openai-agents,sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",
 ]
 
@@ -17,3 +17,4 @@ exclude-newer = "7 days"
 # `openai-agents>=0.19.0,<1`. No chromadb.
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

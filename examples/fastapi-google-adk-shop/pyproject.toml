@@ -5,7 +5,7 @@ description = "Refund desk: FastAPI + Google ADK Guard, no Gemini"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "arcjet[google-adk]",
+    "arcjet[google-adk,sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",
     "google-adk>=2.0.0,<3",
 ]
@@ -18,3 +18,4 @@ exclude-newer = "7 days"
 # No chromadb.
 [tool.uv.sources]
 arcjet = { path = "../../", editable = true }
+arcjet-sensitive-info-rampart = { path = "../../sensitive-info-rampart", editable = true }

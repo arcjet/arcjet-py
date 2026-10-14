@@ -12,6 +12,7 @@ import threading
 from contextlib import asynccontextmanager
 from typing import Any
 
+from arcjet_sensitive_info_rampart import rampart
 from crewai import LLM, Agent, Crew, Task
 from crewai.tools import tool
 from fastapi import FastAPI, Request
@@ -86,7 +87,10 @@ llm = LLM(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
 
 # Rule configuration is built once; each request binds its own input to it.
 detect_injection = DetectPromptInjection()
-detect_sensitive_info = LocalDetectSensitiveInfo(deny=["EMAIL", "PHONE_NUMBER"])
+# Sensitive info runs locally on the on-device Rampart NER model.
+detect_sensitive_info = LocalDetectSensitiveInfo(
+    deny=["EMAIL", "PHONE_NUMBER"], backend=rampart()
+)
 
 # CrewAI's hook dispatcher is process-global. Registering per request is
 # what lets this file bind that request's message and correlation ID; the
