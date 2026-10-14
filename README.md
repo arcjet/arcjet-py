@@ -1716,6 +1716,13 @@ guarded_fetch = guard_tool(
 )
 ```
 
+A detector that cannot return a verdict, for example because a long result
+takes longer to screen than the service allows, leaves the policy unevaluated.
+Under the default `on_guard_error="deny"` that replaces the result with the
+denial envelope (`"reason": "ERROR"`, `"retryable": true`), so a tool that
+returns long text can be refused more often than its content warrants. Choose
+`on_guard_error` for the tool deliberately rather than relying on the default.
+
 This covers tools you write. Results from built-ins and other MCP servers
 are not screened: `PostToolUse` is capture-only.
 
