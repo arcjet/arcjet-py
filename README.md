@@ -2124,7 +2124,8 @@ scores.
 
 Detects PII locally with the on-device Rampart NER model — the raw text never
 leaves the SDK. Install `arcjet[sensitive-info-rampart]` and pass `rampart()`
-as the `backend`:
+as the `backend`. Types such as `GIVEN_NAME` and `SSN` need
+`backend=rampart()`; without it the rule raises a configuration error:
 
 ```py
 from arcjet.guard import LocalDetectSensitiveInfo

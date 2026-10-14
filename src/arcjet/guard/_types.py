@@ -98,7 +98,10 @@ not supported in ``arcjet.guard`` — use a custom rule instead.
 
 All of them are detected by the Rampart backend
 (``arcjet_sensitive_info_rampart.rampart()``), configured via the ``backend``
-option of :class:`LocalDetectSensitiveInfo`:
+option of :class:`LocalDetectSensitiveInfo`.  Names, addresses, and
+government/financial identifiers (``"GIVEN_NAME"`` through ``"ZIP_CODE"``
+below) need ``backend=rampart()``; listing one without it raises a
+configuration error — see :class:`LocalDetectSensitiveInfo`.
 
 - ``"EMAIL"`` — Email addresses
 - ``"PHONE_NUMBER"`` — Phone numbers
