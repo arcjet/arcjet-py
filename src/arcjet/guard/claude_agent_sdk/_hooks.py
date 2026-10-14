@@ -50,9 +50,15 @@ from .._policy_input import PolicyInputMap
 from .._registry import _awaitable
 from .._rules import RuleWithInput
 from ._context import _require_session_id, claude_agent_context
-from ._denial import payload_from_block, unavailable_message
+from ._denial import (
+    ArcjetDenialResult,
+    dumps_denial,
+    payload_from_block,
+    unavailable_message,
+)
 from ._import import load_hook_matcher
 from ._names import ExcludeEntry, as_exclude_entry, excluded_names, is_excluded
+from ._tool_results import can_replace_result, replacement_output, tool_result_text
 
 ActionResolver = Union[str, Callable[[Mapping[str, Any]], str], None]
 ActorResolver = Union[str, Callable[[Mapping[str, Any]], Optional[str]], None]
@@ -93,6 +99,25 @@ class _InboundConfig:
     metadata: MetadataResolver
     session_id: Optional[str]
     on_guard_error: OnGuardError
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolResultsConfig:
+    guard: Any
+    action: ActionResolver
+    actor: ActorResolver
+    rules: Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
+    metadata: MetadataResolver
+    session_id: Optional[str]
+    on_guard_error: OnGuardError
+
+
+@dataclass(frozen=True, slots=True)
+class PostToolUseVerdict:
+    """Whether ``PostToolUse`` keeps a tool's result from the model."""
+
+    deny: bool
+    payload: Optional[ArcjetDenialResult] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +495,167 @@ def capture_post_tool_use(source: Any, config: _HookConfig) -> dict[str, Any]:
             "the tool result is unchanged"
         )
     return {}
+
+
+def _default_result_action(source: Mapping[str, Any]) -> str:
+    return f"{_tool_name(source) or 'tool'}.result"
+
+
+def _with_denial(metadata: Optional[Metadata], denial: str) -> Metadata:
+    """*metadata* plus how the denied result was kept from the model."""
+    merged: dict[str, Any] = dict(metadata or {})
+    merged["claude.denial"] = denial
+    return merged
+
+
+def _prepared_result(
+    config: _ToolResultsConfig,
+    arguments: Mapping[str, Any],
+    envelope: Mapping[str, Any],
+) -> ResolvedInputs:
+    """The actor comes from the tool call; the rules from its result.
+
+    Policy inputs are not sent: they belong to the call's own checkpoint.
+    """
+    degraded: Optional[BaseException] = None
+    resolved_actor: Optional[str] = None
+    try:
+        resolved_actor = _resolve(config.actor, arguments)
+    except Exception as exc:
+        degraded = exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    try:
+        resolved_rules = bound_rules(_resolve(config.rules, envelope))
+    except Exception as exc:
+        degraded = degraded or exc
+    return ResolvedInputs(
+        actor=resolved_actor, inputs=None, degraded=degraded, rules=resolved_rules
+    )
+
+
+async def evaluate_post_tool_use(
+    source: Any, config: _ToolResultsConfig
+) -> PostToolUseVerdict:
+    """Screen a tool's result on ``PostToolUse``. Never raises an Arcjet error.
+
+    The rules callable receives ``{"tool_name", "tool_input",
+    "tool_response", "text"}``, where ``text`` is
+    :func:`~._tool_results.tool_result_text` of the response. A denied
+    capture records ``claude.denial``: ``replaced`` when the result is
+    replaced, ``run_stopped`` when the tool's output shape is unknown and
+    the run is stopped instead.
+    """
+    hook = _hook_mapping(source)
+    name = _tool_name(hook)
+    denial = "replaced" if can_replace_result(name) else "run_stopped"
+    action = _default_result_action(hook)
+    correlation_id = _resolve_correlation_id(None)
+    metadata: Optional[Metadata] = None
+
+    try:
+        action, action_failure = resolved_action(
+            config.action, _default_result_action(hook), hook
+        )
+        arguments = _tool_call(hook)
+        response = hook.get("tool_response")
+        envelope = {
+            "tool_name": name,
+            "tool_input": dict(_tool_arguments(hook)),
+            "tool_response": response,
+            "text": tool_result_text(name, response),
+        }
+        correlation_id = _correlation(config.session_id, hook)
+        extra, metadata_failure = resolved_metadata(config.metadata, arguments)
+        metadata = _merged_metadata(config.session_id, hook, extra, phase="result")
+        prepared = with_degraded(
+            _prepared_result(config, arguments, envelope),
+            action_failure,
+            metadata_failure,
+        )
+        rules = rules_for_call(prepared, config.rules)
+        decision = await _decide(
+            config.guard,
+            action=action,
+            correlation_id=correlation_id,
+            metadata=metadata,
+            prepared=prepared,
+            rules=rules,
+        )
+        failure = _classify_decision(
+            decision,
+            action=action,
+            on_guard_error=config.on_guard_error,
+            denied_error=ArcjetDeniedError,
+            unavailable_error=_unavailable,
+            degraded=prepared.degraded,
+        )
+    except Exception:
+        if config.on_guard_error == "allow":
+            logger.warning(
+                "arcjet: policy for action %r could not be evaluated; the tool "
+                "result reaches the model because on_guard_error is 'allow'",
+                action,
+            )
+            return PostToolUseVerdict(deny=False)
+        _emit_capture(
+            client=config.guard,
+            action=action,
+            outcome="unavailable",
+            correlation_id=correlation_id,
+            decision=None,
+            metadata=_with_denial(metadata, denial),
+        )
+        return PostToolUseVerdict(deny=True, payload=payload_from_block(None))
+
+    if failure is not None:
+        denied = getattr(decision, "conclusion", None) == "DENY"
+        _emit_capture(
+            client=config.guard,
+            action=action,
+            outcome="denied" if denied else "unavailable",
+            correlation_id=correlation_id,
+            decision=decision,
+            metadata=_with_denial(metadata, denial),
+        )
+        return PostToolUseVerdict(deny=True, payload=payload_from_block(decision))
+
+    _emit_capture(
+        client=config.guard,
+        action=action,
+        outcome=_outcome_for_completed_action(decision, degraded=prepared.degraded),
+        correlation_id=correlation_id,
+        decision=decision,
+        metadata=metadata,
+    )
+    return PostToolUseVerdict(deny=False)
+
+
+def post_tool_use_output(verdict: PostToolUseVerdict, source: Any) -> dict[str, Any]:
+    """SDK ``HookJSONOutput`` that keeps a denied result from the model.
+
+    A tool in the shape table gets its result replaced through
+    ``updatedToolOutput``. For any other tool the CLI would reject the
+    replacement and send the original, so the run is stopped with
+    ``continue: false`` instead. The stopped session still holds the
+    original result and must not be resumed.
+    """
+    if not verdict.deny:
+        return {}
+    hook = _hook_mapping(source)
+    payload = (
+        verdict.payload if verdict.payload is not None else payload_from_block(None)
+    )
+    replacement = replacement_output(
+        _tool_name(hook), hook.get("tool_response"), dumps_denial(payload)
+    )
+    if replacement is None:
+        return {"continue": False, "stopReason": payload["message"]}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "updatedToolOutput": replacement,
+        }
+    }
 
 
 def _inbound_session_id(
