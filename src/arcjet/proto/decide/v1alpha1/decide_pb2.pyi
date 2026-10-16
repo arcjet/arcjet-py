@@ -575,6 +575,7 @@ class RequestDetails(_message.Message):
     COOKIES_FIELD_NUMBER: _ClassVar[int]
     QUERY_FIELD_NUMBER: _ClassVar[int]
     CORRELATION_ID_FIELD_NUMBER: _ClassVar[int]
+    RAW_PATH_FIELD_NUMBER: _ClassVar[int]
     ip: str
     method: str
     protocol: str
@@ -587,7 +588,8 @@ class RequestDetails(_message.Message):
     cookies: str
     query: str
     correlation_id: str
-    def __init__(self, ip: _Optional[str] = ..., method: _Optional[str] = ..., protocol: _Optional[str] = ..., host: _Optional[str] = ..., path: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., body: _Optional[bytes] = ..., extra: _Optional[_Mapping[str, str]] = ..., email: _Optional[str] = ..., cookies: _Optional[str] = ..., query: _Optional[str] = ..., correlation_id: _Optional[str] = ...) -> None: ...
+    raw_path: str
+    def __init__(self, ip: _Optional[str] = ..., method: _Optional[str] = ..., protocol: _Optional[str] = ..., host: _Optional[str] = ..., path: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., body: _Optional[bytes] = ..., extra: _Optional[_Mapping[str, str]] = ..., email: _Optional[str] = ..., cookies: _Optional[str] = ..., query: _Optional[str] = ..., correlation_id: _Optional[str] = ..., raw_path: _Optional[str] = ...) -> None: ...
 
 class Decision(_message.Message):
     __slots__ = ()

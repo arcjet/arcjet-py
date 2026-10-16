@@ -434,8 +434,8 @@ def is_verified_bot(result: RuleResult) -> bool:
     """Return ``True`` if a live bot rule verified a known legitimate bot.
 
     Verified bots are identified by matching the client IP against official
-    ranges for that crawler (e.g. Googlebot). Results from ``DRY_RUN`` rules
-    are ignored.
+    ranges or by a valid Web Bot Auth signature where supported. Results from
+    ``DRY_RUN`` rules are ignored.
 
     Args:
         result: A single ``RuleResult`` from ``decision.results``.

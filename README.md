@@ -436,10 +436,42 @@ allow or deny [specific bots by name](https://arcjet.com/bot-list).
 If you specify an allow list, all other bots are denied. An empty allow list
 blocks all bots. The reverse applies for deny lists.
 
+### Signed bots
+
+Arcjet Cloud verifies Web Bot Auth signatures for `GOOGLE_AGENT`,
+`CHATGPT_AGENT`, `DUCKASSIST_BOT`, `BROWSERBASE`, and `MANUS_BOT`. Allow or deny
+them by bot identifier or by a category that contains them:
+
+```py
+detect_bot(
+    mode=Mode.LIVE,
+    allow=["CHATGPT_AGENT", "BROWSERBASE", "MANUS_BOT"],
+)
+```
+
+For a custom signing operator, use its public signature directory:
+
+```py
+detect_bot(
+    mode=Mode.LIVE,
+    allow=[
+        "SIGNED_BOT:https://bot.example.com/.well-known/http-message-signatures-directory"
+    ],
+)
+```
+
+Forward the original `Signature`, `Signature-Input`, and `Signature-Agent`
+headers to your app.
+ASGI adapters preserve `scope["raw_path"]` when it is supplied.
+For Flask and Django, the SDK uses `RAW_URI` or `REQUEST_URI` when the WSGI
+server provides one. If your adapter has another original request target, pass
+its path as `RequestContext(raw_path=...)`. A parsed or decoded path cannot
+verify a signature that covers `@path`.
+
 ### Verified vs. spoofed bots
 
-Bots claiming to be well-known crawlers (e.g. Googlebot) are verified against
-their known IP ranges. Use `is_spoofed_bot()` to check:
+Known bots are verified against their published IP ranges or Web Bot Auth
+signatures when supported. Use `is_spoofed_bot()` to check:
 
 ```py
 from arcjet import is_spoofed_bot
