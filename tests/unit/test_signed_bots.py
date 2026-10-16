@@ -180,13 +180,16 @@ def _local_bot_deny() -> decide_pb2.RuleResult:
 
 
 class _AsyncCloud:
-    def __init__(self) -> None:
+    def __init__(self, *, deny_signed: bool = False) -> None:
         self.requests: list[decide_pb2.DecideRequest] = []
+        self.deny_signed = deny_signed
 
     async def decide(
         self, request: decide_pb2.DecideRequest, **_kwargs: object
     ) -> decide_pb2.DecideResponse:
         self.requests.append(request)
+        if self.deny_signed and "signature-input" in request.details.headers:
+            return _signed_bot_deny_response()
         return decide_pb2.DecideResponse(
             decision=decide_pb2.Decision(conclusion=decide_pb2.CONCLUSION_ALLOW)
         )
@@ -196,19 +199,32 @@ class _AsyncCloud:
 
 
 class _SyncCloud:
-    def __init__(self) -> None:
+    def __init__(self, *, deny_signed: bool = False) -> None:
         self.requests: list[decide_pb2.DecideRequest] = []
+        self.deny_signed = deny_signed
 
     def decide(
         self, request: decide_pb2.DecideRequest, **_kwargs: object
     ) -> decide_pb2.DecideResponse:
         self.requests.append(request)
+        if self.deny_signed and "signature-input" in request.details.headers:
+            return _signed_bot_deny_response()
         return decide_pb2.DecideResponse(
             decision=decide_pb2.Decision(conclusion=decide_pb2.CONCLUSION_ALLOW)
         )
 
     def report(self, *_args: object, **_kwargs: object) -> None:
         pass
+
+
+def _signed_bot_deny_response() -> decide_pb2.DecideResponse:
+    return decide_pb2.DecideResponse(
+        decision=decide_pb2.Decision(
+            conclusion=decide_pb2.CONCLUSION_DENY,
+            reason=decide_pb2.Reason(bot_v2=decide_pb2.BotV2Reason(spoofed=True)),
+            ttl=60,
+        )
+    )
 
 
 def _signed_context() -> RequestContext:
@@ -295,3 +311,53 @@ def test_sync_signed_request_bypasses_local_deny_but_unsigned_still_denies() -> 
         assert client.protect(ctx).is_allowed()
         assert local.call_count == 1
     assert len(cloud.requests) == 2
+
+
+def test_async_signed_bot_denial_is_not_cached_for_unsigned_request() -> None:
+    cloud = _AsyncCloud(deny_signed=True)
+    rule = detect_bot(mode=Mode.LIVE, allow=["CHATGPT_AGENT"])
+    client = Arcjet(
+        _key="ajkey_test",
+        _rules=(rule,),
+        _client=cast(DecideServiceClient, cloud),
+        _sdk_stack=None,
+        _sdk_version="test",
+        _timeout_ms=None,
+        _fail_open=False,
+    )
+    signed = _signed_context()
+    unsigned = RequestContext(ip=signed.ip, headers={"User-Agent": "Mozilla/5.0"})
+    key = make_cache_key(unsigned, (rule,))
+    assert key is not None
+    local = Mock(return_value=None)
+    with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
+        assert asyncio.run(client.protect(signed)).is_denied()
+        assert client._cache.get(key) is None
+        assert asyncio.run(client.protect(unsigned)).is_allowed()
+    assert len(cloud.requests) == 2
+    assert local.call_count == 1
+
+
+def test_sync_signed_bot_denial_is_not_cached_for_unsigned_request() -> None:
+    cloud = _SyncCloud(deny_signed=True)
+    rule = detect_bot(mode=Mode.LIVE, allow=["CHATGPT_AGENT"])
+    client = ArcjetSync(
+        _key="ajkey_test",
+        _rules=(rule,),
+        _client=cast(DecideServiceClientSync, cloud),
+        _sdk_stack=None,
+        _sdk_version="test",
+        _timeout_ms=None,
+        _fail_open=False,
+    )
+    signed = _signed_context()
+    unsigned = RequestContext(ip=signed.ip, headers={"User-Agent": "Mozilla/5.0"})
+    key = make_cache_key(unsigned, (rule,))
+    assert key is not None
+    local = Mock(return_value=None)
+    with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
+        assert client.protect(signed).is_denied()
+        assert client._cache.get(key) is None
+        assert client.protect(unsigned).is_allowed()
+    assert len(cloud.requests) == 2
+    assert local.call_count == 1

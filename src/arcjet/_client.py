@@ -801,13 +801,9 @@ class Arcjet:
             )
 
         # Cache lookup before hitting Decide API
-        cache_key = make_cache_key(ctx, self._rules)
         defer_signed_bot_rules = _should_defer_signed_bot_rules(ctx, self._rules)
-        cached_hit = (
-            self._cache.get(cache_key)
-            if cache_key is not None and not defer_signed_bot_rules
-            else None
-        )
+        cache_key = None if defer_signed_bot_rules else make_cache_key(ctx, self._rules)
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
         if cached_hit is not None:
             cached, remaining_ttl = cached_hit
             # Isolate the caller from the cached proto: new id, live TTL, and
@@ -1385,13 +1381,9 @@ class ArcjetSync:
             )
 
         # Cache lookup before hitting Decide API
-        cache_key = make_cache_key(ctx, self._rules)
         defer_signed_bot_rules = _should_defer_signed_bot_rules(ctx, self._rules)
-        cached_hit = (
-            self._cache.get(cache_key)
-            if cache_key is not None and not defer_signed_bot_rules
-            else None
-        )
+        cache_key = None if defer_signed_bot_rules else make_cache_key(ctx, self._rules)
+        cached_hit = self._cache.get(cache_key) if cache_key is not None else None
         if cached_hit is not None:
             cached, remaining_ttl = cached_hit
             served = materialize_cached_decision(
