@@ -111,7 +111,7 @@ class TestDetectBot:
         )
         result = component.detect_bot(_request_with_ua("Applebot/0.1"), config)
         assert isinstance(result, Ok)
-        assert result.value.allowed == ["CATEGORY:APPLE", "APPLE_CRAWLER"]
+        assert set(result.value.allowed) == {"CATEGORY:APPLE", "APPLE_CRAWLER"}
         assert result.value.denied == []
 
     def test_allow_webhook_category(self, component: AnalyzeComponent) -> None:
@@ -121,7 +121,19 @@ class TestDetectBot:
         )
         result = component.detect_bot(_request_with_ua("Stripe/1.0"), config)
         assert isinstance(result, Ok)
-        assert result.value.allowed == ["CATEGORY:WEBHOOK", "STRIPE_WEBHOOK"]
+        assert set(result.value.allowed) == {"CATEGORY:WEBHOOK", "STRIPE_WEBHOOK"}
+        assert result.value.denied == []
+
+    def test_allow_monitor_category_for_osano(
+        self, component: AnalyzeComponent
+    ) -> None:
+        """The bundled catalog recognizes OsanoBot as a monitor."""
+        config = AllowedBotConfig(
+            entities=[BotCategory.MONITOR.value], skip_custom_detect=False
+        )
+        result = component.detect_bot(_request_with_ua("OsanoBot"), config)
+        assert isinstance(result, Ok)
+        assert set(result.value.allowed) == {"CATEGORY:MONITOR", "OSANO_BOT"}
         assert result.value.denied == []
 
     def test_verified_and_spoofed_fields(self, component: AnalyzeComponent) -> None:

@@ -438,14 +438,15 @@ blocks all bots. The reverse applies for deny lists.
 
 ### Signed bots
 
-Arcjet Cloud verifies Web Bot Auth signatures for `GOOGLE_AGENT`,
-`CHATGPT_AGENT`, `DUCKASSIST_BOT`, `BROWSERBASE`, and `MANUS_BOT`. Allow or deny
-them by [bot identifier or category](https://docs.arcjet.com/bot-protection/identifying-bots):
+Arcjet Cloud verifies Web Bot Auth signatures for catalog identities with
+signing directories, including `GOOGLE_AGENT`, `CHATGPT_AGENT`,
+`YOU_CRAWLER`, and `OSANO_BOT`. Allow or deny them by
+[bot identifier or category](https://docs.arcjet.com/bot-protection/identifying-bots):
 
 ```py
 detect_bot(
     mode=Mode.LIVE,
-    allow=["CHATGPT_AGENT", "BROWSERBASE", "MANUS_BOT"],
+    allow=["CHATGPT_AGENT", "BROWSERBASE", "YOU_CRAWLER"],
 )
 ```
 
