@@ -22,7 +22,7 @@ from arcjet._context import (
 )
 from arcjet._decision import Decision
 from arcjet._enums import Mode
-from arcjet._rules import BotCategory, detect_bot
+from arcjet._rules import _SIGNED_BOT_CATEGORIES, BotCategory, detect_bot
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 from arcjet.proto.decide.v1alpha1.decide_connect import (
     DecideServiceClient,
@@ -81,6 +81,7 @@ def test_signed_bot_categories_are_deferred(category: BotCategory) -> None:
 
 def test_unrelated_and_unsigned_bot_rules_still_evaluate_locally() -> None:
     signed = detect_bot(mode=Mode.LIVE, allow=["CHATGPT_AGENT"])
+    assert BotCategory.PREVIEW not in _SIGNED_BOT_CATEGORIES
     unrelated = detect_bot(mode=Mode.LIVE, allow=[BotCategory.PREVIEW])
     assert not _should_defer_signed_bot_rules(RequestContext(headers={}), (signed,))
     assert not _should_defer_signed_bot_rules(
