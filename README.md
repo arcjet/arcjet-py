@@ -1017,7 +1017,7 @@ effect happens.
 | A CrewAI `BaseTool` you call yourself | `guard_tool` (`arcjet.guard.crewai`) | your own `crewai` | Yes |
 | An OpenAI Agents authored `FunctionTool` | `guard_tool` (`arcjet.guard.openai_agents`) | `arcjet[openai-agents]` | Yes — via `reject_content` |
 | A Claude Agent SDK authored `@tool` / `SdkMcpTool` | `guard_tool` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — via `is_error` tool result |
-| Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block |
+| Unwrapped Claude built-ins / MCP, or inbound user text | `guard_hooks` (`arcjet.guard.claude_agent_sdk`) | `arcjet[claude-agent-sdk]` | Yes — `PreToolUse` deny / `UserPromptSubmit` block / `PostToolUse` result replaced or run stopped |
 | A Claude Managed Agents custom tool (`agent.custom_tool_use`) | `guard_custom_tool` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — `user.custom_tool_result` (does not run the tool) |
 | Claude Managed Agents inbound `user.message` / `initial_events` | `guard_events` (`arcjet.guard.claude_managed_agents`) | `arcjet[claude-managed-agents]` | Yes — does not call `sessions.events.send` |
 | A Strands Agents authored `@tool` | `guard_tool` (`arcjet.guard.strands_agents`) | `arcjet[strands-agents]` | Yes — error-status JSON `ArcjetDenialResult` |
@@ -1706,6 +1706,79 @@ rules on `guard_hooks(..., inbound=...)`. A deny is `{"decision": "block"}`.
 `protect()` and the request path are fail-open — the caller must check
 `has_failed_open()`. These helpers default to `on_guard_error="deny"`.
 
+#### Screen an authored tool's result
+
+`guard_tool(..., result_rules=...)` makes a second Guard call after the
+handler returns and before the model reads its result. The callable receives
+`{"arguments": ..., "result": ..., "text": ...}`: `result` is the handler's
+return value unchanged and `text` is every text block in it, joined in order
+and never shortened. A DENY, or an unevaluated policy under the default
+`on_guard_error="deny"`, returns the same `is_error` envelope in place of the
+result. The call is labelled `result_action`, which defaults to the tool's
+`action` followed by `.result`, so remote policy and rate limits on `action`
+see each call once.
+
+```py
+guarded_fetch = guard_tool(
+    guard=aj,
+    tool=fetch_page,
+    action="page.fetched",
+    session_id=session_id,
+    result_rules=lambda r: [DetectPromptInjection()(r["text"])],
+)
+```
+
+A detector that cannot return a verdict, for example because a long result
+takes longer to screen than the service allows, leaves the policy unevaluated.
+Under the default `on_guard_error="deny"` that replaces the result with the
+denial envelope (`"reason": "ERROR"`, `"retryable": true`), so a tool that
+returns long text can be refused more often than its content warrants. Choose
+`on_guard_error` for the tool deliberately rather than relying on the default.
+
+This covers tools you write. To screen the results of built-ins and other
+MCP servers, use `guard_hooks(..., tool_results=...)` below.
+
+#### Screen every tool's result on `PostToolUse`
+
+`guard_hooks(..., tool_results=...)` screens each tool's result before the
+model reads it. `rules` is required: a callable of
+`{"tool_name": ..., "tool_input": ..., "tool_response": ..., "text": ...}`,
+where `text` is the result's text, never shortened. `action` defaults to
+`"{tool_name}.result"`; `actor`, `metadata`, `on_guard_error`, `session_id`
+and `guard` work as they do for `inbound`. No policy inputs are sent.
+
+```py
+hooks = guard_hooks(
+    guard=aj,
+    session_id=session_id,
+    tool_results={
+        "rules": lambda r: [DetectPromptInjection()(r["text"])],
+    },
+)
+```
+
+On DENY, or an unevaluated policy under the default `on_guard_error="deny"`,
+what happens depends on the tool:
+
+| Tool | On DENY |
+| --- | --- |
+| Any MCP tool (`mcp__…`) | The result is replaced with the denial envelope. |
+| `Bash`, `Read` (`REPLACEABLE_BUILTIN_TOOLS`) | The result is replaced with the denial envelope, in that tool's output shape. |
+| Any other tool | The run stops (`continue: false`) before the model's next turn. |
+
+Claude Code validates a replacement for a built-in tool against that tool's
+output schema, which is not published, and sends the original result when it
+does not match. A tool is listed only once a test drives its denial through
+the bundled CLI, and every other tool stops the run instead. A stopped session
+still holds the original result, so do not resume it; its capture records
+`claude.denial: run_stopped`. Where stopping is not acceptable, keep the tools
+`can_replace_result()` rejects out of `allowed_tools`. Subagent (`Agent`)
+output arrives after `PostToolUse` and is not screened.
+
+`PostToolUse` hooks run in parallel on the original result and the last
+rewrite wins, so another hook that rewrites a result can replace the denial.
+The timeout caveat above applies here too.
+
 #### `can_use_tool` is not a policy gate
 
 `can_use_tool` is ask-only HITL. `allowed_tools`, allow rules, and
@@ -1721,8 +1794,9 @@ are gated here. `PreToolUse` returns `permissionDecision: "deny"`.
 plus `tool_name` so a local rate limit can key on the name. List every
 `guard_tool` wrapper in `exclude` as `{"server": ..., "name": ...}` so the
 reported `mcp__{server}__{name}` name is not double-gated. A bare authored
-name does not match every server's tool of that name. `PostToolUse` is
-capture-only (`claude.phase: after`) and is not skipped by `exclude`.
+name does not match every server's tool of that name. `PostToolUse`
+captures each call (`claude.phase: after`) and is not skipped by `exclude`;
+it blocks nothing unless `tool_results=` is set.
 `actor=` / `inputs=` next to `inbound=` do not install a tool gate; pass
 `tools=True` for the default `{tool_name}.invoked` gate with empty rules.
 

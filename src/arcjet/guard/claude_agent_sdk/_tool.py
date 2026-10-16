@@ -61,6 +61,7 @@ RulesResolver = Union[
 MetadataResolver = Union[
     Metadata, Callable[[Mapping[str, Any]], Optional[Metadata]], None
 ]
+ResultRulesResolver = Callable[[Mapping[str, Any]], Sequence[RuleWithInput]]
 
 #: Attribute :func:`guard_tool` puts on the copy it returns, so a second wrap
 #: of the same object does not evaluate the same call twice. An attribute
@@ -81,6 +82,8 @@ class _ToolConfig:
     session_id: Optional[str]
     on_guard_error: OnGuardError
     tool_name: str
+    result_rules: Optional[ResultRulesResolver] = None
+    result_action: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +149,7 @@ def _correlation(config: _ToolConfig) -> Optional[str]:
 
 
 def _merged_metadata(
-    config: _ToolConfig, extra: Optional[Metadata]
+    config: _ToolConfig, extra: Optional[Metadata], *, phase: Optional[str] = None
 ) -> Optional[Metadata]:
     derived = claude_agent_context(session_id=config.session_id)
     merged: dict[str, Any] = {}
@@ -154,6 +157,8 @@ def _merged_metadata(
         merged.update(derived.metadata)
     if config.tool_name and "claude.tool" not in merged:
         merged["claude.tool"] = config.tool_name
+    if phase is not None:
+        merged["claude.phase"] = phase
     if extra:
         merged.update(extra)
     return merged or None
@@ -266,6 +271,134 @@ async def evaluate_handler(arguments: Any, config: _ToolConfig) -> HandlerVerdic
     return HandlerVerdict(deny=False)
 
 
+def result_text(result: Any) -> str:
+    """Every text block in an MCP tool result, joined in document order.
+
+    Never shortened: a screen over a prefix lets an injection placed after
+    the cut through. Non-text blocks are skipped.
+    """
+    if not isinstance(result, Mapping):
+        return ""
+    content = result.get("content")
+    if not isinstance(content, list):
+        return ""
+    texts = [
+        block["text"]
+        for block in content
+        if isinstance(block, Mapping)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
+    ]
+    return "\n".join(texts)
+
+
+def _prepared_result(
+    config: _ToolConfig, arguments: Mapping[str, Any], envelope: Mapping[str, Any]
+) -> ResolvedInputs:
+    """The actor comes from the call's arguments; the rules from its result.
+
+    Policy inputs are not sent: they belong to the call's own checkpoint.
+    """
+    degraded: Optional[BaseException] = None
+    resolved_actor: Optional[str] = None
+    try:
+        resolved_actor = _resolve(config.actor, arguments)
+    except Exception as exc:
+        degraded = exc
+    resolved_rules: Optional[tuple[RuleWithInput, ...]] = None
+    try:
+        resolved_rules = bound_rules(_resolve(config.result_rules, envelope))
+    except Exception as exc:
+        degraded = degraded or exc
+    return ResolvedInputs(
+        actor=resolved_actor,
+        inputs=None,
+        degraded=degraded,
+        rules=resolved_rules,
+    )
+
+
+async def evaluate_result(
+    arguments: Any, result: Any, config: _ToolConfig
+) -> HandlerVerdict:
+    """Evaluate ``result_rules`` over what the handler returned. Never raises
+    an Arcjet error.
+
+    The rules callable receives ``{"arguments", "result", "text"}``: the
+    call's arguments, the handler's result unchanged, and
+    :func:`result_text` of it.
+    """
+    action = config.result_action
+    correlation_id = _resolve_correlation_id(None)
+    metadata: Optional[Metadata] = None
+
+    try:
+        parsed = _arguments_from_handler(arguments)
+        envelope = {"arguments": parsed, "result": result, "text": result_text(result)}
+        correlation_id = _correlation(config)
+        extra, metadata_failure = resolved_metadata(config.metadata, parsed)
+        metadata = _merged_metadata(config, extra, phase="result")
+        prepared = with_degraded(
+            _prepared_result(config, parsed, envelope), metadata_failure
+        )
+        rules = rules_for_call(prepared, config.result_rules)
+        decision = await _decide(
+            config,
+            action=action,
+            correlation_id=correlation_id,
+            metadata=metadata,
+            prepared=prepared,
+            rules=rules,
+        )
+        failure = _classify_decision(
+            decision,
+            action=action,
+            on_guard_error=config.on_guard_error,
+            denied_error=ArcjetDeniedError,
+            unavailable_error=_unavailable,
+            degraded=prepared.degraded,
+        )
+    except Exception:
+        if config.on_guard_error == "allow":
+            logger.warning(
+                "arcjet: policy for action %r could not be evaluated; returning "
+                "the tool result because on_guard_error is 'allow'",
+                action,
+            )
+            return HandlerVerdict(deny=False)
+        _emit_capture(
+            client=config.guard,
+            action=action,
+            outcome="unavailable",
+            correlation_id=correlation_id,
+            decision=None,
+            metadata=metadata,
+        )
+        return HandlerVerdict(deny=True, payload=payload_from_block(None))
+
+    if failure is not None:
+        denied = getattr(decision, "conclusion", None) == "DENY"
+        _emit_capture(
+            client=config.guard,
+            action=action,
+            outcome="denied" if denied else "unavailable",
+            correlation_id=correlation_id,
+            decision=decision,
+            metadata=metadata,
+        )
+        return HandlerVerdict(deny=True, payload=payload_from_block(decision))
+
+    _emit_capture(
+        client=config.guard,
+        action=action,
+        outcome=_outcome_for_completed_action(decision, degraded=prepared.degraded),
+        correlation_id=correlation_id,
+        decision=decision,
+        metadata=metadata,
+    )
+    return HandlerVerdict(deny=False)
+
+
 def handler_denial_result(verdict: HandlerVerdict) -> dict[str, Any]:
     """The exact MCP tool result a DENY handler must return."""
     payload = (
@@ -319,7 +452,23 @@ def _wrap_handler(config: _ToolConfig, original: Any) -> Any:
             return denial_tool_result(payload_from_block(None))
         if verdict.deny:
             return handler_denial_result(verdict)
-        return await original(arguments)
+        result = await original(arguments)
+        if config.result_rules is None:
+            return result
+        try:
+            screened = await evaluate_result(arguments, result, config)
+        except Exception:
+            if config.on_guard_error == "allow":
+                logger.warning(
+                    "arcjet: policy for action %r could not be evaluated; "
+                    "returning the tool result because on_guard_error is 'allow'",
+                    config.result_action,
+                )
+                return result
+            return denial_tool_result(payload_from_block(None))
+        if screened.deny:
+            return handler_denial_result(screened)
+        return result
 
     return guarded_handler
 
@@ -336,6 +485,8 @@ def guard_tool(
     session_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
     on_guard_error: OnGuardError = "deny",
+    result_rules: Optional[ResultRulesResolver] = None,
+    result_action: Optional[str] = None,
 ) -> Any:
     """Wrap an authored ``SdkMcpTool`` so the handler never runs on DENY.
 
@@ -351,6 +502,19 @@ def guard_tool(
     The tool body does not run. Already-branded tools are returned unchanged
     so a second wrap cannot double-call Guard. ``structuredContent`` is not
     set: ``create_sdk_mcp_server`` drops it.
+
+    With *result_rules*, a second Guard call screens what the handler
+    returned before the model reads it, and a ``DENY`` there (or an
+    unevaluated policy under ``on_guard_error="deny"``) returns the same
+    envelope in place of the handler's result. For example, to screen a
+    fetched page for prompt injection::
+
+        guard_tool(
+            guard=aj,
+            tool=fetch_page,
+            action="page.fetched",
+            result_rules=lambda r: [DetectPromptInjection()(r["text"])],
+        )
 
     ``can_use_tool`` is not a policy gate and is not wrapped.
     ``permissionDecision: "ask"`` is HITL, not deny.
@@ -381,13 +545,29 @@ def guard_tool(
             :func:`~arcjet.guard.arcjet_sequence`. Never minted.
         correlation_id: Alias of *session_id* for the same caller-owned
             id. Ignored when *session_id* is set.
-        on_guard_error: ``"deny"`` (default) or ``"allow"``.
+        on_guard_error: ``"deny"`` (default) or ``"allow"``. Governs the
+            result check too.
+        result_rules: Local rules for the handler's result: a callable of
+            ``{"arguments": ..., "result": ..., "text": ...}``, where
+            ``result`` is the handler's return value unchanged and ``text``
+            is every text block in it, joined in order and never shortened.
+            One that raises, or returns anything other than a sequence of
+            bound rules, is handled like a failed *rules* resolver: Guard is
+            called without local rules and *on_guard_error* decides. The
+            call carries the actor and metadata resolved from the arguments,
+            ``claude.phase: result``, and no policy inputs.
+        result_action: Checkpoint label for the result check. Defaults to
+            *action* followed by ``.result``, so remote policy and rate
+            limits on *action* see each call once.
 
     Raises:
         ArcjetMisconfiguration: *on_guard_error* is not ``"allow"`` or
-            ``"deny"``, or the installed ``claude-agent-sdk`` is below
-            0.2.127.
-        TypeError: *tool* is not an ``SdkMcpTool``.
+            ``"deny"``, *result_action* is set without *result_rules*, or
+            the installed ``claude-agent-sdk`` is below 0.2.127.
+        ArcjetInvalidLabelError: *action* or *result_action* cannot match a
+            policy.
+        TypeError: *tool* is not an ``SdkMcpTool``, or *result_rules* is
+            not callable.
         ValueError: *session_id* / *correlation_id* is not a UUID (or is
             not printable ASCII within 256 bytes).
         ImportError: the ``claude-agent-sdk`` extra is not installed.
@@ -399,6 +579,22 @@ def guard_tool(
             f"It decides whether a call runs when policy could not be "
             f"evaluated, so there is no safe value to guess."
         )
+    if result_rules is not None and not callable(result_rules):
+        raise TypeError(
+            "guard_tool(result_rules=) is a callable of the handler's result, "
+            "since a rule has to be bound to text the handler has not returned "
+            f"yet; got {type(result_rules).__name__}"
+        )
+    if result_action is not None and result_rules is None:
+        raise ArcjetMisconfiguration(
+            "guard_tool(result_action=) labels the result check, which only "
+            "runs with result_rules=; without it the label is never used."
+        )
+    resolved_result_action = (
+        result_action if result_action is not None else f"{action}.result"
+    )
+    if result_rules is not None:
+        assert_valid_action(resolved_result_action, "guard_tool")
     owned = session_id if session_id is not None else correlation_id
     if owned is not None:
         _require_session_id(owned)
@@ -422,6 +618,8 @@ def guard_tool(
         session_id=owned,
         on_guard_error=on_guard_error,
         tool_name=getattr(tool, "name", "") or "",
+        result_rules=result_rules,
+        result_action=resolved_result_action if result_rules is not None else "",
     )
     original = getattr(tool, "handler", None)
     if not callable(original):

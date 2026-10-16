@@ -114,20 +114,24 @@ integration files, which is what CI does.
 ### Claude Agent SDK tests
 
 `arcjet[claude-agent-sdk]` is a real extra (`claude-agent-sdk>=0.2.127,<1`) but
-is in no dependency group, so the lockfile does not pull its transitive tree
-into every `uv sync`. Install it alongside the locked environment when you want
-integration coverage:
+is in no dependency group, so a plain `uv sync` leaves it out. The lockfile
+pins it, so run the integration files with the extra from the lock:
 
 ```sh
-uv sync
-uv pip install "claude-agent-sdk>=0.2.127,<1"
-# `--no-sync`, or uv restores the lock and removes claude-agent-sdk again
-uv run --no-sync pytest tests/integration/guard/test_claude_agent_sdk.py --no-cov
+uv run --extra claude-agent-sdk pytest --no-cov \
+  tests/integration/guard/test_claude_agent_sdk.py \
+  tests/integration/guard/test_claude_agent_sdk_cli.py
 ```
 
-`tests/unit/guard/test_claude_agent_sdk.py` imports no `claude_agent_sdk` and
-always runs, including when the extra is absent. `just test` on a plain
-`uv sync` skips the integration file, which is what CI does.
+`test_claude_agent_sdk_cli.py` drives the CLI bundled with the SDK against a
+scripted, local Messages API, with no network access and no key, and checks
+what the model would receive. A CLI release that changes a built-in tool's
+output shape fails it.
+
+`tests/unit/guard/test_claude_agent_sdk.py` and
+`test_claude_agent_sdk_tool_results.py` import no `claude_agent_sdk` and always
+run, including when the extra is absent. `just test` on a plain `uv sync` skips
+the integration files; CI runs them in the `Run tests (claude-agent-sdk)` job.
 
 ### Claude Managed Agents tests
 
