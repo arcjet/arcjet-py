@@ -51,6 +51,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple, Union
+from urllib.parse import urlsplit
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
@@ -261,6 +262,61 @@ def _bot_category_to_proto(value: Union[BotCategory, str]) -> str:
 # A bot specifier can be a known category or an arbitrary bot name string
 BotSpecifier = Union[BotCategory, str]
 
+_SIGNED_BOT_IDS = frozenset(
+    {"GOOGLE_AGENT", "CHATGPT_AGENT", "DUCKASSIST_BOT", "BROWSERBASE", "MANUS_BOT"}
+)
+_SIGNED_BOT_CATEGORIES = frozenset(
+    {
+        BotCategory.AI,
+        BotCategory.GOOGLE,
+        BotCategory.SEARCH_ENGINE,
+        BotCategory.TOOL,
+    }
+)
+_SIGNED_BOT_CATEGORY_VALUES = frozenset(
+    category.value for category in _SIGNED_BOT_CATEGORIES
+)
+_SIGNED_BOT_PREFIX = "SIGNED_BOT:"
+_SIGNED_BOT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory"
+
+
+def _validate_signed_bot_entity(entity: str) -> None:
+    """Check directory URL syntax; Arcjet Cloud enforces fetch safety."""
+    if entity == "SIGNED_BOT":
+        raise ValueError("SIGNED_BOT requires an HTTPS Web Bot Auth directory URL")
+    if not entity.startswith(_SIGNED_BOT_PREFIX):
+        return
+    directory = entity[len(_SIGNED_BOT_PREFIX) :]
+    try:
+        parsed = urlsplit(directory)
+        valid = (
+            parsed.scheme.lower() == "https"
+            and bool(parsed.hostname)
+            and parsed.path == _SIGNED_BOT_DIRECTORY_PATH
+            and not parsed.query
+            and not parsed.fragment
+            and not any(ord(char) <= 0x20 or ord(char) == 0x7F for char in directory)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("SIGNED_BOT requires an HTTPS Web Bot Auth directory URL")
+
+
+def _bot_rule_may_verify_signature(rule: BotDetection) -> bool:
+    """Whether Cloud could match one of this rule's entities to a signed bot."""
+    for entity in (*(rule.allow or ()), *(rule.deny or ())):
+        if isinstance(entity, BotCategory):
+            if entity in _SIGNED_BOT_CATEGORIES:
+                return True
+        elif (
+            entity in _SIGNED_BOT_IDS
+            or entity.startswith(_SIGNED_BOT_PREFIX)
+            or entity in _SIGNED_BOT_CATEGORY_VALUES
+        ):
+            return True
+    return False
+
 
 @dataclass(frozen=True, slots=True)
 class BotDetection(RuleSpec):
@@ -301,6 +357,8 @@ class BotDetection(RuleSpec):
                     raise ValueError(
                         f"BotDetection.{name} entries cannot be empty strings"
                     )
+                if isinstance(item, str):
+                    _validate_signed_bot_entity(item)
         if not isinstance(self.characteristics, tuple):
             raise TypeError("BotDetection.characteristics must be a tuple of strings")
         for c in self.characteristics:
@@ -945,6 +1003,10 @@ def detect_bot(
       strings (e.g. ``"CURL"``). See
       https://docs.arcjet.com/bot-protection/identifying-bots for the full
       list of named bots.
+    - Signed bots use the same known names, such as ``"CHATGPT_AGENT"``.
+      A custom signing operator can be named by
+      ``"SIGNED_BOT:https://bot.example.com/.well-known/http-message-signatures-directory"``.
+      Arcjet Cloud verifies the signature.
 
     Args:
         mode: Required. Enforcement mode with no default. ``Mode.LIVE``

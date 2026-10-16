@@ -114,6 +114,8 @@ class RequestContext:
     - protocol: URL scheme (e.g., "http" or "https").
     - host: Value of the `Host` header.
     - path: Request path component (e.g., "/login").
+    - raw_path: Path from the original origin-form request target, before URL
+        parsing or percent decoding. Only used for signed bot verification.
     - headers: Mapping of request headers.
     - cookies: Raw `Cookie` header value.
     - query: Raw query string without leading `?`.
@@ -148,6 +150,7 @@ class RequestContext:
     filter_local: Mapping[str, str] | None = None
     extra: Mapping[str, str] | None = None
     correlation_id: str | None = None
+    raw_path: str | None = None
 
 
 class SupportsRequestContext(Protocol):
@@ -184,6 +187,21 @@ def _first_header(headers: Mapping[str, HeaderValue], *names: str) -> str | None
                     return v[0]
             return None
     return None
+
+
+def _raw_path_from_target(target: object) -> str | None:
+    """Extract an unmodified ASCII path from an origin-form request target."""
+    if isinstance(target, (bytes, bytearray)):
+        try:
+            target = target.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+    if not isinstance(target, str) or not target.startswith("/"):
+        return None
+    # Fragments are not part of an origin-form request target.
+    if any(ord(char) <= 0x20 or ord(char) > 0x7E or char == "#" for char in target):
+        return None
+    return target.split("?", 1)[0]
 
 
 def _all_headers(headers: Mapping[str, HeaderValue], name: str) -> list[str]:
@@ -503,7 +521,9 @@ def client_ip_details(
     return ClientIpDetails(None, ClientIpProvenance.NONE, False)
 
 
-def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetails:
+def request_details_from_context(
+    ctx: RequestContext, *, include_raw_path: bool = False
+) -> decide_pb2.RequestDetails:
     """Convert a `RequestContext` to `decide_pb2.RequestDetails`.
 
     Performs light normalization for headers and extra metadata, ensuring the
@@ -520,6 +540,10 @@ def request_details_from_context(ctx: RequestContext) -> decide_pb2.RequestDetai
         d.host = ctx.host
     if ctx.path:
         d.path = ctx.path
+    if include_raw_path:
+        raw_path = _raw_path_from_target(ctx.raw_path)
+        if raw_path is not None:
+            d.raw_path = raw_path
     if ctx.cookies:
         d.cookies = ctx.cookies
     if ctx.query:
@@ -573,12 +597,13 @@ def coerce_request_context(
     Supported inputs:
     - `RequestContext`: returned as-is.
     - ASGI scope `dict`: decodes headers, extracts client IP/host/path/scheme,
-        and normalizes the query string.
+        preserves `raw_path` when supplied, and normalizes the query string.
     - Plain `Mapping`: treated as already-normalized; fields are copied by key.
     - Flask/Werkzeug `Request`: extracts headers, method, scheme, host, path,
-        query string, remote address, and body via `get_data()`.
+        raw request target when available, query string, remote address, and
+        body via `get_data()`.
     - Django `HttpRequest`: extracts headers (if available), META info, path,
-        cookies, query string, and body.
+        raw request target when available, cookies, query string, and body.
 
     In development, if no IP can be determined, defaults to `127.0.0.1`.
     When ``environment`` is supplied, it overrides ``ARCJET_ENV`` for the
@@ -628,6 +653,7 @@ def coerce_request_context(
                 protocol=cast_req.get("scheme"),
                 host=_first_header(headers, "host"),
                 path=cast_req.get("path"),
+                raw_path=_raw_path_from_target(cast_req.get("raw_path")),
                 headers=headers,
                 query=(
                     cast_req.get("query_string", b"").decode("latin-1")
@@ -675,12 +701,16 @@ def coerce_request_context(
         except Exception:
             body = None
         scheme = "https" if getattr(req, "is_secure", False) else "http"
+        environ = getattr(req, "environ", {}) or {}
         return RequestContext(
             ip=ip,
             method=getattr(req, "method", None),
             protocol=scheme,
             host=getattr(req, "host", None),
             path=getattr(req, "path", None),
+            raw_path=_raw_path_from_target(
+                environ.get("RAW_URI") or environ.get("REQUEST_URI")
+            ),
             headers=headers,
             cookies=headers.get("Cookie"),
             query=query,
@@ -701,6 +731,7 @@ def coerce_request_context(
         )
         host = meta.get("HTTP_HOST") or meta.get("SERVER_NAME")
         path = getattr(req, "path", None) or meta.get("PATH_INFO")
+        raw_path = _raw_path_from_target(meta.get("RAW_URI") or meta.get("REQUEST_URI"))
         query = getattr(req, "META", {}).get("QUERY_STRING")
         cookies = meta.get("HTTP_COOKIE")
         body = None
@@ -714,6 +745,7 @@ def coerce_request_context(
             protocol=scheme,
             host=host,
             path=path,
+            raw_path=raw_path,
             headers=headers,
             cookies=cookies,
             query=query,

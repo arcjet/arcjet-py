@@ -75,6 +75,7 @@ from ._rules import (
     Shield,
     SlidingWindow,
     TokenBucket,
+    _bot_rule_may_verify_signature,
 )
 from ._transport import build_async_transport, build_sync_transport
 
@@ -326,6 +327,20 @@ def _local_rule_priority(rule: RuleSpec) -> int:
 def _sort_rules_for_local(rules: Sequence[RuleSpec]) -> list[RuleSpec]:
     """Sort rules by JS local-evaluation priority (stable for equal ranks)."""
     return sorted(rules, key=_local_rule_priority)
+
+
+def _should_defer_signed_bot_rules(
+    ctx: RequestContext, rules: Sequence[RuleSpec]
+) -> bool:
+    """Let Cloud see a signature attempt relevant to a configured bot rule."""
+    return bool(
+        ctx.headers
+        and any(str(key).lower() == "signature-input" for key in ctx.headers)
+        and any(
+            isinstance(rule, BotDetection) and _bot_rule_may_verify_signature(rule)
+            for rule in rules
+        )
+    )
 
 
 def _run_local_rules(
@@ -786,7 +801,8 @@ class Arcjet:
             )
 
         # Cache lookup before hitting Decide API
-        cache_key = make_cache_key(ctx, self._rules)
+        defer_signed_bot_rules = _should_defer_signed_bot_rules(ctx, self._rules)
+        cache_key = None if defer_signed_bot_rules else make_cache_key(ctx, self._rules)
         cached_hit = self._cache.get(cache_key) if cache_key is not None else None
         if cached_hit is not None:
             cached, remaining_ttl = cached_hit
@@ -866,7 +882,12 @@ class Arcjet:
             return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
-        local_decision = _run_local_rules(ctx, self._rules)
+        local_rules = (
+            tuple(rule for rule in self._rules if not isinstance(rule, BotDetection))
+            if defer_signed_bot_rules
+            else self._rules
+        )
+        local_decision = _run_local_rules(ctx, local_rules)
         if local_decision is not None:
             # Fire-and-forget report so local denies appear in the dashboard
             try:
@@ -918,7 +939,7 @@ class Arcjet:
         req = decide_pb2.DecideRequest(
             sdk_stack=_sdk_stack(self._sdk_stack),
             sdk_version=self._sdk_version,
-            details=request_details_from_context(ctx),
+            details=request_details_from_context(ctx, include_raw_path=True),
         )
         req.rules.extend([r.to_proto() for r in self._rules])
         _apply_metadata(req, metadata_json, metadata_warnings)
@@ -1360,7 +1381,8 @@ class ArcjetSync:
             )
 
         # Cache lookup before hitting Decide API
-        cache_key = make_cache_key(ctx, self._rules)
+        defer_signed_bot_rules = _should_defer_signed_bot_rules(ctx, self._rules)
+        cache_key = None if defer_signed_bot_rules else make_cache_key(ctx, self._rules)
         cached_hit = self._cache.get(cache_key) if cache_key is not None else None
         if cached_hit is not None:
             cached, remaining_ttl = cached_hit
@@ -1437,7 +1459,12 @@ class ArcjetSync:
             return served
 
         # Local WASM evaluation: run bot/email rules locally before remote API
-        local_decision = _run_local_rules(ctx, self._rules)
+        local_rules = (
+            tuple(rule for rule in self._rules if not isinstance(rule, BotDetection))
+            if defer_signed_bot_rules
+            else self._rules
+        )
+        local_decision = _run_local_rules(ctx, local_rules)
         if local_decision is not None:
             # Fire-and-forget report so local denies appear in the dashboard
             try:
@@ -1489,7 +1516,7 @@ class ArcjetSync:
         req = decide_pb2.DecideRequest(
             sdk_stack=_sdk_stack(self._sdk_stack),
             sdk_version=self._sdk_version,
-            details=request_details_from_context(ctx),
+            details=request_details_from_context(ctx, include_raw_path=True),
         )
         req.rules.extend([r.to_proto() for r in self._rules])
         _apply_metadata(req, metadata_json, metadata_warnings)
