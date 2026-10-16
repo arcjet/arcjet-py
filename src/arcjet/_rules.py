@@ -263,7 +263,22 @@ def _bot_category_to_proto(value: Union[BotCategory, str]) -> str:
 BotSpecifier = Union[BotCategory, str]
 
 _SIGNED_BOT_IDS = frozenset(
-    {"GOOGLE_AGENT", "CHATGPT_AGENT", "DUCKASSIST_BOT", "BROWSERBASE", "MANUS_BOT"}
+    {
+        "GOOGLE_AGENT",
+        "CHATGPT_AGENT",
+        "DUCKASSIST_BOT",
+        "BROWSERBASE",
+        "MANUS_BOT",
+        "YOU_CRAWLER",
+        "EXA_SEARCHBOT",
+        "CONTEXT7_CRAWLER",
+        "SHOPIFY_CLOUDSURF",
+        "KERNEL_AGENT",
+        "KERNEL_SEARCH",
+        "OSANO_BOT",
+        "CLOUDFLARE_BROWSER_RUN",
+        "LANE_AGENT",
+    }
 )
 _SIGNED_BOT_CATEGORIES = frozenset(
     {
@@ -271,6 +286,7 @@ _SIGNED_BOT_CATEGORIES = frozenset(
         BotCategory.GOOGLE,
         BotCategory.SEARCH_ENGINE,
         BotCategory.TOOL,
+        BotCategory.MONITOR,
     }
 )
 _SIGNED_BOT_CATEGORY_VALUES = frozenset(
