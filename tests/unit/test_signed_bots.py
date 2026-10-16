@@ -264,6 +264,8 @@ def test_async_signed_request_bypasses_cached_and_local_bot_denies() -> None:
     )
 
     local = Mock(return_value=_local_bot_deny())
+    # Other tests unload arcjet._client, so patch the globals used by this function.
+    assert "evaluate_bot_locally" in _run_local_rules.__globals__
     with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
         result = asyncio.run(client.protect(ctx))
 
@@ -291,6 +293,7 @@ def test_sync_signed_request_bypasses_local_deny_but_unsigned_still_denies() -> 
     )
     ctx = _signed_context()
     local = Mock(return_value=_local_bot_deny())
+    assert "evaluate_bot_locally" in _run_local_rules.__globals__
     with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
         assert client.protect(ctx).is_allowed()
         local.assert_not_called()
@@ -330,6 +333,7 @@ def test_async_signed_bot_denial_is_not_cached_for_unsigned_request() -> None:
     key = make_cache_key(unsigned, (rule,))
     assert key is not None
     local = Mock(return_value=None)
+    assert "evaluate_bot_locally" in _run_local_rules.__globals__
     with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
         assert asyncio.run(client.protect(signed)).is_denied()
         assert client._cache.get(key) is None
@@ -355,6 +359,7 @@ def test_sync_signed_bot_denial_is_not_cached_for_unsigned_request() -> None:
     key = make_cache_key(unsigned, (rule,))
     assert key is not None
     local = Mock(return_value=None)
+    assert "evaluate_bot_locally" in _run_local_rules.__globals__
     with patch.dict(_run_local_rules.__globals__, evaluate_bot_locally=local):
         assert client.protect(signed).is_denied()
         assert client._cache.get(key) is None

@@ -282,14 +282,15 @@ _SIGNED_BOT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory"
 
 def _validate_signed_bot_entity(entity: str) -> None:
     """Check directory URL syntax; Arcjet Cloud enforces fetch safety."""
-    if entity != "SIGNED_BOT" and not entity.startswith(_SIGNED_BOT_PREFIX):
+    if entity == "SIGNED_BOT":
+        raise ValueError("SIGNED_BOT requires an HTTPS Web Bot Auth directory URL")
+    if not entity.startswith(_SIGNED_BOT_PREFIX):
         return
     directory = entity[len(_SIGNED_BOT_PREFIX) :]
     try:
         parsed = urlsplit(directory)
         valid = (
-            entity.startswith(_SIGNED_BOT_PREFIX)
-            and parsed.scheme.lower() == "https"
+            parsed.scheme.lower() == "https"
             and bool(parsed.hostname)
             and parsed.path == _SIGNED_BOT_DIRECTORY_PATH
             and not parsed.query

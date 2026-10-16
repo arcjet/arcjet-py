@@ -440,7 +440,7 @@ blocks all bots. The reverse applies for deny lists.
 
 Arcjet Cloud verifies Web Bot Auth signatures for `GOOGLE_AGENT`,
 `CHATGPT_AGENT`, `DUCKASSIST_BOT`, `BROWSERBASE`, and `MANUS_BOT`. Allow or deny
-them by bot identifier or by a category that contains them:
+them by [bot identifier or category](https://docs.arcjet.com/bot-protection/identifying-bots):
 
 ```py
 detect_bot(

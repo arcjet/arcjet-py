@@ -198,6 +198,7 @@ def _raw_path_from_target(target: object) -> str | None:
             return None
     if not isinstance(target, str) or not target.startswith("/"):
         return None
+    # Fragments are not part of an origin-form request target.
     if any(ord(char) <= 0x20 or ord(char) > 0x7E or char == "#" for char in target):
         return None
     return target.split("?", 1)[0]
