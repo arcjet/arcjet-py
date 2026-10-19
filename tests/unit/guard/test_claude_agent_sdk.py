@@ -29,7 +29,7 @@ from guard_doubles import (
 )
 
 from arcjet._errors import ArcjetMisconfiguration
-from arcjet.guard import arcjet_sequence
+from arcjet.guard import DetectPromptInjection, arcjet_sequence
 from arcjet.guard._policy_input import PolicyInputMap
 from arcjet.guard._types import RuleResultError, RuleResultTokenBucket
 from arcjet.guard.claude_agent_sdk import _import as import_module
@@ -76,8 +76,11 @@ from arcjet.guard.claude_agent_sdk._tool import (
     _arguments_from_handler,
     _brand,
     _ToolConfig,
+    _wrap_handler,
     evaluate_handler,
+    evaluate_result,
     handler_denial_result,
+    result_text,
 )
 
 CLAUDE_AGENT_SDK_SRC = (
@@ -228,7 +231,14 @@ import arcjet.guard.claude_agent_sdk as adapter
 assert callable(adapter.guard_tool)
 assert callable(adapter.guard_hooks)
 assert callable(adapter.claude_agent_context)
-assert adapter.__all__ == ["guard_tool", "guard_hooks", "claude_agent_context"]
+assert adapter.__all__ == [
+    "guard_tool",
+    "guard_hooks",
+    "claude_agent_context",
+    "REPLACEABLE_BUILTIN_TOOLS",
+    "can_replace_result",
+]
+assert adapter.can_replace_result("Bash")
 assert not hasattr(adapter, "guard_inbound")
 assert not hasattr(adapter, "guard_can_use_tool")
 try:
@@ -1501,7 +1511,13 @@ class TestFailClosedHelperVsFailOpenProtect:
 def test_public_exports_are_only_the_locked_names() -> None:
     from arcjet.guard import claude_agent_sdk as adapter
 
-    assert adapter.__all__ == ["guard_tool", "guard_hooks", "claude_agent_context"]
+    assert adapter.__all__ == [
+        "guard_tool",
+        "guard_hooks",
+        "claude_agent_context",
+        "REPLACEABLE_BUILTIN_TOOLS",
+        "can_replace_result",
+    ]
     assert not hasattr(adapter, "guard_inbound")
     assert not hasattr(adapter, "guard_can_use_tool")
 
@@ -1528,3 +1544,233 @@ def test_pre_tool_use_ask_is_never_emitted() -> None:
 def test_user_prompt_submit_block_shape() -> None:
     output = user_prompt_submit_output(UserPromptSubmitVerdict(block=True, reason="no"))
     assert output == {"decision": "block", "reason": "no"}
+
+
+class TestEvaluateResult:
+    """``result_rules``: a second Guard call over what the handler returned."""
+
+    @staticmethod
+    def _rules(seen: list[Mapping[str, Any]]) -> Callable[[Mapping[str, Any]], Any]:
+        def rules(envelope: Mapping[str, Any]) -> list[Any]:
+            seen.append(envelope)
+            return [DetectPromptInjection()(envelope["text"])]
+
+        return rules
+
+    def test_allow_keeps_the_result_and_labels_the_call(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        seen: list[Mapping[str, Any]] = []
+        config = _tool_config(
+            guard=client,
+            result_rules=self._rules(seen),
+            result_action="echo.invoked.result",
+        )
+        result = {"content": [{"type": "text", "text": "hello"}]}
+        verdict = asyncio.run(evaluate_result({"value": "hi"}, result, config))
+        assert verdict.deny is False
+        [call] = client.guards
+        assert call["label"] == "echo.invoked.result"
+        assert len(call["rules"]) == 1
+        assert call["inputs"] is None
+        assert call["metadata"]["claude.phase"] == "result"
+        assert client.captures[0]["metadata"]["outcome"] == "success"
+
+    def test_deny_returns_the_envelope(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_deny_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=self._rules([]),
+            result_action="echo.invoked.result",
+        )
+        verdict = asyncio.run(
+            evaluate_result({}, {"content": [{"type": "text", "text": "x"}]}, config)
+        )
+        assert verdict.deny is True
+        payload = json.loads(handler_denial_result(verdict)["content"][0]["text"])
+        assert payload["arcjetDenied"] is True
+        assert payload["reason"] == "RATE_LIMIT"
+        assert client.captures[0]["metadata"]["outcome"] == "denied"
+
+    def test_rules_receive_arguments_result_and_every_text_block(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        seen: list[Mapping[str, Any]] = []
+        long_block = "a" * 200_000
+        result = {
+            "content": [
+                {"type": "text", "text": "first"},
+                {"type": "image", "data": "aGk=", "mimeType": "image/png"},
+                {"type": "text", "text": long_block},
+                {"type": "text", "text": "last"},
+            ]
+        }
+        config = _tool_config(
+            guard=client,
+            result_rules=self._rules(seen),
+            result_action="echo.invoked.result",
+        )
+        asyncio.run(evaluate_result({"value": "hi"}, result, config))
+        [envelope] = seen
+        assert envelope["arguments"] == {"value": "hi"}
+        assert envelope["result"] is result
+        assert envelope["text"] == "\n".join(["first", long_block, "last"])
+
+    def test_text_is_empty_for_a_result_without_text_blocks(self) -> None:
+        assert result_text({"content": [{"type": "image", "data": "x"}]}) == ""
+        assert result_text({"content": "not a list"}) == ""
+        assert result_text("not a mapping") == ""
+        assert result_text({"content": [{"type": "text", "text": 3}]}) == ""
+
+    def test_rules_callable_raising_still_calls_guard_and_fails_closed(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_envelope: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        config = _tool_config(
+            guard=client, result_rules=boom, result_action="echo.invoked.result"
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is True
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    @pytest.mark.parametrize(
+        "returned", NOT_BOUND_RULES.values(), ids=NOT_BOUND_RULES.keys()
+    )
+    def test_rules_callable_returning_no_bound_rules_fails_closed(
+        self, reset_sequence_context, returned: Callable[[], Any]
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=lambda _envelope: returned(),
+            result_action="echo.invoked.result",
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is True
+        assert [guard["rules"] for guard in client.guards] == [()]
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_rules_callable_raising_allow_keeps_the_result(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+
+        def boom(_envelope: Mapping[str, Any]) -> list[Any]:
+            raise RuntimeError("no rules")
+
+        config = _tool_config(
+            guard=client,
+            result_rules=boom,
+            result_action="echo.invoked.result",
+            on_guard_error="allow",
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is False
+
+    def test_guard_unavailable_fails_closed(self, reset_sequence_context) -> None:
+        client = StubGuardClient(exception=RuntimeError("down"))
+        config = _tool_config(
+            guard=client,
+            result_rules=self._rules([]),
+            result_action="echo.invoked.result",
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is True
+        payload = json.loads(handler_denial_result(verdict)["content"][0]["text"])
+        assert payload["reason"] == "ERROR"
+        assert client.captures[0]["metadata"]["outcome"] == "unavailable"
+
+    def test_guard_unavailable_allow_keeps_the_result(
+        self, reset_sequence_context
+    ) -> None:
+        client = StubGuardClient(exception=RuntimeError("down"))
+        config = _tool_config(
+            guard=client,
+            result_rules=self._rules([]),
+            result_action="echo.invoked.result",
+            on_guard_error="allow",
+        )
+        verdict = asyncio.run(evaluate_result({}, {"content": []}, config))
+        assert verdict.deny is False
+
+
+class TestWrappedHandlerResult:
+    """The wrapped handler, without the SDK: the integration file is skipped in CI."""
+
+    @staticmethod
+    def _original(calls: list[Any]) -> Callable[[Any], Any]:
+        async def original(arguments: Any) -> dict[str, Any]:
+            calls.append(arguments)
+            return {"content": [{"type": "text", "text": "fetched page"}]}
+
+        return original
+
+    @staticmethod
+    def _sequenced(*decisions: Any) -> StubGuardClient:
+        client = StubGuardClient(decision=decisions[0])
+        original_guard = client.guard
+
+        async def guard(*args: Any, **kwargs: Any) -> Any:
+            client.decision = decisions[len(client.guards)]
+            return await original_guard(*args, **kwargs)
+
+        client.guard = guard  # type: ignore[method-assign]
+        return client
+
+    def test_result_deny_replaces_the_result_after_the_handler_ran(
+        self, reset_sequence_context
+    ) -> None:
+        calls: list[Any] = []
+        client = self._sequenced(make_allow_decision(), make_deny_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=lambda envelope: [DetectPromptInjection()(envelope["text"])],
+            result_action="echo.invoked.result",
+        )
+        result = asyncio.run(_wrap_handler(config, self._original(calls))({}))
+        assert calls == [{}]
+        assert result["is_error"] is True
+        assert json.loads(result["content"][0]["text"])["arcjetDenied"] is True
+        assert [g["label"] for g in client.guards] == [
+            "echo.invoked",
+            "echo.invoked.result",
+        ]
+
+    def test_result_allow_returns_the_handler_result(
+        self, reset_sequence_context
+    ) -> None:
+        calls: list[Any] = []
+        client = StubGuardClient(decision=make_allow_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=lambda envelope: [DetectPromptInjection()(envelope["text"])],
+            result_action="echo.invoked.result",
+        )
+        result = asyncio.run(_wrap_handler(config, self._original(calls))({}))
+        assert result == {"content": [{"type": "text", "text": "fetched page"}]}
+
+    def test_no_result_call_without_result_rules(self, reset_sequence_context) -> None:
+        client = StubGuardClient(decision=make_allow_decision())
+        asyncio.run(_wrap_handler(_tool_config(guard=client), self._original([]))({}))
+        assert [g["label"] for g in client.guards] == ["echo.invoked"]
+
+    def test_no_result_call_when_the_call_is_denied(
+        self, reset_sequence_context
+    ) -> None:
+        calls: list[Any] = []
+        client = StubGuardClient(decision=make_deny_decision())
+        config = _tool_config(
+            guard=client,
+            result_rules=lambda envelope: [DetectPromptInjection()(envelope["text"])],
+            result_action="echo.invoked.result",
+        )
+        asyncio.run(_wrap_handler(config, self._original(calls))({}))
+        assert calls == []
+        assert len(client.guards) == 1

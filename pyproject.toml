@@ -229,6 +229,7 @@ exclude = [
   "tests/integration/guard/test_openai_agents_runner.py",
   # Optional extra; claude-agent-sdk is not in the default install.
   "tests/integration/guard/test_claude_agent_sdk.py",
+  "tests/integration/guard/test_claude_agent_sdk_cli.py",
   # Optional extra; strands-agents is not in the default install.
   "tests/integration/guard/test_strands_agents.py",
   # Optional extra; google-adk is not in the default install.
@@ -261,6 +262,7 @@ exclude = [
   "tests/integration/guard/test_openai_agents_runner.py",
   # Optional extra; claude-agent-sdk is not in the default install.
   "tests/integration/guard/test_claude_agent_sdk.py",
+  "tests/integration/guard/test_claude_agent_sdk_cli.py",
   # Optional extra; strands-agents is not in the default install.
   "tests/integration/guard/test_strands_agents.py",
   # Optional extra; google-adk is not in the default install.

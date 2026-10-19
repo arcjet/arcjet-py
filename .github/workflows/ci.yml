@@ -205,3 +205,30 @@ jobs:
         run: |
           echo "::error::macOS test matrix result: ${{ needs.test-macos.result }}"
           exit 1
+
+  # The Claude Agent SDK integration tests need the optional
+  # `claude-agent-sdk` extra, which the default install leaves out, so the
+  # jobs above skip them. This job installs it from the lockfile. The CLI
+  # tests drive the CLI bundled with that SDK against a scripted, local
+  # Messages API, with no network access and no key. They are what catches a
+  # CLI release that changes a built-in tool's output shape: the CLI sends
+  # the original tool result to the model, without saying so, when a
+  # replacement's shape does not match.
+  test-claude-agent-sdk:
+    name: Run tests (claude-agent-sdk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Check the extra imports
+        # The tests skip when the extra is missing, so an install that left it
+        # out would otherwise pass with nothing run.
+        run: uv run --extra claude-agent-sdk python -c "import claude_agent_sdk"
+      - name: Tests
+        run: >-
+          uv run --extra claude-agent-sdk pytest --no-cov
+          tests/integration/guard/test_claude_agent_sdk.py
+          tests/integration/guard/test_claude_agent_sdk_cli.py
