@@ -207,36 +207,56 @@ def _callback(registry: _Registry, event_type: Any) -> Any:
     raise AssertionError(f"no callback registered for {event_type.__name__}")
 
 
+async def _stream_result(guarded: Any, *, body: str = "welcome") -> dict[str, Any]:
+    """Run the tool the way the agent's executor does and return its result."""
+    tool_use = {
+        "name": "send_email",
+        "input": {"to": "onboarding-list", "body": body},
+        "toolUseId": "tu_verify",
+    }
+    events = [
+        event async for event in guarded.stream(tool_use, {"sessionId": SESSION_ID})
+    ]
+    result = getattr(events[-1], "tool_result", None)
+    assert isinstance(result, dict), events[-1]
+    assert result["toolUseId"] == "tu_verify"
+    return result
+
+
+def _denial_payload(result: dict[str, Any]) -> dict[str, Any]:
+    assert result["status"] == "error", result
+    return json.loads(result["content"][0]["text"])
+
+
 async def scenario_allow() -> None:
     _SEND_CALLS.clear()
     guard = ScenarioGuard(decision=_allow())
-    guarded = _wrap(guard)
-    result = await guarded._tool_func(to="onboarding-list", body="welcome")
+    result = await _stream_result(_wrap(guard))
     assert _SEND_CALLS == ["onboarding-list"], _SEND_CALLS
-    assert result == "Email sent to onboarding-list"
-    assert not isinstance(result, dict) or result.get("arcjetDenied") is not True
+    assert result["status"] == "success", result
+    assert result["content"][0]["text"] == "Email sent to onboarding-list"
+    assert [g["label"] for g in guard.guards] == ["email.sent"]
 
 
 async def scenario_deny() -> None:
     _SEND_CALLS.clear()
     guard = ScenarioGuard(decision=_deny())
-    guarded = _wrap(guard)
-    result = await guarded._tool_func(to="onboarding-list", body="welcome")
+    result = await _stream_result(_wrap(guard))
     assert _SEND_CALLS == []
-    assert isinstance(result, dict)
-    assert result["arcjetDenied"] is True
-    assert result["reason"] == "RATE_LIMIT"
+    payload = _denial_payload(result)
+    assert payload["arcjetDenied"] is True
+    assert payload["reason"] == "RATE_LIMIT"
+    assert [g["label"] for g in guard.guards] == ["email.sent"]
 
 
 async def scenario_unavailable() -> None:
     _SEND_CALLS.clear()
     guard = ScenarioGuard(exception=RuntimeError("down"))
-    guarded = _wrap(guard)
-    result = await guarded._tool_func(to="onboarding-list", body="welcome")
+    result = await _stream_result(_wrap(guard))
     assert _SEND_CALLS == []
-    assert isinstance(result, dict)
-    assert result["reason"] == "ERROR"
-    assert result["retryable"] is True
+    payload = _denial_payload(result)
+    assert payload["reason"] == "ERROR"
+    assert payload["retryable"] is True
 
 
 async def scenario_brand_skip() -> None:
@@ -415,15 +435,12 @@ async def scenario_live_local_pii() -> None:
         rules=lambda args: (detect(str(args.get("body", ""))),),
         on_guard_error="deny",
     )
-    result = await guarded._tool_func(
-        to="onboarding-list",
-        body="welcome alice@example.com",
-    )
+    result = await _stream_result(guarded, body="welcome alice@example.com")
     await client.flush()
     assert _SEND_CALLS == [], _SEND_CALLS
-    assert isinstance(result, dict)
-    assert result["arcjetDenied"] is True
-    print("  live-local-pii: handler skipped; envelope", result["reason"])
+    payload = _denial_payload(result)
+    assert payload["arcjetDenied"] is True
+    print("  live-local-pii: handler skipped; envelope", payload["reason"])
 
 
 SCENARIOS: dict[ScenarioName, Any] = {
