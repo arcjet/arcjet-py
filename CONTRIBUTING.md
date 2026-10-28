@@ -272,7 +272,11 @@ Releases are prepared by [Release Please](https://github.com/googleapis/release-
 
 4. The release workflow's preflight job runs without approval so the reviewer
    can confirm the tag, versions, and pins; the publish job must then be
-   approved in the `pypi` environment by another member of the team.
+   approved in the `pypi` environment by another member of the team. The
+   run is started by the Release Please App, not by a person, so the
+   environment's "prevent self-review" setting no longer excludes anyone:
+   whoever approved or merged the release pull request must not also
+   approve the publish job.
 
 5. Once approved, both distributions are published to PyPI.
 
