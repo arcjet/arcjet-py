@@ -51,6 +51,10 @@ _DIRECTORY = (
         "OSANO_BOT",
         "CLOUDFLARE_BROWSER_RUN",
         "LANE_AGENT",
+        "ISONSEARCH_CRAWLER",
+        "ISONAI_USER",
+        "LINER_BOT",
+        "LINER_USER",
         _DIRECTORY,
     ],
 )
