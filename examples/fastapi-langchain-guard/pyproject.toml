@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "arcjet[langchain-agents,sensitive-info-rampart]",
-    "fastapi[standard]==0.141.1",
-    "langchain==1.4.3",
-    "langchain-openai==1.6.7",
+    "fastapi[standard]==0.157.0",
+    "langchain==1.4.6",
+    "langchain-openai==1.7.2",
 ]
 
 [tool.uv]
