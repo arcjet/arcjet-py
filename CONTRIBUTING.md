@@ -242,59 +242,45 @@ breaking changes.
 This repository publishes **two** distributions from one uv workspace: `arcjet`
 and the `arcjet-sensitive-info-rampart` backend in `sensitive-info-rampart/`.
 The backend imports private core modules, so both are released together at the
-same version and pin each other exactly (`==`). `uv version` does not update
-dependency pins, so those are edited by hand; preflight fails the release if any
-version or pin is out of lockstep.
+same version and pin each other exactly (`==`).
 
-1. Create a new branch, e.g. `git checkout -b release-0.10.0`.
+Releases are prepared by [Release Please](https://github.com/googleapis/release-please)
+(`.github/workflows/release-please.yml`), configured in
+`.github/release-please-config.json` and `.github/.release-please-manifest.json`.
 
-2. Bump both versions to the same value:
+1. On every push to `main`, Release Please opens or updates a pull request
+   titled `chore: Release <version>`. The version is derived from the
+   [Conventional Commits](https://www.conventionalcommits.org/) merged since
+   the last release (`fix:` → patch, `feat:` → minor, `!` or
+   `BREAKING CHANGE:` → major), and the pull request updates `CHANGELOG.md`
+   and every place the version lives, in lockstep:
 
-   ```sh
-   # Core package.
-   uv version --bump minor            # or: patch, major
-   # Backend, in lockstep.
-   uv version --package arcjet-sensitive-info-rampart --bump minor
-   ```
+   - `version` in `pyproject.toml` and `sensitive-info-rampart/pyproject.toml`
+   - both `==` pins, via their `# x-release-please-version` markers
+   - the two editable workspace entries in `uv.lock`
 
-   For a prerelease, bump a release component and the prerelease component
-   together; add `--dry-run` to preview any of these:
+   CI runs `uv lock --check` and `tools/check_release_lockstep.py` on the
+   pull request, so a location Release Please failed to update fails there.
+   To choose a version yourself, merge a commit whose body contains
+   `Release-As: <version>`.
 
-   ```sh
-   uv version --bump minor --bump beta   # 0.9.0  -> 0.10.0b1
-   uv version --bump beta                # 0.10.0b1 -> 0.10.0b2
-   uv version --bump stable              # 0.10.0b1 -> 0.10.0
-   ```
+2. Review the release pull request like any other, then merge it.
 
-3. Update both `==` pins to the new version by hand:
+3. Release Please creates the `v<version>` tag and the GitHub release. It uses
+   a GitHub App token, so the tag starts the release workflow
+   (`.github/workflows/release.yml`).
 
-   - `sensitive-info-rampart/pyproject.toml` → `"arcjet==<version>"`
-   - `pyproject.toml` → `sensitive-info-rampart = ["arcjet-sensitive-info-rampart==<version>"]`
+4. The release workflow's preflight job runs without approval so the reviewer
+   can confirm the tag, versions, and pins; the publish job must then be
+   approved in the `pypi` environment by another member of the team.
 
-4. Run `uv lock`, then verify the lockfile and published dependencies before
-   running the normal checks and tests:
+5. Once approved, both distributions are published to PyPI.
 
-   ```sh
-   uv lock --check
-   just audit
-   just check
-   just test
-   ```
-
-5. Commit and push the changes to GitHub, then open a PR.
-
-6. Once merged to `main`, tag the merge commit with the version, e.g.
-   `git tag -a v0.10.0 -m v0.10.0`. The tag must match the version in
-   `pyproject.toml` exactly, including any prerelease suffix (`v0.10.0b1`).
-
-7. Push the tag, e.g. `git push origin v0.10.0`.
-
-8. The release workflow is triggered automatically. Its preflight job runs
-   without approval so the reviewer can confirm the tag, versions, and pins
-   before approving; the publish job must then be approved by another member of
-   the team.
-
-9. Once approved, both distributions are published to PyPI.
-
-10. Create a new release in GitHub and link it to the new tag. Tick
-    **Set as a pre-release** for prerelease versions.
+Release Please only produces stable `X.Y.Z` versions. A prerelease
+(`0.10.0b1`) is still bumped and tagged by hand: run
+`uv version --bump minor --bump beta` for both packages
+(`--package arcjet-sensitive-info-rampart` for the backend), update both `==`
+pins and `uv.lock`, then push an annotated `v<version>` tag, which starts the
+same gated release workflow. Do not merge a prerelease version into `main`:
+Release Please and its lockstep check expect `main` to carry the last stable
+release.

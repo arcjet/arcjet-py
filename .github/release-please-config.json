@@ -1,0 +1,63 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "versioning": "default",
+  "changelog-path": "CHANGELOG.md",
+  "changelog-sections": [
+    { "type": "feat", "section": "🚀 New Features" },
+    { "type": "fix", "section": "🪲 Bug Fixes" },
+    { "type": "perf", "section": "🏎️ Performance Improvements" },
+    { "type": "deps", "section": "📦 Dependencies" },
+    { "type": "revert", "section": "↩️ Reverts" },
+    { "type": "docs", "section": "📝 Documentation" },
+    { "type": "chore", "section": "🧹 Miscellaneous Chores" },
+    { "type": "refactor", "section": "⌨️ Code Refactoring" },
+    { "type": "test", "section": "📚 Tests" },
+    { "type": "build", "section": "🔨 Build System" },
+    { "type": "ci", "section": "✅ Continuous Integration" }
+  ],
+  "pull-request-title-pattern": "chore: Release ${version}",
+  "pull-request-header": "Automatically generated with [Release Please](https://github.com/googleapis/release-please).",
+  "pull-request-footer": "",
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": false,
+  "bump-patch-for-minor-pre-major": false,
+  "draft": false,
+  "prerelease": false,
+  "packages": {
+    ".": {
+      "component": "arcjet",
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": "pyproject.toml"
+        },
+        {
+          "type": "toml",
+          "path": "sensitive-info-rampart/pyproject.toml",
+          "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": "sensitive-info-rampart/pyproject.toml"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value === 'arcjet' && @.source.editable.value === '.')].version"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value === 'arcjet-sensitive-info-rampart' && @.source.editable.value === 'sensitive-info-rampart')].version"
+        }
+      ]
+    }
+  }
+}
