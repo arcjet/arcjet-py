@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "arcjet[openai-agents,sensitive-info-rampart]",
-    "fastapi[standard]==0.141.1",
+    "fastapi[standard]==0.157.0",
 ]
 
 [tool.uv]
