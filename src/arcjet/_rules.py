@@ -278,6 +278,10 @@ _SIGNED_BOT_IDS = frozenset(
         "OSANO_BOT",
         "CLOUDFLARE_BROWSER_RUN",
         "LANE_AGENT",
+        "ISONSEARCH_CRAWLER",
+        "ISONAI_USER",
+        "LINER_BOT",
+        "LINER_USER",
     }
 )
 _SIGNED_BOT_CATEGORIES = frozenset(

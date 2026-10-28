@@ -51,15 +51,24 @@ _DIRECTORY = (
         "OSANO_BOT",
         "CLOUDFLARE_BROWSER_RUN",
         "LANE_AGENT",
+        "ISONSEARCH_CRAWLER",
+        "ISONAI_USER",
+        "LINER_BOT",
+        "LINER_USER",
         _DIRECTORY,
     ],
 )
-def test_signed_bot_identifiers_are_sent_to_cloud(identity: str) -> None:
-    rule = detect_bot(mode=Mode.LIVE, allow=[identity])
-    assert list(rule.to_proto().bot_v2.allow) == [identity]
+@pytest.mark.parametrize("field", ["allow", "deny"])
+def test_signed_bot_identifiers_are_sent_to_cloud(identity: str, field: str) -> None:
+    if field == "allow":
+        rule = detect_bot(mode=Mode.LIVE, allow=[identity])
+    else:
+        rule = detect_bot(mode=Mode.LIVE, deny=[identity])
+    assert list(getattr(rule.to_proto().bot_v2, field)) == [identity]
     assert _should_defer_signed_bot_rules(
         RequestContext(headers={"Signature-Input": "sig1=..."}), (rule,)
     )
+    assert not _should_defer_signed_bot_rules(RequestContext(headers={}), (rule,))
 
 
 @pytest.mark.parametrize(

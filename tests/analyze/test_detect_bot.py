@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import pytest
+
 from arcjet import BotCategory
 from arcjet._analyze import (
     AllowedBotConfig,
@@ -134,6 +136,48 @@ class TestDetectBot:
         result = component.detect_bot(_request_with_ua("OsanoBot"), config)
         assert isinstance(result, Ok)
         assert set(result.value.allowed) == {"CATEGORY:MONITOR", "OSANO_BOT"}
+        assert result.value.denied == []
+
+    @pytest.mark.parametrize(
+        ("user_agent", "category", "bot_id"),
+        [
+            (
+                "IsonSearchBot/1.0 (+https://search.isonai.com/bot)",
+                BotCategory.SEARCH_ENGINE,
+                "ISONSEARCH_CRAWLER",
+            ),
+            (
+                "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; "
+                "IsonAI-User/1.0; +https://www.isonai.com/bot",
+                BotCategory.AI,
+                "ISONAI_USER",
+            ),
+            (
+                "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; "
+                "LinerBot/1.0; +https://liner-bot.liner.com/docs/liner-bot)",
+                BotCategory.SEARCH_ENGINE,
+                "LINER_BOT",
+            ),
+            (
+                "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; "
+                "Liner-User/1.0; +https://liner-user.liner.com/docs/liner-user)",
+                BotCategory.AI,
+                "LINER_USER",
+            ),
+        ],
+    )
+    def test_allow_signed_category_for_web_bot_auth_signers(
+        self,
+        component: AnalyzeComponent,
+        user_agent: str,
+        category: BotCategory,
+        bot_id: str,
+    ) -> None:
+        """The bundled catalog places these Web Bot Auth signers in a signed category."""
+        config = AllowedBotConfig(entities=[category.value], skip_custom_detect=False)
+        result = component.detect_bot(_request_with_ua(user_agent), config)
+        assert isinstance(result, Ok)
+        assert set(result.value.allowed) == {category.value, bot_id}
         assert result.value.denied == []
 
     def test_verified_and_spoofed_fields(self, component: AnalyzeComponent) -> None:
