@@ -13,7 +13,7 @@ is no PreToolUse, no `guard_tool`, and no `guard_inbound`. Do not import
 — not the Claude Agent SDK page
 [`/guards/claude-agent-sdk-py/`](https://docs.arcjet.com/guards/claude-agent-sdk-py/).
 
-This example pins `arcjet[claude-managed-agents]==1.3.0` from PyPI,
+This example pins `arcjet[claude-managed-agents]==1.5.0` from PyPI,
 the release that ships the Claude Managed Agents adapter.
 The extra pulls `anthropic>=0.92.0,<2`. No chromadb. The runner path is
 async (`launch_arcjet`, not `launch_arcjet_sync`).

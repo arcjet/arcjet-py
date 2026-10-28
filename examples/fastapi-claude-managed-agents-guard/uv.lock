@@ -75,16 +75,16 @@ wheels = [
 
 [[package]]
 name = "arcjet"
-version = "1.4.0"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "connect-python" },
     { name = "pyqwest" },
     { name = "wasmtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/10/030e70502b6f3f8fb0f453575b4bf9f9603fbf06551f4968dd8bac859037/arcjet-1.4.0.tar.gz", hash = "sha256:d42c70148f5298febc6de541e69c2209fbc20b7077b2d72adbfe1fed4a38df27", size = 1076559, upload-time = "2026-10-07T16:00:15.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/23/a572d569508cce2bb6ceee6dfc2199e9ac3bceb8a223e05323fba1d9b186/arcjet-1.5.0.tar.gz", hash = "sha256:61f9b5ce342c5740c12e0d9e4a8210ad0f5028ccaa5b847da89f84f996a47e0d", size = 1125833, upload-time = "2026-10-28T19:13:45.676Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/d8/525e314465a71323513627a4a2c0b49904d554bf22cd42f00fecda2ee418/arcjet-1.4.0-py3-none-any.whl", hash = "sha256:4371c76d90a815c8187683a435959071b63631c07f03586bbbc48b7a3ec19c8a", size = 1109494, upload-time = "2026-10-07T16:00:13.475Z" },
+    { url = "https://files.pythonhosted.org/packages/10/e6/f2f5f8c9ab72273976a4e9cd72e6df2a8224b5055e1ca4bd1ec893aa7dc2/arcjet-1.5.0-py3-none-any.whl", hash = "sha256:93dc2d2bfadf058990de3adbcf889416133fb05aebfd312fce7c2773002d1d9c", size = 1147538, upload-time = "2026-10-28T19:13:43.77Z" },
 ]
 
 [package.optional-dependencies]
@@ -97,7 +97,7 @@ sensitive-info-rampart = [
 
 [[package]]
 name = "arcjet-sensitive-info-rampart"
-version = "1.4.0"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "arcjet" },
@@ -108,9 +108,9 @@ dependencies = [
     { name = "onnxruntime", version = "1.28.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/b5/757149452ac8e3c00fee83a52052e0f531b4188fbdb49cf66f7f522a19d0/arcjet_sensitive_info_rampart-1.4.0.tar.gz", hash = "sha256:2fd5d41205ffed2424a92a05ba0b768f38f799c021da318efab7e13fb100995b", size = 11817072, upload-time = "2026-10-07T16:00:19.736Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/9a/48f1c6e0cee8995b9f148ac55a23626fc451929c4cb1038a4c0a1588ffe6/arcjet_sensitive_info_rampart-1.5.0.tar.gz", hash = "sha256:24e634024099760c8b3174424d6a6591911d2ead92334d09ee2c76fd83894732", size = 11819826, upload-time = "2026-10-28T19:13:49.912Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3e/c5/63d6cd5324896e4142cfcd35946fcc61b991e6120e5ac269e5915e2df343/arcjet_sensitive_info_rampart-1.4.0-py3-none-any.whl", hash = "sha256:92d1960c4b28de5c6257eeb15da2d2e1b47076fb31600b487436317a3dbdd400", size = 11821710, upload-time = "2026-10-07T16:00:17.055Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/04/7dff9671b836708af952f8a42fd8a579dfc9340b579232e854224c169d76/arcjet_sensitive_info_rampart-1.5.0-py3-none-any.whl", hash = "sha256:965b67db050b3cc6e386f2518450a8d5ef4dda72a659f46b947d7460483f69cd", size = 11821649, upload-time = "2026-10-28T19:13:47.59Z" },
 ]
 
 [[package]]
@@ -401,7 +401,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arcjet", extras = ["claude-managed-agents", "sensitive-info-rampart"], specifier = "==1.4.0" },
+    { name = "arcjet", extras = ["claude-managed-agents", "sensitive-info-rampart"], specifier = "==1.5.0" },
     { name = "fastapi", extras = ["standard"], specifier = "==0.157.0" },
 ]
 
