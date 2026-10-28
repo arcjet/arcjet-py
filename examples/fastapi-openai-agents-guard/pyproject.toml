@@ -10,6 +10,9 @@ dependencies = [
 ]
 
 [tool.uv]
+# filelock 4.2.1+ fixes GHSA-v4x8-3wr5-3wq8 (and two low ones) but needs
+# Python 3.11. Keep Python 3.10 on 3.20.3, which predates the affected range.
+constraint-dependencies = ["filelock<3.20.4; python_full_version < '3.11'"]
 exclude-newer = "7 days"
 
 # OpenAI Agents adapter shipped on main in arcjet-py#226. Use the local
