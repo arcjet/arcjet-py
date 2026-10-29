@@ -29,10 +29,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: actionlint
-        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+      # Docker container actions cannot start in this repository: a workflow
+      # that references one fails before any job runs, emitting no check run.
+      # actionlint therefore comes from mise, which resolves it to the aqua
+      # backend and verifies the download against the published checksums.
+      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
         with:
-          args: -color
+          cache: false
+          mise_toml: |
+            [tools]
+            actionlint = "1.7.12"
+
+      - name: actionlint
+        run: actionlint -color
 
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
