@@ -31,21 +31,17 @@ jobs:
 
       # Docker container actions cannot start in this repository: a workflow
       # that references one fails before any job runs, emitting no check run.
-      # actionlint therefore comes from its release archive, checked against
-      # the published digest so the version stays pinned.
+      # actionlint therefore comes from mise, which resolves it to the aqua
+      # backend and verifies the download against the published checksums.
+      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        with:
+          cache: false
+          mise_toml: |
+            [tools]
+            actionlint = "1.7.12"
+
       - name: actionlint
-        env:
-          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-          ACTIONLINT_VERSION: 1.7.12
-        run: |
-          set -euo pipefail
-          dir="$(mktemp -d)"
-          curl --fail --location --show-error --silent \
-            --output "$dir/actionlint.tar.gz" \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          echo "${ACTIONLINT_SHA256}  $dir/actionlint.tar.gz" | sha256sum --check --strict -
-          tar --extract --gzip --file "$dir/actionlint.tar.gz" --directory "$dir" actionlint
-          "$dir/actionlint" -color
+        run: actionlint -color
 
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
