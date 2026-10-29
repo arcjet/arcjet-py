@@ -199,14 +199,14 @@ jobs:
         run: |
           set -euo pipefail
           # A hand-tagged prerelease has no GitHub release; nothing to publish.
-          # Skip only on a confirmed absence; any other failure must fail.
-          if ! err=$(gh release view "$TAG_NAME" 2>&1 > /dev/null); then
-            if [[ "$err" == *"release not found"* ]]; then
-              echo "No GitHub release for $TAG_NAME; skipping."
-              exit 0
-            fi
-            echo "$err" >&2
-            exit 1
+          # The list endpoint includes drafts, and a failed request fails the
+          # step, so only a confirmed absence skips.
+          count=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name == \"$TAG_NAME\")] | length" \
+            | awk '{ n += $1 } END { print n + 0 }')
+          if [[ "$count" == "0" ]]; then
+            echo "No GitHub release for $TAG_NAME; skipping."
+            exit 0
           fi
           # Only stable X.Y.Z releases become the latest release.
           if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
