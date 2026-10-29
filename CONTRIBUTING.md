@@ -248,6 +248,12 @@ Releases are prepared by [Release Please](https://github.com/googleapis/release-
 (`.github/workflows/release-please.yml`), configured in
 `.github/release-please-config.json` and `.github/.release-please-manifest.json`.
 
+One-time setup: create a private GitHub App for this repository with
+**Contents** and **Pull requests** read and write permissions, install it on
+`arcjet-py` only, and store its ID and private key as the
+`RELEASE_PLEASE_APP_ID` and `RELEASE_PLEASE_APP_PRIVATE_KEY` repository
+secrets. Use an App that is private to this SDK, not one shared with others.
+
 1. On every push to `main`, Release Please opens or updates a pull request
    titled `chore: Release <version>`. The version is derived from the
    [Conventional Commits](https://www.conventionalcommits.org/) merged since
@@ -263,10 +269,9 @@ Releases are prepared by [Release Please](https://github.com/googleapis/release-
    To choose a version yourself, merge a commit whose body contains
    `Release-As: <version>`.
 
-2. The release pull request is opened with the default `GITHUB_TOKEN`, which
-   does not start CI, including when Release Please updates it. Close and
-   reopen it to run the required checks, then review and merge it like any
-   other pull request.
+2. The release pull request is opened with a private GitHub App token, so it
+   triggers CI, including when Release Please updates it. Review and merge it
+   like any other pull request.
 
 3. Release Please creates the `v<version>` tag and a draft GitHub release.
    This does not publish anything; the release workflow publishes the draft

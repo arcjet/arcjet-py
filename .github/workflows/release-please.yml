@@ -4,8 +4,13 @@ name: Release Please
 # creates the `vX.Y.Z` tag and GitHub release. See CONTRIBUTING.md#releasing.
 #
 # Publishing is NOT done here and is never started automatically: a person
-# dispatches `release.yml` on the tag. The default `GITHUB_TOKEN` is used on
-# purpose, since a tag it creates does not trigger other workflows.
+# dispatches `release.yml` on the tag, which is `workflow_dispatch` only, so the
+# tag this workflow creates cannot start a publish.
+#
+# Release Please runs with a GitHub App token so the release pull request it
+# opens triggers CI. The App is private to this repository (a per-SDK App, for
+# Python only); its ID and private key are the `RELEASE_PLEASE_APP_ID` and
+# `RELEASE_PLEASE_APP_PRIVATE_KEY` repository secrets.
 
 on:
   push:
@@ -24,12 +29,15 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
+    # Only run Release Please on `main`. It pushes to the release branch using
+    # a GitHub App token, and App token pushes (unlike `GITHUB_TOKEN`)
+    # re-trigger workflows, so running this job on that branch would loop.
+    if: github.ref == 'refs/heads/main'
     timeout-minutes: 5
+    # The GitHub App token carries the write permissions for contents and
+    # pull-requests, so this job only needs minimal GITHUB_TOKEN permissions.
     permissions:
-      # Push the release branch, create the tag and GitHub release.
-      contents: write
-      # Open, label, and update the release pull request.
-      pull-requests: write
+      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -40,8 +48,19 @@ jobs:
           allowed-endpoints: >
             api.github.com:443
 
+      - name: Generate GitHub App Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # Limit the token to what Release Please needs.
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Release Please
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
