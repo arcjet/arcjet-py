@@ -259,32 +259,30 @@ Releases are prepared by [Release Please](https://github.com/googleapis/release-
    - both `==` pins, via their `# x-release-please-version` markers
    - the two editable workspace entries in `uv.lock`
 
-   CI runs `uv lock --check` and `tools/check_release_lockstep.py` on the
-   pull request, so a location Release Please failed to update fails there.
+   CI runs `uv lock --check`, so a stale `uv.lock` fails the pull request.
    To choose a version yourself, merge a commit whose body contains
    `Release-As: <version>`.
 
-2. Review the release pull request like any other, then merge it.
+2. The release pull request is opened with the default `GITHUB_TOKEN`, which
+   does not start CI, including when Release Please updates it. Close and
+   reopen it to run the required checks, then review and merge it like any
+   other pull request.
 
-3. Release Please creates the `v<version>` tag and the GitHub release. It uses
-   a GitHub App token, so the tag starts the release workflow
-   (`.github/workflows/release.yml`).
+3. Release Please creates the `v<version>` tag and the GitHub release. This
+   does not publish anything.
 
-4. The release workflow's preflight job runs without approval so the reviewer
-   can confirm the tag, versions, and pins; the publish job must then be
-   approved in the `pypi` environment by another member of the team. The
-   run is started by the Release Please App, not by a person, so the
-   environment's "prevent self-review" setting no longer excludes anyone:
-   whoever approved or merged the release pull request must not also
-   approve the publish job.
+4. Publish by hand: in **Actions → Release → Run workflow**, choose the
+   `v<version>` tag, or run `gh workflow run release.yml --ref v<version>`.
 
-5. Once approved, both distributions are published to PyPI.
+5. The preflight job checks the tag, versions, and pins. Another member of the
+   Python SDK Publishers team then approves the publish job in the `pypi`
+   environment; "prevent self-review" stops whoever dispatched the run from
+   approving it. Once approved, both distributions are published to PyPI.
 
 Release Please only produces stable `X.Y.Z` versions. A prerelease
 (`0.10.0b1`) is still bumped and tagged by hand: run
 `uv version --bump minor --bump beta` for both packages
 (`--package arcjet-sensitive-info-rampart` for the backend), update both `==`
-pins and `uv.lock`, then push an annotated `v<version>` tag, which starts the
-same gated release workflow. Do not merge a prerelease version into `main`:
-Release Please and its lockstep check expect `main` to carry the last stable
-release.
+pins and `uv.lock`, push an annotated `v<version>` tag, then dispatch the
+release workflow on it as in step 4. Do not merge a prerelease version into
+`main`: Release Please expects `main` to carry the last stable release.
