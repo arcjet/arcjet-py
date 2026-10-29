@@ -3,19 +3,12 @@ name: Release Please
 # Keeps a release pull request open against `main` and, when one is merged,
 # creates the `vX.Y.Z` tag and GitHub release. See CONTRIBUTING.md#releasing.
 #
-# Publishing is NOT done here. The tag that Release Please creates starts
-# `release.yml` (`on: push: tags: v*`), whose publish job still waits for the
-# `pypi` environment's required reviewers. That chain only works because the
-# release is created with a GitHub App token: a tag created with the default
-# `GITHUB_TOKEN` does not trigger other workflows. `workflow_call` is not an
-# alternative, since PyPI trusted publishing matches the caller workflow
-# rather than `release.yml`.
+# Publishing is NOT done here and is never started automatically: a person
+# dispatches `release.yml` on the tag. The default `GITHUB_TOKEN` is used on
+# purpose, since a tag it creates does not trigger other workflows.
 
 on:
   push:
-    # Never the release branch: Release Please force-pushes it with the App
-    # token, which (unlike `GITHUB_TOKEN`) re-triggers workflows, so running
-    # there would loop.
     branches:
       - main
 
@@ -31,41 +24,24 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
-    # Release Please is fast; a stuck run should not hold the queue.
     timeout-minutes: 5
-    # The App credentials are environment secrets, so only a run on `main`
-    # (the environment's deployment branch policy) can mint a token.
-    environment:
-      name: release-please
-    # Every write goes through the App token below, so `GITHUB_TOKEN` needs
-    # nothing.
-    permissions: {}
+    permissions:
+      # Push the release branch, create the tag and GitHub release.
+      contents: write
+      # Open, label, and update the release pull request.
+      pull-requests: write
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           disable-sudo-and-containers: true
-          # Both actions only call the GitHub REST and GraphQL APIs.
+          # Release Please only calls the GitHub REST and GraphQL APIs.
           egress-policy: block
           allowed-endpoints: >
             api.github.com:443
 
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-          # Scoped to this repository (the default) and to the two scopes
-          # Release Please needs: contents to push the release branch and
-          # create the tag and release, pull requests to open, label, and
-          # update the release pull request.
-          permission-contents: write
-          permission-pull-requests: write
-
       - name: Release Please
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
-          token: ${{ steps.app-token.outputs.token }}
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json

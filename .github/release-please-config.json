@@ -1,7 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "simple",
-  "versioning": "default",
   "changelog-path": "CHANGELOG.md",
   "changelog-sections": [
     { "type": "feat", "section": "🚀 New Features" },
@@ -18,12 +17,6 @@
   ],
   "pull-request-title-pattern": "chore: Release ${version}",
   "pull-request-header": "Automatically generated with [Release Please](https://github.com/googleapis/release-please).",
-  "pull-request-footer": "",
-  "include-v-in-tag": true,
-  "bump-minor-pre-major": false,
-  "bump-patch-for-minor-pre-major": false,
-  "draft": false,
-  "prerelease": false,
   "packages": {
     ".": {
       "component": "arcjet",

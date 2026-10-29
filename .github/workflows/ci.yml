@@ -45,12 +45,6 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Check lockfile
         run: uv lock --check
-      # Release Please bumps the versions, the reciprocal `==` pins and the
-      # `uv.lock` entries, but only warns when an updater stops matching, so
-      # catch a missed location on the release pull request rather than at
-      # release preflight.
-      - name: Check release versions are in lockstep
-        run: uv run python tools/check_release_lockstep.py
       - name: Ruff lint
         run: uv run ruff check . --output-format github
       - name: Ruff format
