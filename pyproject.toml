@@ -48,9 +48,9 @@ keywords = [
 # this extra is requested.
 # Pinned to the exact matching version: the backend imports private core
 # modules, so the two are released in lockstep and must never resolve to
-# different versions (see the reciprocal pin in that package). Bump both
-# together every release.
-sensitive-info-rampart = ["arcjet-sensitive-info-rampart==1.5.0"]
+# different versions (see the reciprocal pin in that package). Release Please
+# bumps both, via the marker below; see `.github/release-please-config.json`.
+sensitive-info-rampart = ["arcjet-sensitive-info-rampart==1.5.0"] # x-release-please-version
 langchain = ["langchain-core>=1.2.5,<2"]
 # Agent middleware only. Separate from `langchain` because the full
 # `langchain` package hard-depends on LangGraph, and folding it into the

@@ -11,8 +11,9 @@ dependencies = [
   # Imports private modules (`arcjet._sensitive_info_backend`, `arcjet._analyze`),
   # so it is coupled to the core version — release the two in lockstep. The
   # exact pin keeps this backend from ever resolving against a core whose
-  # private internals it may not match; bump both together every release.
-  "arcjet==1.5.0",
+  # private internals it may not match. Release Please bumps both, via the
+  # marker below; see `.github/release-please-config.json`.
+  "arcjet==1.5.0", # x-release-please-version
   "numpy>=1.24",
   # 1.23+ dropped CPython 3.10 wheels; the SDK still supports 3.10.
   # 3.14 needs a newer line (1.24+ added those wheels but dropped 3.10).
