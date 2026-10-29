@@ -268,8 +268,9 @@ Releases are prepared by [Release Please](https://github.com/googleapis/release-
    reopen it to run the required checks, then review and merge it like any
    other pull request.
 
-3. Release Please creates the `v<version>` tag and the GitHub release. This
-   does not publish anything.
+3. Release Please creates the `v<version>` tag and a draft GitHub release.
+   This does not publish anything; the release workflow publishes the draft
+   after the PyPI upload succeeds.
 
 4. Publish by hand: in **Actions → Release → Run workflow**, choose the
    `v<version>` tag, or run `gh workflow run release.yml --ref v<version>`.
