@@ -611,9 +611,9 @@ It screens values up to about 100 KB, and only it detects the PHI types. It
 allows up to 3 seconds to screen a value over 2 KB, and a live rule fails
 closed if the scan doesn't finish. Set `timeout_ms` on `launch_arcjet()` above
 `3000` so the client doesn't stop waiting first, and deny when
-`decision.has_failed_open()` is `True`. A request screens up to two different
-texts over 2 KB, so to screen text longer than about 100 KB, split it into
-parts and screen each part in its own `guard()` call.
+`decision.has_failed_open()` is `True`. Each `guard()` call screens up to two
+`SERVER` inputs longer than 2 KB, so to screen text longer than about 100 KB,
+split it into parts and screen each part in its own call.
 
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
