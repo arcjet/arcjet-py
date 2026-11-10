@@ -604,6 +604,15 @@ scanning it, with an `ERROR` reason that gives the input length and the limit.
 In `DRY_RUN` mode the denial is logged but not enforced. A custom backend can
 declare its own limit with an optional `max_input_chars` attribute.
 
+For longer text, or to detect PHI such as medical record numbers, send the text
+as a `SERVER` input to the server-side sensitive information detector in an
+[agent guard policy](https://docs.arcjet.com/guards/remote-policies#detectors).
+It screens values up to about 100 KB, and only it detects the PHI types. It
+screens a value over 2 KB within 3 seconds and allows it unscreened if the scan
+doesn't finish, so deny when `decision.has_failed_open()` is `True` and set
+`timeout_ms` on `launch_arcjet()` above `3000`. Split text longer than about
+100 KB into parts and screen each one.
+
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
 

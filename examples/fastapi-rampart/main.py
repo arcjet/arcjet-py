@@ -57,9 +57,20 @@ async def hello(request: Request, message: str = ""):
     )
 
     if decision.is_denied():
+        if decision.reason_v2.type == "ERROR":
+            # The message is longer than the backend's max_input_chars, so it
+            # was denied without being scanned. For longer text, or to detect
+            # PHI, use the server-side detector in an agent guard policy.
+            return JSONResponse({"error": "Message too long"}, status_code=413)
         return JSONResponse(
             {"error": "Denied", "reason": decision.reason.to_dict()},
             status_code=403,
         )
+
+    # Fail closed when Arcjet couldn't complete the check, so unscreened text
+    # isn't accepted.
+    if decision.is_error():
+        logger.warning("Arcjet couldn't complete the check")
+        return JSONResponse({"error": "Service unavailable"}, status_code=503)
 
     return {"message": "Hello world", "decision": decision.to_dict()}

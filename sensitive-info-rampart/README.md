@@ -154,6 +154,21 @@ strict = rampart(RampartOptions(max_input_chars=10_000))
 print(DEFAULT_MAX_INPUT_CHARS)  # 100000
 ```
 
+### Longer text and PHI
+
+Rampart suits typical request fields. For longer text, raise `max_input_chars`
+when the extra latency fits your budget, or send the text as a `SERVER` input
+to the server-side sensitive information detector in an
+[agent guard policy](https://docs.arcjet.com/guards/remote-policies#detectors),
+which screens values up to about 100 KB. Only the server-side detector detects
+the [PHI types](https://docs.arcjet.com/sensitive-info/phi), such as medical
+record numbers, so screen PHI with a server input.
+
+The server-side detector screens a value over 2 KB within 3 seconds, and allows
+it unscreened if the scan doesn't finish. Deny when `decision.has_failed_open()`
+is `True`, and set `timeout_ms` on `launch_arcjet()` above `3000` (the default
+is `2000`). Split text longer than about 100 KB into parts and screen each one.
+
 > [!NOTE]
 > Inference runs synchronously in the request path, so its latency affects
 > request handling. The model performs best on Latin-script text; see the

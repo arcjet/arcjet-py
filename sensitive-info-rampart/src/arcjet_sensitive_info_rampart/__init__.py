@@ -105,7 +105,9 @@ class RampartOptions:
     warning with the length and the limit. Input is never truncated and
     allowed, so content past the limit cannot get through unscanned. Raise the
     limit if you need to accept larger payloads and can afford the latency, or
-    lower it to tighten the request-cost bound."""
+    lower it to tighten the request-cost bound. For longer text, or to detect
+    PHI, use the server-side sensitive information detector in an agent guard
+    policy instead."""
 
     providers: Optional[tuple[str, ...]] = None
     """ONNX Runtime execution providers (default: ``("CPUExecutionProvider",)``)."""
