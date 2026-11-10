@@ -167,7 +167,11 @@ record numbers, so screen PHI with a server input.
 The server-side detector allows up to 3 seconds to screen a value over 2 KB,
 and a live rule fails closed if the scan doesn't finish. Set `timeout_ms` on
 `launch_arcjet()` above `3000` (the default is `2000`) so the client doesn't
-stop waiting first, and deny when `decision.has_failed_open()` is `True`. Split text longer than about 100 KB into parts and screen each one.
+stop waiting first, and deny when `decision.has_failed_open()` is `True`.
+
+A request screens up to two different texts over 2 KB, and a third fails a
+live rule closed. To screen text longer than about 100 KB, split it into parts
+and screen each part in its own `guard()` call.
 
 > [!NOTE]
 > Inference runs synchronously in the request path, so its latency affects
