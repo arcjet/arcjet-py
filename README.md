@@ -598,6 +598,12 @@ request. To add your own patterns, add a recognizer to the backend. See the
 [`arcjet-sensitive-info-rampart` README](./sensitive-info-rampart/README.md) and
 the [`examples/fastapi-rampart`](./examples/fastapi-rampart) example.
 
+The backend scans at most 100,000 characters per request by default
+(`RampartOptions(max_input_chars=...)`). The rule denies longer input without
+scanning it, with an `ERROR` reason that gives the input length and the limit.
+In `DRY_RUN` mode the denial is logged but not enforced. A custom backend can
+declare its own limit with an optional `max_input_chars` attribute.
+
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
 

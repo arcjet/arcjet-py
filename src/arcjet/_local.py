@@ -53,6 +53,7 @@ from ._sensitive_info_backend import (
     NATIVE_SENSITIVE_INFO_TYPES,
     SensitiveInfoBackendContext,
     SensitiveInfoBackendOptions,
+    oversize_input_message,
 )
 
 # Shared mapping from WASM blocked-reason strings to proto EmailType values
@@ -531,6 +532,10 @@ def evaluate_sensitive_info_locally(
     Runs the rule's configured ``backend`` (or the default WASM engine) and
     returns a proto RuleResult, or None if the backend is unavailable, no value
     was provided, or detection errored.
+
+    A value longer than the backend's declared ``max_input_chars`` is denied
+    without running the backend: the result has conclusion DENY and an error
+    reason that gives the input length and the limit.
     """
     value = ctx.sensitive_info_value
     if not value:
@@ -563,6 +568,20 @@ def evaluate_sensitive_info_locally(
         if _get_component() is None:
             return None
         backend = _WASM_SENSITIVE_INFO_BACKEND
+
+    # Deny input longer than the backend scans, without running it. Scanning a
+    # prefix and allowing the rest would let content past the limit through
+    # unscanned. This is a local result, never a fall-through to the remote
+    # Decide API, and it matches the server, which denies oversize detection
+    # input. The error reason carries the lengths only, never the text.
+    oversize = oversize_input_message(backend, value)
+    if oversize is not None:
+        return decide_pb2.RuleResult(
+            rule_id="",
+            state=_rule_state(rule.mode),
+            conclusion=decide_pb2.CONCLUSION_DENY,
+            reason=decide_pb2.Reason(error=decide_pb2.ErrorReason(message=oversize)),
+        )
 
     options = SensitiveInfoBackendOptions(
         context_window_size=rule.context_window_size,

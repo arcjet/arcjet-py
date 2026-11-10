@@ -77,8 +77,9 @@ __all__ = [
 # Default ceiling on the number of characters scanned per request. Model
 # inference is synchronous and its cost grows with the input length (each
 # overlapping window is a full inference pass), so unbounded input is a
-# denial-of-service vector; input beyond this is truncated before detection.
-# Generous enough for typical request fields while bounding worst-case CPU.
+# denial-of-service vector. The Arcjet rules deny longer input without running
+# the backend. Generous enough for typical request fields while bounding
+# worst-case CPU.
 DEFAULT_MAX_INPUT_CHARS = 100_000
 
 
@@ -94,12 +95,17 @@ class RampartOptions:
     """Minimum confidence score for a model token to count (default: ``0.5``)."""
 
     max_input_chars: Optional[int] = None
-    """Maximum number of characters scanned per request (default:
-    :data:`DEFAULT_MAX_INPUT_CHARS`). Model inference runs synchronously on the
-    request path, so an unbounded input would be a denial-of-service vector.
-    Longer input is truncated to this many characters before detection and a
-    warning is logged; raise it if you need to scan larger payloads and can
-    afford the latency, or lower it to tighten the request-cost bound."""
+    """Maximum number of characters (code points) scanned per request (default:
+    :data:`DEFAULT_MAX_INPUT_CHARS`). Must be a positive ``int``. Model inference
+    runs synchronously on the request path, so an unbounded input would be a
+    denial-of-service vector.
+
+    The ``detect_sensitive_info`` rule and ``arcjet.guard`` sensitive info
+    detection **deny** longer input without running the model, and log a
+    warning with the length and the limit. Input is never truncated and
+    allowed, so content past the limit cannot get through unscanned. Raise the
+    limit if you need to accept larger payloads and can afford the latency, or
+    lower it to tighten the request-cost bound."""
 
     providers: Optional[tuple[str, ...]] = None
     """ONNX Runtime execution providers (default: ``("CPUExecutionProvider",)``)."""
@@ -115,6 +121,20 @@ class RampartOptions:
     run_model: Optional[ModelRunner] = None
     """Override the model runner. Intended for testing — supply a function that
     returns spans without loading the ONNX model."""
+
+    def __post_init__(self) -> None:
+        limit = self.max_input_chars
+        if limit is None:
+            return
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError(
+                "RampartOptions.max_input_chars must be a positive int, got "
+                f"{type(limit).__name__}"
+            )
+        if limit <= 0:
+            raise ValueError(
+                f"RampartOptions.max_input_chars must be a positive int, got {limit}"
+            )
 
 
 def _overlaps(a: DetectedSpan, b: DetectedSpan) -> bool:
@@ -181,6 +201,15 @@ class _RampartBackend:
         self._recognizers = recognizers
         self._max_input_chars = max_input_chars
 
+    @property
+    def max_input_chars(self) -> int:
+        """The largest input, in characters, this backend scans.
+
+        The Arcjet sensitive info rules read this and deny longer input without
+        calling :meth:`detect`.
+        """
+        return self._max_input_chars
+
     def detect(
         self,
         context: SensitiveInfoBackendContext,
@@ -195,9 +224,13 @@ class _RampartBackend:
                 "the `recognizers` option instead"
             )
 
-        # Bound synchronous inference cost: scan only the first
-        # ``max_input_chars`` characters. Truncating a prefix keeps span offsets
-        # valid; log a warning so silently-unscanned trailing content is visible.
+        # The Arcjet rules deny input over ``max_input_chars`` before calling
+        # this method, so through them this branch never runs. It remains for
+        # code that calls ``detect()`` directly: bound synchronous inference
+        # cost by scanning only the first ``max_input_chars`` characters.
+        # Truncating a prefix keeps span offsets valid, but the rest is NOT
+        # scanned, so a direct caller must treat a truncated result as
+        # incomplete. Log a warning so the unscanned remainder is visible.
         if len(value) > self._max_input_chars:
             context.log.warning(
                 "input of %d characters exceeds the Rampart backend limit of "
