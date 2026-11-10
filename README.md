@@ -608,9 +608,10 @@ For longer text, or to detect PHI such as medical record numbers, send the text
 as a `SERVER` input to the server-side sensitive information detector in an
 [agent guard policy](https://docs.arcjet.com/guards/remote-policies#detectors).
 It screens values up to about 100 KB, and only it detects the PHI types. It
-screens a value over 2 KB within 3 seconds and allows it unscreened if the scan
-doesn't finish, so deny when `decision.has_failed_open()` is `True` and set
-`timeout_ms` on `launch_arcjet()` above `3000`. Split text longer than about
+allows up to 3 seconds to screen a value over 2 KB, and a live rule fails
+closed if the scan doesn't finish. Set `timeout_ms` on `launch_arcjet()` above
+`3000` so the client doesn't stop waiting first, and deny when
+`decision.has_failed_open()` is `True`. Split text longer than about
 100 KB into parts and screen each one.
 
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
