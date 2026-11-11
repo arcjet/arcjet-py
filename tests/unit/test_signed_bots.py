@@ -75,6 +75,7 @@ def test_signed_bot_identifiers_are_sent_to_cloud(identity: str, field: str) -> 
     "category",
     [
         BotCategory.AI,
+        BotCategory.AI_AGENT,
         BotCategory.GOOGLE,
         BotCategory.SEARCH_ENGINE,
         BotCategory.TOOL,
