@@ -141,6 +141,35 @@ class TestDetectBot:
         }
         assert result.value.denied == []
 
+    def test_ai_category_still_covers_ai_agents(
+        self, component: AnalyzeComponent
+    ) -> None:
+        """Every AI_AGENT bot stays in AI, so existing AI rules are unchanged."""
+        config = AllowedBotConfig(
+            entities=[BotCategory.AI.value], skip_custom_detect=False
+        )
+        ua = "Claude-User (claude-code/2.1.308; +https://support.anthropic.com/)"
+        result = component.detect_bot(_request_with_ua(ua), config)
+        assert isinstance(result, Ok)
+        assert set(result.value.allowed) == {"CATEGORY:AI", "ANTHROPIC_CLAUDE_CODE"}
+        assert result.value.denied == []
+
+    def test_ai_agent_allow_list_denies_ai_crawlers(
+        self, component: AnalyzeComponent
+    ) -> None:
+        """Allowing AI_AGENT lets agents through but not AI crawlers."""
+        config = AllowedBotConfig(
+            entities=[BotCategory.AI_AGENT.value], skip_custom_detect=False
+        )
+        ua = (
+            "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; "
+            "GPTBot/1.4; +https://openai.com/gptbot"
+        )
+        result = component.detect_bot(_request_with_ua(ua), config)
+        assert isinstance(result, Ok)
+        assert result.value.allowed == []
+        assert "OPENAI_CRAWLER" in result.value.denied
+
     def test_allow_webhook_category(self, component: AnalyzeComponent) -> None:
         """BotCategory.WEBHOOK resolves to a category the analyzer knows."""
         config = AllowedBotConfig(
