@@ -154,6 +154,18 @@ class TestDetectBot:
         assert set(result.value.allowed) == {"CATEGORY:AI", "ANTHROPIC_CLAUDE_CODE"}
         assert result.value.denied == []
 
+    def test_ai_deny_list_still_denies_ai_agents(
+        self, component: AnalyzeComponent
+    ) -> None:
+        """A BotCategory.AI deny list still denies an AI agent such as Claude Code."""
+        config = DeniedBotConfig(
+            entities=[BotCategory.AI.value], skip_custom_detect=False
+        )
+        ua = "Claude-User (claude-code/2.1.308; +https://support.anthropic.com/)"
+        result = component.detect_bot(_request_with_ua(ua), config)
+        assert isinstance(result, Ok)
+        assert set(result.value.denied) == {"CATEGORY:AI", "ANTHROPIC_CLAUDE_CODE"}
+
     def test_ai_agent_allow_list_denies_ai_crawlers(
         self, component: AnalyzeComponent
     ) -> None:
