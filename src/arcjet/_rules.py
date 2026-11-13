@@ -191,6 +191,10 @@ class BotCategory(str, Enum):
     AI = "CATEGORY:AI"
     """AI training and data-collection bots."""
 
+    AI_AGENT = "CATEGORY:AI_AGENT"
+    """AI products fetching a page on demand for a person, such as ChatGPT-User,
+    Claude-User, or a coding agent. Every ``AI_AGENT`` bot is also in ``AI``."""
+
     AMAZON = "CATEGORY:AMAZON"
     """Amazon-operated bots (e.g. Alexa)."""
 
@@ -287,6 +291,7 @@ _SIGNED_BOT_IDS = frozenset(
 _SIGNED_BOT_CATEGORIES = frozenset(
     {
         BotCategory.AI,
+        BotCategory.AI_AGENT,
         BotCategory.GOOGLE,
         BotCategory.SEARCH_ENGINE,
         BotCategory.TOOL,

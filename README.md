@@ -426,12 +426,17 @@ detect_bot(
 )
 ```
 
-Available categories: `ACADEMIC`, `ADVERTISING`, `AI`, `AMAZON`, `APPLE`,
-`ARCHIVE`, `BOTNET`, `FEEDFETCHER`, `GOOGLE`, `META`, `MICROSOFT`,
+Available categories: `ACADEMIC`, `ADVERTISING`, `AI`, `AI_AGENT`, `AMAZON`,
+`APPLE`, `ARCHIVE`, `BOTNET`, `FEEDFETCHER`, `GOOGLE`, `META`, `MICROSOFT`,
 `MONITOR`, `OPTIMIZER`, `PREVIEW`, `PROGRAMMATIC`, `SEARCH_ENGINE`,
 `SLACK`, `SOCIAL`, `TOOL`, `UNKNOWN`, `VERCEL`, `WEBHOOK`, `YAHOO`. Use
 `BotCategory.<NAME>` in Python or pass the string directly. You can also
 allow or deny [specific bots by name](https://arcjet.com/bot-list).
+
+`AI_AGENT` is the part of `AI` that fetches a page on demand for a person, such
+as ChatGPT-User, Claude-User, or a coding agent. To block AI crawlers but let AI
+agents through, allow `BotCategory.AI_AGENT` instead of denying
+`BotCategory.AI`, because denying `AI` also blocks agents.
 
 If you specify an allow list, all other bots are denied. An empty allow list
 blocks all bots. The reverse applies for deny lists.
