@@ -16,8 +16,14 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 
-def tok(entity, start, end, score=0.99):
-    return RawToken(entity=entity, score=score, start=start, end=end)
+def tok(entity, start, end, score=0.99, *, is_subword=False):
+    return RawToken(
+        entity=entity,
+        score=score,
+        start=start,
+        end=end,
+        is_subword=is_subword,
+    )
 
 
 def _words(*lengths):
@@ -182,14 +188,101 @@ class TestAggregateTokens:
         assert len(spans) == 1
         assert (spans[0].start, spans[0].end) == (0, 11)
 
-    def test_begin_token_starts_new_span(self):
-        # Two B- tokens of the same type do not merge.
+    def test_merges_repeated_begin_labels_inside_a_word(self):
+        # The bundled model labels every piece of "Luxembourg" B-CITY.
+        value = "Luxembourg"
+        spans = aggregate_tokens(
+            value,
+            [
+                tok("B-CITY", 0, 3),
+                tok("B-CITY", 3, 5, is_subword=True),
+                tok("B-CITY", 5, 10, is_subword=True),
+            ],
+        )
+        assert [(s.start, s.end, s.type) for s in spans] == [(0, 10, "CITY")]
+
+    def test_merges_repeated_begin_labels_inside_an_identifier(self):
+        # The model emits B-DRIVERS_LICENSE for every subword of this IBAN.
+        value = "US64SVBKUS6S3300958879"
+        pieces = [
+            "US",
+            "64",
+            "S",
+            "VB",
+            "KUS",
+            "6",
+            "S",
+            "33",
+            "00",
+            "9",
+            "58",
+            "8",
+            "7",
+            "9",
+        ]
+        assert "".join(pieces) == value
+        tokens = []
+        start = 0
+        for piece in pieces:
+            end = start + len(piece)
+            tokens.append(tok("B-DRIVERS_LICENSE", start, end, is_subword=start > 0))
+            start = end
+
+        spans = aggregate_tokens(value, tokens)
+        assert [(s.start, s.end, s.type) for s in spans] == [
+            (0, len(value), "DRIVERS_LICENSE")
+        ]
+
+    def test_merges_subwords_and_continuations_in_a_multiword_entity(self):
+        value = "Allée des Chênes"
+        spans = aggregate_tokens(
+            value,
+            [
+                tok("B-STREET_NAME", 0, 3),
+                tok("B-STREET_NAME", 3, 5, is_subword=True),
+                tok("I-STREET_NAME", 6, 9),
+                tok("I-STREET_NAME", 10, 14),
+                tok("I-STREET_NAME", 14, 16, is_subword=True),
+            ],
+        )
+        assert [(s.start, s.end, s.type) for s in spans] == [
+            (0, len(value), "STREET_NAME")
+        ]
+
+    def test_begin_token_after_whitespace_starts_new_span(self):
+        # A space separates two B- tokens of the same type into distinct entities.
         value = "Alex Sam"
         spans = aggregate_tokens(
             value,
             [tok("B-GIVEN_NAME", 0, 4), tok("B-GIVEN_NAME", 5, 8)],
         )
         assert len(spans) == 2
+
+    def test_touching_begin_token_on_new_word_starts_new_span(self):
+        # The punctuation is a separate tokenizer word, not a subword of 12.
+        value = "12$"
+        spans = aggregate_tokens(
+            value,
+            [tok("B-BUILDING_NUMBER", 0, 2), tok("B-BUILDING_NUMBER", 2, 3)],
+        )
+        assert [(s.start, s.end, s.type) for s in spans] == [
+            (0, 2, "BUILDING_NUMBER"),
+        ]
+
+    def test_touching_begin_token_after_subword_starts_new_span(self):
+        value = "Lux$"
+        spans = aggregate_tokens(
+            value,
+            [
+                tok("B-CITY", 0, 2),
+                tok("B-CITY", 2, 3, is_subword=True),
+                tok("B-CITY", 3, 4),
+            ],
+        )
+        assert [(s.start, s.end) for s in spans] == [(0, 3)]
+
+    def test_punctuation_only_model_label_is_not_an_entity(self):
+        assert aggregate_tokens("$", [tok("B-EMAIL", 0, 1)]) == []
 
     def test_different_types_do_not_merge(self):
         value = "Alex 123"
