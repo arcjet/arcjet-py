@@ -104,8 +104,8 @@ rampart(
         # point for custom detection with this backend.
         recognizers=(*default_recognizers, my_recognizer),
         # Max characters scanned per request (default: DEFAULT_MAX_INPUT_CHARS,
-        # i.e. 100_000). Longer input is truncated before detection and a
-        # warning is logged. See "Limiting input size" below.
+        # i.e. 100_000). Must be a positive int. The rule denies longer input
+        # without scanning it. See "Limiting input size" below.
         max_input_chars=100_000,
     )
 )
@@ -119,10 +119,24 @@ this backend; add a recognizer instead.
 
 Inference is synchronous and its cost grows with the input length, so an
 unbounded value is a denial-of-service vector. By default the backend scans at
-most `DEFAULT_MAX_INPUT_CHARS` (100,000) characters per request; longer input is
-truncated to that prefix before detection and a warning is logged. Raise the
-limit to scan larger payloads (at the cost of latency), or lower it to tighten
-the per-request bound:
+most `DEFAULT_MAX_INPUT_CHARS` (100,000) characters per request. Characters are
+counted as Python string length (code points), not bytes.
+
+The backend exposes its limit as `max_input_chars`. The `detect_sensitive_info`
+rule and `arcjet.guard` sensitive info detection deny input over the limit
+without running the model, and log a warning with the length and the limit
+(never the text). The input is not truncated and allowed, because the part
+past the limit would go unscanned. With `protect()`, the denial has an `ERROR`
+reason that gives the input length and the limit; in `DRY_RUN` mode it is
+logged but not enforced.
+
+If you call the backend's `detect()` method directly, it still scans only the
+first `max_input_chars` characters and logs a warning, so treat that result as
+incomplete.
+
+`max_input_chars` must be a positive `int`; other values raise an error when
+you create `RampartOptions`. Raise the limit to accept larger payloads (at the
+cost of latency), or lower it to tighten the per-request bound:
 
 ```python
 from arcjet_sensitive_info_rampart import (
@@ -139,6 +153,25 @@ strict = rampart(RampartOptions(max_input_chars=10_000))
 
 print(DEFAULT_MAX_INPUT_CHARS)  # 100000
 ```
+
+### Longer text and PHI
+
+Rampart suits typical request fields. For longer text, raise `max_input_chars`
+when the extra latency fits your budget, or send the text as a `SERVER` input
+to the server-side sensitive information detector in an
+[agent guard policy](https://docs.arcjet.com/guards/remote-policies#detectors),
+which screens values up to about 100 KB. Only the server-side detector detects
+the [PHI types](https://docs.arcjet.com/sensitive-info/phi), such as medical
+record numbers, so screen PHI with a server input.
+
+The server-side detector allows up to 3 seconds to screen a value over 2 KB,
+and a live rule fails closed if the scan doesn't finish. Set `timeout_ms` on
+`launch_arcjet()` above `3000` (the default is `2000`) so the client doesn't
+stop waiting first, and deny when `decision.has_failed_open()` is `True`.
+
+Each `guard()` call screens up to two `SERVER` inputs longer than 2 KB, and a
+third fails a live rule closed. To screen text longer than about 100 KB, split
+it into parts and screen each part in its own call.
 
 > [!NOTE]
 > Inference runs synchronously in the request path, so its latency affects

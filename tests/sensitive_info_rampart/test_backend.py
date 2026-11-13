@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from arcjet_sensitive_info_rampart import RampartOptions, merge_spans, rampart
 from arcjet_sensitive_info_rampart._entities import (
     from_analyze_entity,
@@ -182,6 +183,8 @@ class TestRampartBackend:
 
 
 class TestMaxInputChars:
+    """Direct `detect()` calls still truncate; the SDK rules deny instead."""
+
     def test_truncates_input_over_limit_and_warns(self, caplog):
         seen = {}
 
@@ -238,3 +241,62 @@ class TestMaxInputChars:
         backend = rampart(RampartOptions(recognizers=(), run_model=run_model))
         backend.detect(_CTX, "y" * (DEFAULT_MAX_INPUT_CHARS + 25), _deny("EMAIL"))
         assert seen["value_len"] == DEFAULT_MAX_INPUT_CHARS
+
+
+class TestMaxInputCharsOption:
+    def test_backend_exposes_configured_limit(self):
+        backend = rampart(
+            RampartOptions(
+                recognizers=(), run_model=_model_returning(), max_input_chars=42
+            )
+        )
+        assert getattr(backend, "max_input_chars") == 42
+
+    def test_backend_exposes_default_limit(self):
+        from arcjet_sensitive_info_rampart import DEFAULT_MAX_INPUT_CHARS
+
+        backend = rampart(RampartOptions(recognizers=(), run_model=_model_returning()))
+        assert getattr(backend, "max_input_chars") == DEFAULT_MAX_INPUT_CHARS == 100_000
+
+    def test_default_option_is_valid(self):
+        assert RampartOptions().max_input_chars is None
+
+    @pytest.mark.parametrize("value", [0, -1, -100_000])
+    def test_non_positive_rejected(self, value):
+        with pytest.raises(ValueError, match="max_input_chars must be a positive int"):
+            RampartOptions(max_input_chars=value)
+
+    @pytest.mark.parametrize("value", [True, False, 1.5, 100_000.0, "100000"])
+    def test_non_int_rejected(self, value):
+        with pytest.raises(TypeError, match="max_input_chars must be a positive int"):
+            RampartOptions(max_input_chars=value)
+
+    def test_rule_denies_over_limit_without_running_model(self):
+        # Through the SDK rule, input over the limit is denied rather than
+        # truncated: the model and recognizers never run, so personal data past
+        # the limit cannot slip through unscanned.
+        from arcjet._context import RequestContext
+        from arcjet._enums import Mode
+        from arcjet._local import evaluate_sensitive_info_locally
+        from arcjet._rules import detect_sensitive_info
+        from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+        calls = []
+
+        def run_model(value):
+            calls.append(value)
+            return []
+
+        backend = rampart(RampartOptions(run_model=run_model, max_input_chars=20))
+        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["EMAIL"], backend=backend)
+        value = ("x" * 40) + " alice@example.com"
+        result = evaluate_sensitive_info_locally(
+            RequestContext(sensitive_info_value=value), rule
+        )
+        assert calls == []
+        assert result is not None
+        assert result.conclusion == decide_pb2.CONCLUSION_DENY
+        assert result.reason.error.message == (
+            f"sensitive info input of {len(value)} characters exceeds the backend "
+            "limit of 20"
+        )

@@ -7,6 +7,11 @@ Rampart NER model entirely locally. Pass ``backend=rampart()`` to the rule.
 Backends are **synchronous** in the Python SDK: local rule evaluation runs on
 the synchronous request path and model inference is blocking, so a backend's
 latency directly affects request handling.
+
+A backend can declare the largest input it scans with an optional
+``max_input_chars`` attribute (see :class:`SensitiveInfoBackend`). The SDK rules
+deny input over that limit without calling the backend, so content past the
+limit is never let through unscanned.
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ from typing import (
     Sequence,
     runtime_checkable,
 )
+
+from arcjet._logging import logger
 
 if TYPE_CHECKING:
     from arcjet._analyze import SensitiveInfoEntities, SensitiveInfoResult
@@ -111,6 +118,50 @@ def backend_only_error_message(
     )
 
 
+def backend_input_limit(backend: object) -> Optional[int]:
+    """Return the input limit ``backend`` declares, or ``None`` if it has none.
+
+    A backend declares a limit with an optional ``max_input_chars`` attribute or
+    property. It is optional so third-party backends written before it existed
+    keep working unchanged. Only a positive ``int`` counts as a limit: a missing,
+    non-integer, boolean, or non-positive value, or a property that raises, is
+    treated as no limit, which is the behavior before backends could declare one.
+    """
+    try:
+        limit = getattr(backend, "max_input_chars", None)
+    except Exception:
+        return None
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        return None
+    return limit
+
+
+def oversize_input_message(backend: object, value: str) -> Optional[str]:
+    """Check ``value`` against the limit ``backend`` declares.
+
+    The SDK rules call this before ``backend.detect`` and deny the input when it
+    returns a message, so no inference runs on it and nothing past the limit is
+    let through unscanned. Length is counted in code points (``len(value)``),
+    the unit the Rampart backend uses.
+
+    Logs one warning with the input length and the limit. The message and the
+    log never include the text itself.
+
+    Returns:
+        A message describing the overflow when ``value`` is longer than the
+        declared limit, otherwise ``None``.
+    """
+    limit = backend_input_limit(backend)
+    if limit is None or len(value) <= limit:
+        return None
+    message = (
+        f"sensitive info input of {len(value)} characters exceeds the backend "
+        f"limit of {limit}"
+    )
+    logger.warning("%s; denying without scanning", message)
+    return message
+
+
 def default_backend() -> SensitiveInfoBackend:
     """Return the shared default (WASM) sensitive-info backend.
 
@@ -161,6 +212,14 @@ class SensitiveInfoBackend(Protocol):
     A backend receives the text to scan together with the configured allow/deny
     ``entities`` and must return which detected spans are ``allowed`` and which
     are ``denied``.
+
+    A backend may also expose an optional ``max_input_chars`` attribute or
+    property: a positive ``int`` giving the largest input, in characters (code
+    points), that it scans. It is not part of this protocol, so existing
+    backends need not define it. When it is set, the ``detect_sensitive_info``
+    rule and ``arcjet.guard`` sensitive info detection deny any longer input
+    without calling :meth:`detect`, rather than letting the unscanned remainder
+    through. Without it, every input is passed to :meth:`detect` as before.
     """
 
     def detect(

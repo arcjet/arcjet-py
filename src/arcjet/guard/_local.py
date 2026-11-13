@@ -19,6 +19,7 @@ from arcjet._sensitive_info_backend import (
     SensitiveInfoBackendContext,
     SensitiveInfoBackendOptions,
     default_backend,
+    oversize_input_message,
 )
 
 if TYPE_CHECKING:
@@ -100,6 +101,11 @@ def evaluate_sensitive_info_locally(
     :class:`LocalSensitiveInfoError` on failure, or ``None`` if the default WASM
     component is unavailable (so the caller falls through to the server) or when
     ``text`` is empty.
+
+    ``text`` longer than the backend's declared ``max_input_chars`` is denied
+    without running the backend: the result has conclusion ``"DENY"`` and no
+    detected entities. The Guard rule and the remote policy LOCAL input path
+    both go through this function.
     """
     from arcjet._analyze import (
         SensitiveInfoEntitiesAllow,
@@ -118,6 +124,19 @@ def evaluate_sensitive_info_locally(
         if _get_component() is None:
             return None
         backend = default_backend()
+
+    # Deny input longer than the backend scans, without running it. Scanning a
+    # prefix and allowing the rest would let content past the limit through
+    # unscanned. This is a computed DENY with no entities, which the server
+    # relays as a denial for a live rule and ignores in dry run. It must not be
+    # a LocalSensitiveInfoError: the server treats an error as fail-open.
+    if oversize_input_message(backend, text) is not None:
+        return LocalSensitiveInfoResult(
+            conclusion="DENY",
+            detected_entity_types=[],
+            detected_entities=[],
+            elapsed_ms=0,
+        )
 
     if allow:
         wasm_entities = [_to_wasm_entity(e) for e in allow]

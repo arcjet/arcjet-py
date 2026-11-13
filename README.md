@@ -598,6 +598,23 @@ request. To add your own patterns, add a recognizer to the backend. See the
 [`arcjet-sensitive-info-rampart` README](./sensitive-info-rampart/README.md) and
 the [`examples/fastapi-rampart`](./examples/fastapi-rampart) example.
 
+The backend scans at most 100,000 characters per request by default
+(`RampartOptions(max_input_chars=...)`). The rule denies longer input without
+scanning it, with an `ERROR` reason that gives the input length and the limit.
+In `DRY_RUN` mode the denial is logged but not enforced. A custom backend can
+declare its own limit with an optional `max_input_chars` attribute.
+
+For longer text, or to detect PHI such as medical record numbers, send the text
+as a `SERVER` input to the server-side sensitive information detector in an
+[agent guard policy](https://docs.arcjet.com/guards/remote-policies#detectors).
+It screens values up to about 100 KB, and only it detects the PHI types. It
+allows up to 3 seconds to screen a value over 2 KB, and a live rule fails
+closed if the scan doesn't finish. Set `timeout_ms` on `launch_arcjet()` above
+`3000` so the client doesn't stop waiting first, and deny when
+`decision.has_failed_open()` is `True`. Each `guard()` call screens up to two
+`SERVER` inputs longer than 2 KB, so to screen text longer than about 100 KB,
+split it into parts and screen each part in its own call.
+
 See the [Sensitive Information docs](https://docs.arcjet.com/sensitive-info) for
 more details.
 
