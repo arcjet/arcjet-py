@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import timedelta, timezone
-from typing import Any
+from typing import Any, get_args
 
 from google.protobuf.json_format import MessageToDict
 
@@ -45,32 +45,30 @@ def _email_type_from_proto(proto: decide_pb2.EmailType) -> EmailType:
     return "UNSPECIFIED"
 
 
+_BOT_KINDS: dict[str, BotKind] = {kind: kind for kind in get_args(BotKind)}
+_BOT_EVIDENCE: dict[str, BotEvidence] = {
+    evidence: evidence for evidence in get_args(BotEvidence)
+}
+
+
 def _bot_kind_from_proto(proto: decide_pb2.BotKind) -> BotKind | None:
     """Convert a protobuf BotKind; ``None`` for unspecified or unknown values."""
 
-    if proto == decide_pb2.BOT_KIND_AI_AGENT:
-        return "AI_AGENT"
-    if proto == decide_pb2.BOT_KIND_AI_CRAWLER:
-        return "AI_CRAWLER"
-    if proto == decide_pb2.BOT_KIND_AUTOMATION:
-        return "AUTOMATION"
-    if proto == decide_pb2.BOT_KIND_OTHER:
-        return "OTHER"
-    return None
+    try:
+        name = decide_pb2.BotKind.Name(proto)
+    except ValueError:
+        return None
+    return _BOT_KINDS.get(name.removeprefix("BOT_KIND_"))
 
 
 def _bot_evidence_from_proto(proto: decide_pb2.BotEvidence) -> BotEvidence | None:
     """Convert a protobuf BotEvidence; ``None`` for unspecified or unknown values."""
 
-    if proto == decide_pb2.BOT_EVIDENCE_UNVERIFIED:
-        return "UNVERIFIED"
-    if proto == decide_pb2.BOT_EVIDENCE_FINGERPRINT:
-        return "FINGERPRINT"
-    if proto == decide_pb2.BOT_EVIDENCE_IP:
-        return "IP"
-    if proto == decide_pb2.BOT_EVIDENCE_SIGNATURE:
-        return "SIGNATURE"
-    return None
+    try:
+        name = decide_pb2.BotEvidence.Name(proto)
+    except ValueError:
+        return None
+    return _BOT_EVIDENCE.get(name.removeprefix("BOT_EVIDENCE_"))
 
 
 def _bot_identity_from_proto(proto: decide_pb2.BotV2Reason) -> BotIdentity | None:

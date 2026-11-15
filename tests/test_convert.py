@@ -211,6 +211,32 @@ def test_converting_bot_identity_unknown_or_unspecified_is_none(
     assert reason.identity is None
 
 
+def test_bot_enum_literals_match_proto() -> None:
+    from typing import get_args
+
+    from arcjet._convert import _bot_evidence_from_proto, _bot_kind_from_proto
+    from arcjet._dataclasses import BotEvidence, BotKind
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    kinds = {
+        _bot_kind_from_proto(v)  # type: ignore[arg-type]
+        for v in decide_pb2.BotKind.values()
+        if v != decide_pb2.BOT_KIND_UNSPECIFIED
+    }
+    evidence = {
+        _bot_evidence_from_proto(v)  # type: ignore[arg-type]
+        for v in decide_pb2.BotEvidence.values()
+        if v != decide_pb2.BOT_EVIDENCE_UNSPECIFIED
+    }
+
+    assert kinds == set(get_args(BotKind))
+    assert evidence == set(get_args(BotEvidence))
+    assert _bot_kind_from_proto(decide_pb2.BOT_KIND_UNSPECIFIED) is None
+    assert _bot_evidence_from_proto(decide_pb2.BOT_EVIDENCE_UNSPECIFIED) is None
+    assert _bot_kind_from_proto(99) is None  # type: ignore[arg-type]
+    assert _bot_evidence_from_proto(99) is None  # type: ignore[arg-type]
+
+
 def test_converting_edge_rule_reason() -> None:
     from arcjet._convert import _reason_from_proto
     from arcjet._dataclasses import ErrorReason
