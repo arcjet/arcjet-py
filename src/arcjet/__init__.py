@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from ._client import Arcjet, ArcjetSync, arcjet, arcjet_sync
 from ._context import ClientIpDetails, ClientIpProvenance
-from ._dataclasses import IpDetails, ThreatIntelligence
+from ._dataclasses import BotIdentity, IpDetails, ThreatIntelligence
 from ._decision import (
     Decision,
     IpInfo,
     Reason,  # type: ignore -- intentionally deprecated
     RuleResult,
+    is_ai_agent,
     is_missing_user_agent,
     is_spoofed_bot,
     is_verified_bot,
@@ -44,6 +45,7 @@ __all__ = [
     "Arcjet",
     "ArcjetSync",
     "BotCategory",
+    "BotIdentity",
     "ClientIpDetails",
     "ClientIpProvenance",
     "Decision",
@@ -60,6 +62,7 @@ __all__ = [
     "IpInfo",
     "IpDetails",
     "ThreatIntelligence",
+    "is_ai_agent",
     "is_missing_user_agent",
     "is_spoofed_bot",
     "is_verified_bot",

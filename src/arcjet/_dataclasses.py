@@ -5,6 +5,65 @@ from typing import Literal
 
 from typing_extensions import deprecated
 
+BotKind = Literal["AI_AGENT", "AI_CRAWLER", "AUTOMATION", "OTHER"]
+"""Kind of bot reported in ``BotIdentity.kind``.
+
+Possible values:
+
+- ``"AI_AGENT"``: An AI product fetching on demand for a person who is waiting
+  on the answer (``CATEGORY:AI_AGENT``).
+- ``"AI_CRAWLER"``: Scheduled AI crawling for training or an AI index
+  (``CATEGORY:AI`` and not ``CATEGORY:AI_AGENT``).
+- ``"AUTOMATION"``: Browser automation found by Arcjet Signals with no named
+  bot. ``BotIdentity.bot_id`` is empty.
+- ``"OTHER"``: Any other detected bot.
+"""
+
+BotEvidence = Literal["UNVERIFIED", "FINGERPRINT", "IP", "SIGNATURE"]
+"""How a ``BotIdentity`` was established, from weakest to strongest.
+
+Possible values:
+
+- ``"UNVERIFIED"``: Matched by User-Agent or IP reputation, and not verified.
+- ``"FINGERPRINT"``: Arcjet Signals browser checks failed.
+- ``"IP"``: The IP address is in the operator's published ranges, or reverse
+  DNS confirmed it.
+- ``"SIGNATURE"``: A Web Bot Auth signature verified against the operator's
+  key directory.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class BotIdentity:
+    """Primary bot detected for a request, as reported by Arcjet Cloud.
+
+    A request can match several bots; this is the one with the strongest
+    evidence. Access via ``BotReason.identity``, which is ``None`` when no bot
+    was detected, when the decision was made locally without Arcjet Cloud, or
+    when this SDK does not recognize the reported kind or evidence.
+
+    Example::
+
+        if decision.reason_v2.type == "BOT":
+            identity = decision.reason_v2.identity
+            if identity and identity.kind == "AI_AGENT":
+                print("AI agent:", identity.bot_id, identity.evidence)
+    """
+
+    kind: BotKind
+    """Kind of bot, such as ``"AI_AGENT"``. See ``BotKind``."""
+
+    bot_id: str
+    """Bot identifier, such as ``"OPENAI_CRAWLER_USER"`` or a ``SIGNED_BOT:``
+    directory. Empty when ``kind`` is ``"AUTOMATION"``."""
+
+    operator: str
+    """Hostname that operates the bot, such as ``"chatgpt.com"``. Set only when
+    ``evidence`` is ``"SIGNATURE"``; empty otherwise."""
+
+    evidence: BotEvidence
+    """Strongest evidence for this identity. See ``BotEvidence``."""
+
 
 @dataclass(frozen=True, slots=True)
 class BotReason:
@@ -39,6 +98,13 @@ class BotReason:
 
     type: Literal["BOT"] = "BOT"
     """Discriminator field. Always ``"BOT"``."""
+
+    identity: BotIdentity | None = None
+    """Primary detected bot, or ``None``.
+
+    ``None`` when no bot was detected, when the decision did not come from
+    Arcjet Cloud, or when the reported kind or evidence is not recognized by
+    this SDK version. See ``BotIdentity``."""
 
 
 EmailType = Literal[

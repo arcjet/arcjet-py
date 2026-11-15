@@ -22,7 +22,11 @@ from google.protobuf.json_format import MessageToDict
 from typing_extensions import deprecated
 
 import arcjet._dataclasses
-from arcjet._convert import _ip_details_from_proto, _reason_from_proto
+from arcjet._convert import (
+    _bot_identity_from_proto,
+    _ip_details_from_proto,
+    _reason_from_proto,
+)
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 
@@ -457,6 +461,40 @@ def is_verified_bot(result: RuleResult) -> bool:
         return False
     if r.WhichOneof("reason") == "bot_v2":
         return bool(r.bot_v2.verified)
+    return False
+
+
+def is_ai_agent(result: RuleResult) -> bool:
+    """Return ``True`` if a live bot rule identified the client as an AI agent.
+
+    An AI agent is an AI product fetching on demand for a person who is
+    waiting on the answer (``CATEGORY:AI_AGENT``), as opposed to an AI crawler
+    collecting training or index data. This checks that the primary bot
+    identity reported by Arcjet Cloud has kind ``"AI_AGENT"``. Decisions made
+    locally without Arcjet Cloud carry no identity, so this returns ``False``
+    for them. Results from ``DRY_RUN`` rules are ignored.
+
+    Args:
+        result: A single ``RuleResult`` from ``decision.results``.
+
+    Returns:
+        ``True`` when a live bot rule reported an AI agent as the primary bot.
+
+    Example::
+
+        from arcjet import is_ai_agent
+
+        if any(is_ai_agent(r) for r in decision.results):
+            return jsonify(message="Hello agent")
+    """
+    if not _is_active_result(result):
+        return False
+    r = result.raw.reason
+    if not r:
+        return False
+    if r.WhichOneof("reason") == "bot_v2":
+        identity = _bot_identity_from_proto(r.bot_v2)
+        return identity is not None and identity.kind == "AI_AGENT"
     return False
 
 

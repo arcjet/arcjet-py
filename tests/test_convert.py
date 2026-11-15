@@ -1,5 +1,7 @@
 import datetime
 
+import pytest
+
 from arcjet._dataclasses import ErrorReason
 
 
@@ -63,6 +65,119 @@ def test_converting_bot_v2_reason_spoofed_and_verified() -> None:
     assert reason.denied == []
     assert reason.spoofed == True
     assert reason.verified == True
+
+
+def test_converting_bot_v2_reason_without_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(bot_v2=decide_pb2.BotV2Reason(denied=["CURL"]))
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity is None
+
+
+def test_converting_bot_v2_reason_with_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            allowed=["CHATGPT_AGENT"],
+            verified=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                operator="chatgpt.com",
+                evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="chatgpt.com",
+        evidence="SIGNATURE",
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "evidence", "expected_kind", "expected_evidence"),
+    [
+        ("BOT_KIND_AI_AGENT", "BOT_EVIDENCE_UNVERIFIED", "AI_AGENT", "UNVERIFIED"),
+        ("BOT_KIND_AI_CRAWLER", "BOT_EVIDENCE_IP", "AI_CRAWLER", "IP"),
+        (
+            "BOT_KIND_AUTOMATION",
+            "BOT_EVIDENCE_FINGERPRINT",
+            "AUTOMATION",
+            "FINGERPRINT",
+        ),
+        ("BOT_KIND_OTHER", "BOT_EVIDENCE_SIGNATURE", "OTHER", "SIGNATURE"),
+    ],
+)
+def test_converting_bot_identity_enums(
+    kind: str, evidence: str, expected_kind: str, expected_evidence: str
+) -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    identity = _bot_identity_from_proto(
+        decide_pb2.BotV2Reason(
+            identity=decide_pb2.BotIdentity(
+                kind=getattr(decide_pb2, kind),
+                evidence=getattr(decide_pb2, evidence),
+            )
+        )
+    )
+
+    assert identity is not None
+    assert identity.kind == expected_kind
+    assert identity.evidence == expected_evidence
+    assert identity.bot_id == ""
+    assert identity.operator == ""
+
+
+@pytest.mark.parametrize(
+    ("kind", "evidence"),
+    [
+        # Unspecified kind or evidence.
+        (0, 4),
+        (1, 0),
+        (0, 0),
+        # Values this SDK does not know (added by a newer Arcjet Cloud).
+        (99, 4),
+        (1, 99),
+    ],
+)
+def test_converting_bot_identity_unknown_or_unspecified_is_none(
+    kind: int, evidence: int
+) -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            identity=decide_pb2.BotIdentity(
+                kind=kind,  # type: ignore[arg-type]
+                bot_id="SOME_BOT",
+                evidence=evidence,  # type: ignore[arg-type]
+            )
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity is None
 
 
 def test_converting_edge_rule_reason() -> None:

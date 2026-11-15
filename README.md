@@ -486,6 +486,23 @@ if any(is_spoofed_bot(r) for r in decision.results):
     return jsonify(error="Spoofed bot"), 403
 ```
 
+### AI agents
+
+Arcjet Cloud reports the primary detected bot on a bot rule's reason as
+`identity`, with its kind (`"AI_AGENT"`, `"AI_CRAWLER"`, `"AUTOMATION"`, or
+`"OTHER"`), bot ID, operator, and strongest evidence. Use `is_ai_agent()` to
+find AI products fetching on behalf of a waiting person:
+
+```py
+from arcjet import is_ai_agent
+
+if any(is_ai_agent(r) for r in decision.results):
+    return jsonify(message="Hello agent")
+```
+
+`identity` is `None` when no bot was detected or the decision was made locally
+without Arcjet Cloud, so `is_ai_agent()` returns `False` in those cases.
+
 See the [Bot Protection docs](https://docs.arcjet.com/bot-protection) for
 more details.
 
