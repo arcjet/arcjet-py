@@ -337,11 +337,13 @@ class BotIdentity(_message.Message):
     BOT_ID_FIELD_NUMBER: _ClassVar[int]
     OPERATOR_FIELD_NUMBER: _ClassVar[int]
     EVIDENCE_FIELD_NUMBER: _ClassVar[int]
+    SPOOFED_FIELD_NUMBER: _ClassVar[int]
     kind: BotKind
     bot_id: str
     operator: str
     evidence: BotEvidence
-    def __init__(self, kind: _Optional[_Union[BotKind, str]] = ..., bot_id: _Optional[str] = ..., operator: _Optional[str] = ..., evidence: _Optional[_Union[BotEvidence, str]] = ...) -> None: ...
+    spoofed: bool
+    def __init__(self, kind: _Optional[_Union[BotKind, str]] = ..., bot_id: _Optional[str] = ..., operator: _Optional[str] = ..., evidence: _Optional[_Union[BotEvidence, str]] = ..., spoofed: _Optional[bool] = ...) -> None: ...
 
 class BotV2Reason(_message.Message):
     __slots__ = ()
