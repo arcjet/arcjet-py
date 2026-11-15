@@ -55,6 +55,7 @@ _DIRECTORY = (
         "ISONAI_USER",
         "LINER_BOT",
         "LINER_USER",
+        "RIVER_CRAWLER",
         _DIRECTORY,
     ],
 )

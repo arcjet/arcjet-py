@@ -286,6 +286,7 @@ _SIGNED_BOT_IDS = frozenset(
         "ISONAI_USER",
         "LINER_BOT",
         "LINER_USER",
+        "RIVER_CRAWLER",
     }
 )
 _SIGNED_BOT_CATEGORIES = frozenset(
