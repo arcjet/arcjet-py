@@ -470,9 +470,16 @@ def is_ai_agent(result: RuleResult) -> bool:
     An AI agent is an AI product fetching on demand for a person who is
     waiting on the answer (``CATEGORY:AI_AGENT``), as opposed to an AI crawler
     collecting training or index data. This checks that the primary bot
-    identity reported by Arcjet Cloud has kind ``"AI_AGENT"``. Decisions made
+    identity reported by Arcjet Cloud has kind ``"AI_AGENT"`` and is not
+    spoofed: a forged User-Agent claim is not an AI agent. Decisions made
     locally without Arcjet Cloud carry no identity, so this returns ``False``
     for them. Results from ``DRY_RUN`` rules are ignored.
+
+    Bot identity is not authorization. ``"UNVERIFIED"`` evidence is only a
+    User-Agent claim. ``"SIGNATURE"`` identifies the operator of the signing
+    key directory (for example a hosted-browser platform such as Browserbase),
+    not the end user or their intent. ``"IP"`` evidence is only as reliable as
+    the SDK's client IP resolution, so configure trusted proxies.
 
     Args:
         result: A single ``RuleResult`` from ``decision.results``.
@@ -494,7 +501,11 @@ def is_ai_agent(result: RuleResult) -> bool:
         return False
     if r.WhichOneof("reason") == "bot_v2":
         identity = _bot_identity_from_proto(r.bot_v2)
-        return identity is not None and identity.kind == "AI_AGENT"
+        return (
+            identity is not None
+            and identity.kind == "AI_AGENT"
+            and not identity.spoofed
+        )
     return False
 
 

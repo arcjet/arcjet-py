@@ -42,6 +42,12 @@ class BotIdentity:
     was detected, when the decision was made locally without Arcjet Cloud, or
     when this SDK does not recognize the reported kind or evidence.
 
+    Bot identity is not authorization. ``"UNVERIFIED"`` evidence is only a
+    User-Agent claim. ``"SIGNATURE"`` identifies the operator of the signing
+    key directory (for example a hosted-browser platform such as Browserbase),
+    not the end user or their intent. ``"IP"`` evidence is only as reliable as
+    the SDK's client IP resolution, so configure trusted proxies.
+
     Example::
 
         if decision.reason_v2.type == "BOT":
@@ -63,6 +69,11 @@ class BotIdentity:
 
     evidence: BotEvidence
     """Strongest evidence for this identity. See ``BotEvidence``."""
+
+    spoofed: bool = False
+    """``True`` when the identity was claimed, but IP or reverse DNS
+    verification showed the request did not come from its operator.
+    ``evidence`` is then ``"UNVERIFIED"``."""
 
 
 @dataclass(frozen=True, slots=True)

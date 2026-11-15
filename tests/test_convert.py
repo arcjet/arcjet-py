@@ -106,6 +106,37 @@ def test_converting_bot_v2_reason_with_identity() -> None:
         bot_id="CHATGPT_AGENT",
         operator="chatgpt.com",
         evidence="SIGNATURE",
+        spoofed=False,
+    )
+
+
+def test_converting_bot_v2_reason_with_spoofed_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            denied=["CHATGPT_AGENT"],
+            spoofed=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                evidence=decide_pb2.BOT_EVIDENCE_UNVERIFIED,
+                spoofed=True,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="",
+        evidence="UNVERIFIED",
+        spoofed=True,
     )
 
 

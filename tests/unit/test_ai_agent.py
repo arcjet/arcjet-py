@@ -55,6 +55,21 @@ def test_is_ai_agent_false_for_other_kinds():
         assert is_ai_agent(_bot_result(_identity(kind))) is False
 
 
+def test_is_ai_agent_false_when_spoofed():
+    identity = _identity(
+        decide_pb2.BOT_KIND_AI_AGENT, evidence=decide_pb2.BOT_EVIDENCE_UNVERIFIED
+    )
+    identity.spoofed = True
+    assert is_ai_agent(_bot_result(identity)) is False
+
+
+def test_is_ai_agent_true_when_not_spoofed_and_unverified():
+    identity = _identity(
+        decide_pb2.BOT_KIND_AI_AGENT, evidence=decide_pb2.BOT_EVIDENCE_UNVERIFIED
+    )
+    assert is_ai_agent(_bot_result(identity)) is True
+
+
 def test_is_ai_agent_false_without_identity():
     assert is_ai_agent(_bot_result(None)) is False
 
@@ -96,3 +111,20 @@ def test_reason_v2_exposes_identity():
     assert reason.identity.kind == "AI_AGENT"
     assert reason.identity.operator == "chatgpt.com"
     assert reason.identity.evidence == "SIGNATURE"
+    assert reason.identity.spoofed is False
+
+
+def test_reason_v2_exposes_spoofed_identity():
+    rr = _bot_result(
+        decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            evidence=decide_pb2.BOT_EVIDENCE_UNVERIFIED,
+            spoofed=True,
+        )
+    )
+    reason = rr.reason_v2
+    assert isinstance(reason, BotReason)
+    assert reason.identity is not None
+    assert reason.identity.spoofed is True
+    assert reason.identity.evidence == "UNVERIFIED"

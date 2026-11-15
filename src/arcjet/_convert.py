@@ -92,6 +92,7 @@ def _bot_identity_from_proto(proto: decide_pb2.BotV2Reason) -> BotIdentity | Non
         bot_id=identity.bot_id,
         operator=identity.operator,
         evidence=evidence,
+        spoofed=identity.spoofed,
     )
 
 
