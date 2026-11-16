@@ -127,6 +127,57 @@ class TestDetectBot:
         assert result.value.denied == ["ANTHROPIC_CLAUDE_CODE"]
         assert result.value.spoofed is False
 
+    @pytest.mark.parametrize(
+        ("ua", "bot_id", "category"),
+        [
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 "
+                "AIManagedAgents-Agent/1.0 (+https://agents.needmomentum.com/)",
+                "AI_MANAGED_AGENTS_AGENT",
+                BotCategory.MONITOR,
+            ),
+            (
+                "EnfiladeBot/1.0 (+https://enfilade.guide/en/about-our-crawler)",
+                "ENFILADE_CRAWLER",
+                BotCategory.UNKNOWN,
+            ),
+            (
+                "SpaceCowboys Android RSS Reader / 2.21.2(4040)",
+                "FEEDER_ANDROID_FEEDFETCHER",
+                BotCategory.FEEDFETCHER,
+            ),
+            ("ReadYou/0.16.2(47)", "READ_YOU_FEEDFETCHER", BotCategory.FEEDFETCHER),
+        ],
+    )
+    def test_detects_bots_added_in_catalog_83616dc(
+        self,
+        component: AnalyzeComponent,
+        ua: str,
+        bot_id: str,
+        category: BotCategory,
+    ) -> None:
+        """The bundled component knows each new bot and its category.
+
+        This fails against a component built from an older catalog. Meta Muse,
+        also new, has no User-Agent pattern: it is identified only by its
+        signature, which Arcjet Cloud verifies.
+        """
+        by_id = component.detect_bot(
+            _request_with_ua(ua),
+            DeniedBotConfig(entities=[bot_id], skip_custom_detect=False),
+        )
+        assert isinstance(by_id, Ok)
+        assert by_id.value.denied == [bot_id]
+
+        by_category = component.detect_bot(
+            _request_with_ua(ua),
+            AllowedBotConfig(entities=[category.value], skip_custom_detect=False),
+        )
+        assert isinstance(by_category, Ok)
+        assert set(by_category.value.allowed) == {category.value, bot_id}
+        assert by_category.value.denied == []
+
     def test_allow_ai_agent_category(self, component: AnalyzeComponent) -> None:
         """BotCategory.AI_AGENT resolves to a category the analyzer knows."""
         config = AllowedBotConfig(
