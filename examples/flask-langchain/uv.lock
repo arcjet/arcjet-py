@@ -77,10 +77,10 @@ dev = [
     { name = "langchain", specifier = ">=1,<2" },
     { name = "langchain-core", specifier = ">=1.2.5,<2" },
     { name = "pyright", specifier = "==1.1.414" },
-    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest", specifier = "==9.2.0" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "ruff", specifier = "==0.16.10" },
+    { name = "ruff", specifier = "==0.17.4" },
     { name = "ty", specifier = "==0.0.23" },
     { name = "types-protobuf", specifier = "==7.35.1.20260906" },
 ]
