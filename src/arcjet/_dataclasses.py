@@ -75,6 +75,10 @@ class BotIdentity:
     verification showed the request did not come from its operator.
     ``evidence`` is then ``"UNVERIFIED"``."""
 
+    delegated: bool = False
+    """The agent presented a verified Personal Agent Protocol session, so it
+    acts for a user who delegated access to it. The user is never identified."""
+
 
 @dataclass(frozen=True, slots=True)
 class BotReason:

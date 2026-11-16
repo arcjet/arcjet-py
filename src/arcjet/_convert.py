@@ -91,6 +91,7 @@ def _bot_identity_from_proto(proto: decide_pb2.BotV2Reason) -> BotIdentity | Non
         operator=identity.operator,
         evidence=evidence,
         spoofed=identity.spoofed,
+        delegated=identity.delegated and evidence == "SIGNATURE",
     )
 
 

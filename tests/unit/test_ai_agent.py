@@ -112,6 +112,23 @@ def test_reason_v2_exposes_identity():
     assert reason.identity.operator == "chatgpt.com"
     assert reason.identity.evidence == "SIGNATURE"
     assert reason.identity.spoofed is False
+    assert reason.identity.delegated is False
+
+
+def test_reason_v2_exposes_delegated_identity():
+    rr = _bot_result(
+        decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            operator="chatgpt.com",
+            evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+            delegated=True,
+        )
+    )
+    reason = rr.reason_v2
+    assert isinstance(reason, BotReason)
+    assert reason.identity is not None
+    assert reason.identity.delegated is True
 
 
 def test_reason_v2_exposes_spoofed_identity():

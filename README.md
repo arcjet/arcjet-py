@@ -490,8 +490,9 @@ if any(is_spoofed_bot(r) for r in decision.results):
 
 Arcjet Cloud reports the primary detected bot on a bot rule's reason as
 `identity`, with its kind (`"AI_AGENT"`, `"AI_CRAWLER"`, `"AUTOMATION"`, or
-`"OTHER"`), bot ID, operator, and strongest evidence. Use `is_ai_agent()` to
-find AI products fetching on behalf of a waiting person:
+`"OTHER"`), bot ID, operator, strongest evidence, and whether it is spoofed or
+delegated. Use `is_ai_agent()` to find AI products fetching on behalf of a
+waiting person:
 
 ```py
 from arcjet import is_ai_agent
@@ -504,6 +505,10 @@ if any(is_ai_agent(r) for r in decision.results):
 without Arcjet Cloud, so `is_ai_agent()` returns `False` in those cases. It
 also returns `False` when `identity.spoofed` is `True`: the client claimed to
 be the bot, but IP or reverse DNS verification showed it is not.
+
+`identity.delegated` is `True` when the agent presented a verified Personal
+Agent Protocol session, so it acts for a user who delegated access to it. It is
+set only with `"SIGNATURE"` evidence. The user is never identified.
 
 Bot identity is not authorization:
 

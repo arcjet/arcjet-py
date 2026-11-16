@@ -140,6 +140,83 @@ def test_converting_bot_v2_reason_with_spoofed_identity() -> None:
     )
 
 
+def test_converting_bot_v2_reason_with_delegated_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            allowed=["CHATGPT_AGENT"],
+            verified=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                operator="chatgpt.com",
+                evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+                delegated=True,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="chatgpt.com",
+        evidence="SIGNATURE",
+        delegated=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "BOT_EVIDENCE_UNVERIFIED",
+        "BOT_EVIDENCE_IP",
+        "BOT_EVIDENCE_FINGERPRINT",
+    ],
+)
+def test_converting_bot_identity_delegated_requires_signature(evidence: str) -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto = decide_pb2.BotV2Reason(
+        identity=decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            evidence=evidence,
+            delegated=True,
+        )
+    )
+
+    identity = _bot_identity_from_proto(proto)
+
+    assert identity is not None
+    assert identity.delegated is False
+
+
+def test_converting_bot_identity_without_delegated_is_false() -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto = decide_pb2.BotV2Reason(
+        identity=decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            operator="chatgpt.com",
+            evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+        )
+    )
+
+    identity = _bot_identity_from_proto(proto)
+
+    assert identity is not None
+    assert identity.delegated is False
+
+
 @pytest.mark.parametrize(
     ("kind", "evidence", "expected_kind", "expected_evidence"),
     [
