@@ -2,6 +2,8 @@
 
 ## Development environment
 
+Python 3.11 or newer is required (see `.python-version`).
+
 We recommend using the provided [Dev
 Container](https://code.visualstudio.com/docs/devcontainers/containers). It
 gives you a consistent toolchain and avoids “works on my machine” issues.

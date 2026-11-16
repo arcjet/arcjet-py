@@ -11,14 +11,14 @@ arcjet-py repository for the first time.
 **Purpose**: Security SDK for Python applications providing bot detection, rate
 limiting, email validation, Shield WAF, and attack protection for Flask,
 FastAPI, and other Python web frameworks.
-**Language**: Python 3.10+
+**Language**: Python 3.11+
 **Package manager**: uv
 
 ## Quick start
 
 ### Environment setup
 
-1. **Python version**: 3.10+ (see `.python-version`)
+1. **Python version**: 3.11+ (see `.python-version`)
 2. **Install uv** (if not already installed):
    ```bash
    pip install uv
@@ -110,7 +110,7 @@ Some test files are excluded from type checking (see `[tool.pyright]` and
 Suppression comments:
 - `# type: ignore[error-code]` — Recognized by both pyright and ty.
 - `# pyright: ignore[rule]` — Pyright-specific.
-- `# ty: ignore[rule]` — ty-specific (e.g., conditional stdlib imports on 3.10).
+- `# ty: ignore[rule]` — ty-specific.
 
 ### API breaking change detection
 
@@ -321,14 +321,11 @@ Nothing outside `src/arcjet/guard/google_adk/` may import Google ADK
 
 1. **Future imports**: Always use `from __future__ import annotations`.
 
-2. **Python version**: >=3.10. Do not use features from 3.11+ (e.g.
-   `typing.Self`, `ExceptionGroup`).
+2. **Python version**: >=3.11. Python 3.11 features such as
+   `typing.Self` and `ExceptionGroup` are supported; do not use 3.12+ features.
 
 3. **Type hints**: Fully type-annotated codebase.
    - Use modern type syntax (e.g., `list[str]` not `List[str]`).
-   - Use `Union` instead of `X | Y` in runtime-evaluated type aliases (the
-     latter works in annotations with `from __future__ import annotations`
-     but not in runtime-evaluated positions on 3.10).
 
 4. **Dataclasses**: Prefer `@dataclass(frozen=True, slots=True)` for immutable
    data structures.

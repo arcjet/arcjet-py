@@ -3,7 +3,7 @@ name = "arcjet-sensitive-info-rampart"
 version = "1.5.0"
 description = "On-device Rampart NER model backend for Arcjet sensitive information detection."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = "Apache-2.0 AND CC-BY-4.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -14,11 +14,9 @@ dependencies = [
   # private internals it may not match; bump both together every release.
   "arcjet==1.5.0",
   "numpy>=1.24",
-  # 1.23+ dropped CPython 3.10 wheels; the SDK still supports 3.10.
-  # 3.14 needs a newer line (1.24+ added those wheels but dropped 3.10).
   # Pin 3.14 to 1.28 — the line we lock and test. 1.24.1/1.24.2 segfaulted
   # on 3.14, and a `<2` ceiling would float later untested 1.x minors.
-  "onnxruntime>=1.17,<1.23; python_version < '3.14'",
+  "onnxruntime>=1.17,<1.29; python_version < '3.14'",
   "onnxruntime>=1.28,<1.29; python_version >= '3.14'",
   "tokenizers>=0.20",
 ]

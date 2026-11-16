@@ -3,7 +3,7 @@ name = "example-fastapi-crewai-guard"
 version = "0.1.0"
 description = "Arcjet Python SDK Example FastAPI + CrewAI Guard Application"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "arcjet[sensitive-info-rampart]",
     "crewai>=1.15.3,<2",

@@ -542,7 +542,7 @@ def evaluate_sensitive_info_locally(
         return None
 
     # Build the entities config from the rule's allow/deny lists.
-    # Use .value for enum members; str() on 3.10 str enums returns
+    # Use .value for enum members; str() on str/Enum subclasses returns
     # "ClassName.MEMBER" rather than the value.
     # allow takes precedence over deny (matches JS SDK and decide API).
     if rule.allow:

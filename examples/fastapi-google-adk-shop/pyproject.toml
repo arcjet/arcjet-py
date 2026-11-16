@@ -3,7 +3,7 @@ name = "example-fastapi-google-adk-shop"
 version = "0.1.0"
 description = "Refund desk: FastAPI + Google ADK Guard, no Gemini"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "arcjet[google-adk,sensitive-info-rampart]",
     "fastapi[standard]==0.141.1",

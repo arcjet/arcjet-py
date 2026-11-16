@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-try:
-    import tomllib  # pyright: ignore[reportMissingImports]  # ty: ignore[unresolved-import]
-except ModuleNotFoundError:
-    import tomli as tomllib
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 

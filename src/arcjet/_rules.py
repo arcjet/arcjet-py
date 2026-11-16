@@ -695,7 +695,7 @@ class SensitiveInfoDetection(RuleSpec):
 
     def to_proto(self) -> decide_pb2.Rule:
         sir = decide_pb2.SensitiveInfoRule(mode=_mode_to_proto(self.mode))
-        # Use .value for enum members; str() on 3.10 str enums returns
+        # Use .value for enum members; str() on str/Enum subclasses returns
         # "ClassName.MEMBER" rather than the value.
         sir.allow.extend(
             [
