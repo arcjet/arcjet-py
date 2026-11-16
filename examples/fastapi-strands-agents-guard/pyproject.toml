@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "arcjet[strands-agents,sensitive-info-rampart]",
-    "fastapi[standard]==0.157.0",
+    "fastapi[standard]==0.162.2",
     "strands-agents[anthropic]>=1.11.0,<2",
 ]
 
