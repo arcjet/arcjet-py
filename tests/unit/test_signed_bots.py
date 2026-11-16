@@ -58,6 +58,14 @@ _DIRECTORY = (
         "LINER_BOT",
         "LINER_USER",
         "RIVER_CRAWLER",
+        "ENFILADE_CRAWLER",
+        "META_MUSE",
+        "AHREFS_CRAWLER",
+        "EXA_USER",
+        "SHAPBOT",
+        "SHAP_USER",
+        "DUCKDUCKGO_CRAWLER",
+        "AI_MANAGED_AGENTS_AGENT",
         _DIRECTORY,
     ],
 )
@@ -83,6 +91,8 @@ def test_signed_bot_identifiers_are_sent_to_cloud(identity: str, field: str) -> 
         BotCategory.SEARCH_ENGINE,
         BotCategory.TOOL,
         BotCategory.MONITOR,
+        BotCategory.META,
+        BotCategory.UNKNOWN,
     ],
 )
 def test_signed_bot_categories_are_deferred(category: BotCategory) -> None:
