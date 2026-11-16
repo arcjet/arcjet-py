@@ -1,5 +1,7 @@
 import datetime
 
+import pytest
+
 from arcjet._dataclasses import ErrorReason
 
 
@@ -63,6 +65,253 @@ def test_converting_bot_v2_reason_spoofed_and_verified() -> None:
     assert reason.denied == []
     assert reason.spoofed == True
     assert reason.verified == True
+
+
+def test_converting_bot_v2_reason_without_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(bot_v2=decide_pb2.BotV2Reason(denied=["CURL"]))
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity is None
+
+
+def test_converting_bot_v2_reason_with_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            allowed=["CHATGPT_AGENT"],
+            verified=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                operator="chatgpt.com",
+                evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="chatgpt.com",
+        evidence="SIGNATURE",
+        spoofed=False,
+    )
+
+
+def test_converting_bot_v2_reason_with_spoofed_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            denied=["CHATGPT_AGENT"],
+            spoofed=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                evidence=decide_pb2.BOT_EVIDENCE_UNVERIFIED,
+                spoofed=True,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="",
+        evidence="UNVERIFIED",
+        spoofed=True,
+    )
+
+
+def test_converting_bot_v2_reason_with_delegated_identity() -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotIdentity, BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            allowed=["CHATGPT_AGENT"],
+            verified=True,
+            identity=decide_pb2.BotIdentity(
+                kind=decide_pb2.BOT_KIND_AI_AGENT,
+                bot_id="CHATGPT_AGENT",
+                operator="chatgpt.com",
+                evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+                delegated=True,
+            ),
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity == BotIdentity(
+        kind="AI_AGENT",
+        bot_id="CHATGPT_AGENT",
+        operator="chatgpt.com",
+        evidence="SIGNATURE",
+        delegated=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "BOT_EVIDENCE_UNVERIFIED",
+        "BOT_EVIDENCE_IP",
+        "BOT_EVIDENCE_FINGERPRINT",
+    ],
+)
+def test_converting_bot_identity_delegated_requires_signature(evidence: str) -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto = decide_pb2.BotV2Reason(
+        identity=decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            evidence=evidence,
+            delegated=True,
+        )
+    )
+
+    identity = _bot_identity_from_proto(proto)
+
+    assert identity is not None
+    assert identity.delegated is False
+
+
+def test_converting_bot_identity_without_delegated_is_false() -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto = decide_pb2.BotV2Reason(
+        identity=decide_pb2.BotIdentity(
+            kind=decide_pb2.BOT_KIND_AI_AGENT,
+            bot_id="CHATGPT_AGENT",
+            operator="chatgpt.com",
+            evidence=decide_pb2.BOT_EVIDENCE_SIGNATURE,
+        )
+    )
+
+    identity = _bot_identity_from_proto(proto)
+
+    assert identity is not None
+    assert identity.delegated is False
+
+
+@pytest.mark.parametrize(
+    ("kind", "evidence", "expected_kind", "expected_evidence"),
+    [
+        ("BOT_KIND_AI_AGENT", "BOT_EVIDENCE_UNVERIFIED", "AI_AGENT", "UNVERIFIED"),
+        ("BOT_KIND_AI_CRAWLER", "BOT_EVIDENCE_IP", "AI_CRAWLER", "IP"),
+        (
+            "BOT_KIND_AUTOMATION",
+            "BOT_EVIDENCE_FINGERPRINT",
+            "AUTOMATION",
+            "FINGERPRINT",
+        ),
+        ("BOT_KIND_OTHER", "BOT_EVIDENCE_SIGNATURE", "OTHER", "SIGNATURE"),
+    ],
+)
+def test_converting_bot_identity_enums(
+    kind: str, evidence: str, expected_kind: str, expected_evidence: str
+) -> None:
+    from arcjet._convert import _bot_identity_from_proto
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    identity = _bot_identity_from_proto(
+        decide_pb2.BotV2Reason(
+            identity=decide_pb2.BotIdentity(
+                kind=getattr(decide_pb2, kind),
+                evidence=getattr(decide_pb2, evidence),
+            )
+        )
+    )
+
+    assert identity is not None
+    assert identity.kind == expected_kind
+    assert identity.evidence == expected_evidence
+    assert identity.bot_id == ""
+    assert identity.operator == ""
+
+
+@pytest.mark.parametrize(
+    ("kind", "evidence"),
+    [
+        # Unspecified kind or evidence.
+        (0, 4),
+        (1, 0),
+        (0, 0),
+        # Values this SDK does not know (added by a newer Arcjet Cloud).
+        (99, 4),
+        (1, 99),
+    ],
+)
+def test_converting_bot_identity_unknown_or_unspecified_is_none(
+    kind: int, evidence: int
+) -> None:
+    from arcjet._convert import _reason_from_proto
+    from arcjet._dataclasses import BotReason
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    proto_reason = decide_pb2.Reason(
+        bot_v2=decide_pb2.BotV2Reason(
+            identity=decide_pb2.BotIdentity(
+                kind=kind,  # type: ignore[arg-type]
+                bot_id="SOME_BOT",
+                evidence=evidence,  # type: ignore[arg-type]
+            )
+        )
+    )
+
+    reason = _reason_from_proto(proto_reason)
+
+    assert isinstance(reason, BotReason)
+    assert reason.identity is None
+
+
+def test_bot_enum_literals_match_proto() -> None:
+    from typing import get_args
+
+    from arcjet._convert import _bot_evidence_from_proto, _bot_kind_from_proto
+    from arcjet._dataclasses import BotEvidence, BotKind
+    from arcjet.proto.decide.v1alpha1 import decide_pb2
+
+    kinds = {
+        _bot_kind_from_proto(v)  # type: ignore[arg-type]
+        for v in decide_pb2.BotKind.values()
+        if v != decide_pb2.BOT_KIND_UNSPECIFIED
+    }
+    evidence = {
+        _bot_evidence_from_proto(v)  # type: ignore[arg-type]
+        for v in decide_pb2.BotEvidence.values()
+        if v != decide_pb2.BOT_EVIDENCE_UNSPECIFIED
+    }
+
+    assert kinds == set(get_args(BotKind))
+    assert evidence == set(get_args(BotEvidence))
+    assert _bot_kind_from_proto(decide_pb2.BOT_KIND_UNSPECIFIED) is None
+    assert _bot_evidence_from_proto(decide_pb2.BOT_EVIDENCE_UNSPECIFIED) is None
+    assert _bot_kind_from_proto(99) is None  # type: ignore[arg-type]
+    assert _bot_evidence_from_proto(99) is None  # type: ignore[arg-type]
 
 
 def test_converting_edge_rule_reason() -> None:

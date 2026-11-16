@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 from datetime import timedelta, timezone
-from typing import Any
+from typing import Any, get_args
 
 from google.protobuf.json_format import MessageToDict
 
 from arcjet.proto.decide.v1alpha1 import decide_pb2
 
 from ._dataclasses import (
+    BotEvidence,
+    BotIdentity,
+    BotKind,
     BotReason,
     EmailReason,
     EmailType,
@@ -40,6 +45,56 @@ def _email_type_from_proto(proto: decide_pb2.EmailType) -> EmailType:
     return "UNSPECIFIED"
 
 
+_BOT_KINDS: dict[str, BotKind] = {kind: kind for kind in get_args(BotKind)}
+_BOT_EVIDENCE: dict[str, BotEvidence] = {
+    evidence: evidence for evidence in get_args(BotEvidence)
+}
+
+
+def _bot_kind_from_proto(proto: decide_pb2.BotKind) -> BotKind | None:
+    """Convert a protobuf BotKind; ``None`` for unspecified or unknown values."""
+
+    try:
+        name = decide_pb2.BotKind.Name(proto)
+    except ValueError:
+        return None
+    return _BOT_KINDS.get(name.removeprefix("BOT_KIND_"))
+
+
+def _bot_evidence_from_proto(proto: decide_pb2.BotEvidence) -> BotEvidence | None:
+    """Convert a protobuf BotEvidence; ``None`` for unspecified or unknown values."""
+
+    try:
+        name = decide_pb2.BotEvidence.Name(proto)
+    except ValueError:
+        return None
+    return _BOT_EVIDENCE.get(name.removeprefix("BOT_EVIDENCE_"))
+
+
+def _bot_identity_from_proto(proto: decide_pb2.BotV2Reason) -> BotIdentity | None:
+    """Convert the protobuf bot identity to a python BotIdentity.
+
+    Returns ``None`` when the identity is unset, or when its kind or evidence
+    is unspecified or a value this SDK does not know.
+    """
+
+    if not proto.HasField("identity"):
+        return None
+    identity = proto.identity
+    kind = _bot_kind_from_proto(identity.kind)
+    evidence = _bot_evidence_from_proto(identity.evidence)
+    if kind is None or evidence is None:
+        return None
+    return BotIdentity(
+        kind=kind,
+        bot_id=identity.bot_id,
+        operator=identity.operator,
+        evidence=evidence,
+        spoofed=identity.spoofed,
+        delegated=identity.delegated and evidence == "SIGNATURE",
+    )
+
+
 def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
     """Convert a protobuf Reason to a python Reason."""
 
@@ -51,6 +106,7 @@ def _reason_from_proto(proto: decide_pb2.Reason) -> Reason:
             denied=list(bot.denied),
             spoofed=bot.spoofed,
             verified=bot.verified,
+            identity=_bot_identity_from_proto(bot),
         )
     if proto.HasField("email"):
         email = proto.email

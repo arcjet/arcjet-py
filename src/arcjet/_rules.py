@@ -64,6 +64,7 @@ from ._sensitive_info_backend import (
     is_invalid_backend,
     unsupported_backend_only_types,
 )
+from ._signed_bots import SIGNED_BOT_CATEGORIES, SIGNED_BOT_IDS
 
 
 class RuleSpec:
@@ -266,41 +267,6 @@ def _bot_category_to_proto(value: Union[BotCategory, str]) -> str:
 # A bot specifier can be a known category or an arbitrary bot name string
 BotSpecifier = Union[BotCategory, str]
 
-_SIGNED_BOT_IDS = frozenset(
-    {
-        "GOOGLE_AGENT",
-        "CHATGPT_AGENT",
-        "DUCKASSIST_BOT",
-        "BROWSERBASE",
-        "MANUS_BOT",
-        "YOU_CRAWLER",
-        "EXA_SEARCHBOT",
-        "CONTEXT7_CRAWLER",
-        "SHOPIFY_CLOUDSURF",
-        "KERNEL_AGENT",
-        "KERNEL_SEARCH",
-        "OSANO_BOT",
-        "CLOUDFLARE_BROWSER_RUN",
-        "LANE_AGENT",
-        "ISONSEARCH_CRAWLER",
-        "ISONAI_USER",
-        "LINER_BOT",
-        "LINER_USER",
-    }
-)
-_SIGNED_BOT_CATEGORIES = frozenset(
-    {
-        BotCategory.AI,
-        BotCategory.AI_AGENT,
-        BotCategory.GOOGLE,
-        BotCategory.SEARCH_ENGINE,
-        BotCategory.TOOL,
-        BotCategory.MONITOR,
-    }
-)
-_SIGNED_BOT_CATEGORY_VALUES = frozenset(
-    category.value for category in _SIGNED_BOT_CATEGORIES
-)
 _SIGNED_BOT_PREFIX = "SIGNED_BOT:"
 _SIGNED_BOT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory"
 
@@ -331,13 +297,11 @@ def _validate_signed_bot_entity(entity: str) -> None:
 def _bot_rule_may_verify_signature(rule: BotDetection) -> bool:
     """Whether Cloud could match one of this rule's entities to a signed bot."""
     for entity in (*(rule.allow or ()), *(rule.deny or ())):
-        if isinstance(entity, BotCategory):
-            if entity in _SIGNED_BOT_CATEGORIES:
-                return True
-        elif (
-            entity in _SIGNED_BOT_IDS
-            or entity.startswith(_SIGNED_BOT_PREFIX)
-            or entity in _SIGNED_BOT_CATEGORY_VALUES
+        value = entity.value if isinstance(entity, BotCategory) else entity
+        if (
+            value in SIGNED_BOT_IDS
+            or value.startswith(_SIGNED_BOT_PREFIX)
+            or value in SIGNED_BOT_CATEGORIES
         ):
             return True
     return False

@@ -50,6 +50,22 @@ class Conclusion(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CONCLUSION_CHALLENGE: _ClassVar[Conclusion]
     CONCLUSION_ERROR: _ClassVar[Conclusion]
 
+class BotKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    BOT_KIND_UNSPECIFIED: _ClassVar[BotKind]
+    BOT_KIND_AI_AGENT: _ClassVar[BotKind]
+    BOT_KIND_AI_CRAWLER: _ClassVar[BotKind]
+    BOT_KIND_AUTOMATION: _ClassVar[BotKind]
+    BOT_KIND_OTHER: _ClassVar[BotKind]
+
+class BotEvidence(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    BOT_EVIDENCE_UNSPECIFIED: _ClassVar[BotEvidence]
+    BOT_EVIDENCE_UNVERIFIED: _ClassVar[BotEvidence]
+    BOT_EVIDENCE_FINGERPRINT: _ClassVar[BotEvidence]
+    BOT_EVIDENCE_IP: _ClassVar[BotEvidence]
+    BOT_EVIDENCE_SIGNATURE: _ClassVar[BotEvidence]
+
 class SDKStack(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     SDK_STACK_UNSPECIFIED: _ClassVar[SDKStack]
@@ -128,6 +144,16 @@ CONCLUSION_ALLOW: Conclusion
 CONCLUSION_DENY: Conclusion
 CONCLUSION_CHALLENGE: Conclusion
 CONCLUSION_ERROR: Conclusion
+BOT_KIND_UNSPECIFIED: BotKind
+BOT_KIND_AI_AGENT: BotKind
+BOT_KIND_AI_CRAWLER: BotKind
+BOT_KIND_AUTOMATION: BotKind
+BOT_KIND_OTHER: BotKind
+BOT_EVIDENCE_UNSPECIFIED: BotEvidence
+BOT_EVIDENCE_UNVERIFIED: BotEvidence
+BOT_EVIDENCE_FINGERPRINT: BotEvidence
+BOT_EVIDENCE_IP: BotEvidence
+BOT_EVIDENCE_SIGNATURE: BotEvidence
 SDK_STACK_UNSPECIFIED: SDKStack
 SDK_STACK_NODEJS: SDKStack
 SDK_STACK_NEXTJS: SDKStack
@@ -305,17 +331,35 @@ class BotReason(_message.Message):
     ip_relay: bool
     def __init__(self, bot_type: _Optional[_Union[BotType, str]] = ..., bot_score: _Optional[int] = ..., user_agent_match: _Optional[bool] = ..., ip_hosting: _Optional[bool] = ..., ip_vpn: _Optional[bool] = ..., ip_proxy: _Optional[bool] = ..., ip_tor: _Optional[bool] = ..., ip_relay: _Optional[bool] = ...) -> None: ...
 
+class BotIdentity(_message.Message):
+    __slots__ = ()
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    BOT_ID_FIELD_NUMBER: _ClassVar[int]
+    OPERATOR_FIELD_NUMBER: _ClassVar[int]
+    EVIDENCE_FIELD_NUMBER: _ClassVar[int]
+    SPOOFED_FIELD_NUMBER: _ClassVar[int]
+    DELEGATED_FIELD_NUMBER: _ClassVar[int]
+    kind: BotKind
+    bot_id: str
+    operator: str
+    evidence: BotEvidence
+    spoofed: bool
+    delegated: bool
+    def __init__(self, kind: _Optional[_Union[BotKind, str]] = ..., bot_id: _Optional[str] = ..., operator: _Optional[str] = ..., evidence: _Optional[_Union[BotEvidence, str]] = ..., spoofed: _Optional[bool] = ..., delegated: _Optional[bool] = ...) -> None: ...
+
 class BotV2Reason(_message.Message):
     __slots__ = ()
     ALLOWED_FIELD_NUMBER: _ClassVar[int]
     DENIED_FIELD_NUMBER: _ClassVar[int]
     VERIFIED_FIELD_NUMBER: _ClassVar[int]
     SPOOFED_FIELD_NUMBER: _ClassVar[int]
+    IDENTITY_FIELD_NUMBER: _ClassVar[int]
     allowed: _containers.RepeatedScalarFieldContainer[str]
     denied: _containers.RepeatedScalarFieldContainer[str]
     verified: bool
     spoofed: bool
-    def __init__(self, allowed: _Optional[_Iterable[str]] = ..., denied: _Optional[_Iterable[str]] = ..., verified: _Optional[bool] = ..., spoofed: _Optional[bool] = ...) -> None: ...
+    identity: BotIdentity
+    def __init__(self, allowed: _Optional[_Iterable[str]] = ..., denied: _Optional[_Iterable[str]] = ..., verified: _Optional[bool] = ..., spoofed: _Optional[bool] = ..., identity: _Optional[_Union[BotIdentity, _Mapping]] = ...) -> None: ...
 
 class ShieldReason(_message.Message):
     __slots__ = ()

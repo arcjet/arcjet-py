@@ -486,6 +486,39 @@ if any(is_spoofed_bot(r) for r in decision.results):
     return jsonify(error="Spoofed bot"), 403
 ```
 
+### AI agents
+
+Arcjet Cloud reports the primary detected bot on a bot rule's reason as
+`identity`, with its kind (`"AI_AGENT"`, `"AI_CRAWLER"`, `"AUTOMATION"`, or
+`"OTHER"`), bot ID, operator, strongest evidence, and whether it is spoofed or
+delegated. Use `is_ai_agent()` to find AI products fetching on behalf of a
+waiting person:
+
+```py
+from arcjet import is_ai_agent
+
+if any(is_ai_agent(r) for r in decision.results):
+    return jsonify(message="Hello agent")
+```
+
+`identity` is `None` when no bot was detected or the decision was made locally
+without Arcjet Cloud, so `is_ai_agent()` returns `False` in those cases. It
+also returns `False` when `identity.spoofed` is `True`: the client claimed to
+be the bot, but IP or reverse DNS verification showed it is not.
+
+`identity.delegated` is `True` when the agent presented a verified Personal
+Agent Protocol session, so it acts for a user who delegated access to it. It is
+set only with `"SIGNATURE"` evidence. The user is never identified.
+
+Bot identity is not authorization:
+
+- `"UNVERIFIED"` evidence is only a User-Agent claim.
+- `"SIGNATURE"` identifies the operator of the signing key directory, such as
+  a hosted-browser platform like Browserbase, not the end user or their
+  intent.
+- `"IP"` evidence is only as reliable as the SDK's client IP resolution, so
+  configure trusted proxies (see [Proxy configuration](#proxy-configuration)).
+
 See the [Bot Protection docs](https://docs.arcjet.com/bot-protection) for
 more details.
 
