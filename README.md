@@ -2870,7 +2870,10 @@ Policy](https://docs.arcjet.com/security).
 
 ## Compatibility
 
-Packages maintained in this repository support CPython 3.10+ on macOS, Windows,
+Python 3.10 is no longer supported. Upgrade to Python 3.11 or newer before
+upgrading the SDK.
+
+Packages maintained in this repository support CPython 3.11+ on macOS, Windows,
 and glibc Linux (Debian, Ubuntu, RHEL, and `*-slim` / manylinux container
 images).
 
@@ -2884,8 +2887,8 @@ Those packages publish `musllinux` wheels today, so `pip install arcjet` often
 succeeds on Alpine without a compiler. Alpine/musl is still **not a supported
 target**. A future wheel gap forces a source build (Rust plus a C toolchain),
 which is what broke `python3.10-alpine` images after local analysis landed.
-Prefer a glibc image such as `python:3.10-slim` or
-`astral/uv:python3.10-trixie-slim`.
+Prefer a glibc image such as `python:3.11-slim` or
+`astral/uv:python3.11-trixie-slim`.
 
 ## License
 

@@ -70,11 +70,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        # `requires-python` is `>=3.10` with no upper bound, so these are the
-        # released versions the package installs on. The repo pins 3.10 in
+        # `requires-python` is `>=3.11` with no upper bound, so these are the
+        # released versions the package installs on. The repo pins 3.11 in
         # `.python-version`, so without this axis only the floor is exercised.
         # Add each new Python here as it is released.
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14"]
+        python-version: ["3.11", "3.14"]
     runs-on: windows-latest
     # First-run uv/Python/wheel fetch on Windows is slower than Ubuntu; a hung
     # wasmtime or onnxruntime import must not sit on the 6h GitHub default.
@@ -178,7 +178,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14"]
+        python-version: ["3.11", "3.14"]
     runs-on: macos-latest
     timeout-minutes: 30
     # macos-latest ships openssl on PATH (`/usr/bin/openssl`), so unlike

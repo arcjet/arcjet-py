@@ -3,7 +3,7 @@ name = "arcjet"
 version = "1.5.0"
 description = "Arcjet Python SDK. Runtime security for AI applications. Prompt injection detection, bot protection, rate limiting, sensitive data detection, and WAF for Python apps."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Arcjet", email = "support@arcjet.com" }]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -162,7 +162,6 @@ dev = [
   "pytest==9.1.1",
   "pytest-cov>=7.0.0",
   "ruff==0.16.10",
-  "tomli>=2.0.0; python_version < '3.11'",
   "ty==0.0.23",
   "types-protobuf==7.35.1.20260906",
 ]
@@ -236,12 +235,9 @@ exclude = [
   "tests/integration/guard/test_google_adk.py",
 ]
 include = ["src", "tests"]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 
 [tool.uv]
-# filelock 4.2.1+ fixes GHSA-v4x8-3wr5-3wq8 (and two low ones) but needs
-# Python 3.11. Keep Python 3.10 on 3.20.3, which predates the affected range.
-constraint-dependencies = ["filelock<3.20.4; python_full_version < '3.11'"]
 exclude-newer = "7 days"
 
 [tool.ty.src]

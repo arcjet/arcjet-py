@@ -119,7 +119,7 @@ def arcjet_sequence(
     )
 
     # `Token` only becomes a context manager in Python 3.14; on the supported
-    # 3.10 floor `try` / `finally` is the whole protocol.
+    # 3.11 floor `try` / `finally` is the whole protocol.
     id_token = _correlation_id.set(resolved)
     metadata_token = None if metadata is None else _sequence_metadata.set(metadata)
     try:

@@ -151,8 +151,8 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
-      - name: Install Python 3.10
-        run: uv python install 3.10
+      - name: Install Python 3.11
+        run: uv python install 3.11
       - name: Build
         # Build every workspace member (arcjet and arcjet-sensitive-info-rampart).
         run: uv build --all-packages
