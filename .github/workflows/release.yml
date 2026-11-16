@@ -4,11 +4,12 @@ name: Release
 # approval notification.
 run-name: "Release ${{ github.ref_name }} to PyPI"
 
+# Never started automatically: a person dispatches it on the `vX.Y.Z` tag that
+# Release Please created, so the `pypi` environment's "prevent self-review"
+# stops that person approving their own publish. See CONTRIBUTING.md#releasing
+# and the "Automate SDK release PRs and dispatch publish by hand" ADR.
 on:
-  push:
-    tags:
-      # Publish on any tag starting with a `v`, e.g., v1.2.3
-      - v*
+  workflow_dispatch:
 
 permissions:
   # Reading the repository is the only default permission either job needs.
@@ -33,6 +34,18 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The `pypi` environment only deploys from `v*` tags; fail here, before
+      # approval is requested, rather than at the gated job.
+      - name: Assert the run is on a tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Dispatch this workflow on a release tag (e.g. v1.2.3), not '$TAG_NAME'."
+            exit 1
+          fi
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -168,3 +181,36 @@ jobs:
         run: uv publish dist/arcjet-*
       - name: Publish arcjet-sensitive-info-rampart
         run: uv publish dist/arcjet_sensitive_info_rampart-*
+
+  # Release Please creates the GitHub release as a draft (with its tag); it is
+  # published only once both distributions are on PyPI.
+  publish-release:
+    name: Publish GitHub release
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # A hand-tagged prerelease has no GitHub release; nothing to publish.
+          # The list endpoint includes drafts, and a failed request fails the
+          # step, so only a confirmed absence skips.
+          count=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name == \"$TAG_NAME\")] | length" \
+            | awk '{ n += $1 } END { print n + 0 }')
+          if [[ "$count" == "0" ]]; then
+            echo "No GitHub release for $TAG_NAME; skipping."
+            exit 0
+          fi
+          # Only stable X.Y.Z releases become the latest release.
+          if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            gh release edit "$TAG_NAME" --draft=false --latest
+          else
+            gh release edit "$TAG_NAME" --draft=false --prerelease
+          fi
