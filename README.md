@@ -2272,6 +2272,7 @@ if decision.conclusion == "DENY":
 result = moderate.result(decision)
 if result:
     print(result.detected)
+    print(result.detected_categories)  # e.g. ("HATE_SPEECH", "INSULTS")
     if result.billing:
         print(result.billing.unit, result.billing.count)
 ```
@@ -2279,8 +2280,11 @@ if result:
 `experimental_ModerateContent` remains as a deprecated alias for
 `ModerateContent`.
 
-The result reports `detected` and optional `billing` only — not per-category
-scores.
+The result reports `detected`, the detected categories
+(`SEXUALLY_EXPLICIT`, `MISCONDUCT`, `HATE_SPEECH` or `INSULTS`) and optional
+`billing`. Per-category scores and thresholds are never returned. Use
+`detected` to decide: `detected_categories` is empty when the Arcjet server
+does not report categories, and new categories may be added.
 
 ### Sensitive information detection
 

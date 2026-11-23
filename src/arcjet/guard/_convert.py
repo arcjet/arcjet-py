@@ -173,6 +173,7 @@ def _result_from_proto(pr: pb.GuardRuleResult) -> RuleResult:
                 if v.HasField("billing")
                 else None
             ),
+            detected_categories=tuple(v.detected_categories),
         )
 
     if which == "local_sensitive_info":
