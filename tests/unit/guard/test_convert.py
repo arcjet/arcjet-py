@@ -317,6 +317,7 @@ class TestDecisionFromProto:
                         conclusion=pb.GUARD_CONCLUSION_DENY,
                         detected=True,
                         billing=pb.Billing(unit="text_units", count=3),
+                        detected_categories=["MISCONDUCT", "INSULTS"],
                     ),
                 ),
             ],
@@ -332,8 +333,56 @@ class TestDecisionFromProto:
         assert r.type == "MODERATE_CONTENT"
         assert r.reason == "MODERATE_CONTENT"
         assert r.billing == Billing(unit="text_units", count=3)
+        assert r.detected_categories == ("MISCONDUCT", "INSULTS")
         assert not hasattr(r, "score")
         assert not hasattr(r, "categories")
+
+    def test_moderate_content_keeps_unknown_categories(self) -> None:
+        rule = ModerateContent()
+        inp = rule("some harmful content")
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                        detected_categories=["SOME_FUTURE_CATEGORY"],
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert isinstance(result, RuleResultModerateContent)
+        assert result.detected_categories == ("SOME_FUTURE_CATEGORY",)
+
+    def test_moderate_content_detected_without_categories(self) -> None:
+        # An older server sends no categories; `detected` still decides.
+        rule = ModerateContent()
+        inp = rule("some harmful content")
+        response = make_response(
+            pb.GUARD_CONCLUSION_DENY,
+            [
+                pb.GuardRuleResult(
+                    config_id=inp._config_id,
+                    input_id=inp._input_id,
+                    type=pb.GUARD_RULE_TYPE_MODERATE_CONTENT,
+                    moderate_content=pb.ResultModerateContent(
+                        conclusion=pb.GUARD_CONCLUSION_DENY,
+                        detected=True,
+                    ),
+                )
+            ],
+        )
+
+        result = inp.result(decision_from_proto(response))
+        assert isinstance(result, RuleResultModerateContent)
+        assert result.detected is True
+        assert result.detected_categories == ()
 
     def test_allow_with_moderate_content_detected_false(self) -> None:
         rule = ModerateContent()
@@ -360,6 +409,7 @@ class TestDecisionFromProto:
         assert result.conclusion == "ALLOW"
         assert result.detected is False
         assert result.billing == Billing(unit="text_units", count=1)
+        assert result.detected_categories == ()
         assert not hasattr(result, "score")
         assert not hasattr(result, "categories")
 

@@ -279,8 +279,9 @@ class RuleResultPromptInjection:
 class RuleResultModerateContent:
     """Result from a content moderation evaluation.
 
-    Frozen analog of the JS result: ``detected`` plus optional ``billing``.
-    Per-category scores are not part of this shape.
+    Frozen analog of the JS result: ``detected``, the detected categories, and
+    optional ``billing``. Per-category scores and thresholds are not part of
+    this shape; Arcjet never returns them.
     """
 
     conclusion: Conclusion
@@ -303,6 +304,17 @@ class RuleResultModerateContent:
 
     billing: Billing | None = None
     """Usage billed for this evaluation, when reported by the service."""
+
+    detected_categories: tuple[str, ...] = ()
+    """The categories of harmful content detected, such as ``"HATE_SPEECH"``
+    or ``"INSULTS"``, in a fixed order that says nothing about which scored
+    higher.
+
+    ``detected`` is authoritative. This is empty when nothing was detected,
+    and can also be empty when harmful content was detected but the service
+    did not report categories, as an older Arcjet server does not. New
+    categories may be added, so treat an unrecognized value as harmful
+    content of an unknown kind."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -374,10 +374,12 @@ class ResultModerateContent(_message.Message):
     CONCLUSION_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
     BILLING_FIELD_NUMBER: _ClassVar[int]
+    DETECTED_CATEGORIES_FIELD_NUMBER: _ClassVar[int]
     conclusion: GuardConclusion
     detected: bool
     billing: Billing
-    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ...) -> None: ...
+    detected_categories: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, conclusion: _Optional[_Union[GuardConclusion, str]] = ..., detected: _Optional[bool] = ..., billing: _Optional[_Union[Billing, _Mapping]] = ..., detected_categories: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ResultStringConstraint(_message.Message):
     __slots__ = ()
@@ -412,10 +414,12 @@ class GuardSensitiveInfoEntity(_message.Message):
     TYPE_FIELD_NUMBER: _ClassVar[int]
     START_FIELD_NUMBER: _ClassVar[int]
     END_FIELD_NUMBER: _ClassVar[int]
+    RULE_FIELD_NUMBER: _ClassVar[int]
     type: str
     start: int
     end: int
-    def __init__(self, type: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
+    rule: str
+    def __init__(self, type: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ..., rule: _Optional[str] = ...) -> None: ...
 
 class ResultIpThreat(_message.Message):
     __slots__ = ()
