@@ -148,9 +148,14 @@ class TestDetectBot:
                 BotCategory.FEEDFETCHER,
             ),
             ("ReadYou/0.16.2(47)", "READ_YOU_FEEDFETCHER", BotCategory.FEEDFETCHER),
+            ("AgentDrivesAgent/1.0", "AGENTDRIVES_AGENT", BotCategory.AI),
+            ("Claude-Agent/1.0", "ANTHROPIC_CLAUDE_AGENT", BotCategory.AI_AGENT),
+            ("node", "JAVASCRIPT_NODEJS_FETCH", BotCategory.PROGRAMMATIC),
+            ("undici", "JAVASCRIPT_UNDICI", BotCategory.PROGRAMMATIC),
+            ("python-urllib3/2.0", "PYTHON_URLLIB3", BotCategory.PROGRAMMATIC),
         ],
     )
-    def test_detects_bots_added_in_catalog_83616dc(
+    def test_detects_bots_added_in_catalog_syncs(
         self,
         component: AnalyzeComponent,
         ua: str,

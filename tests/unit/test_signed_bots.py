@@ -66,6 +66,11 @@ _DIRECTORY = (
         "SHAP_USER",
         "DUCKDUCKGO_CRAWLER",
         "AI_MANAGED_AGENTS_AGENT",
+        "AGENTDRIVES_AGENT",
+        "GEEDO_CRAWLER_SHOP",
+        "IBOU_SEARCH",
+        "META_WEBINDEXER",
+        "NAVER_CRAWLER",
         _DIRECTORY,
     ],
 )
