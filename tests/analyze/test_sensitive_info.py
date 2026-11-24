@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from arcjet._analyze import (
     AnalyzeComponent,
     DetectedSensitiveInfoEntity,
@@ -233,3 +235,36 @@ class TestDetectSensitiveInfo:
         prev_count = call_count
         component.detect_sensitive_info("test@example.com", config)
         assert call_count == prev_count  # override was not called again
+
+
+class TestCardDefinition:
+    """Pin the card definition the bundled component ships, so an old
+    component is caught: these cases differ between the previous issuer table
+    and the shared one."""
+
+    @pytest.mark.parametrize(
+        ("text", "card"),
+        [
+            ("card 5500000000000004 ok", "5500000000000004"),
+            ("card 22040000000000006 ok", "22040000000000006"),
+            ("card 5500 0000-0000 0004 ok", "5500 0000-0000 0004"),
+        ],
+    )
+    def test_detects_card(
+        self, component: AnalyzeComponent, text: str, card: str
+    ) -> None:
+        config = _deny_config(SensitiveInfoEntityCreditCardNumber())
+        result = component.detect_sensitive_info(text, config)
+        start = text.index(card)
+        assert result.denied == [
+            DetectedSensitiveInfoEntity(
+                start=start,
+                end=start + len(card),
+                identified_type=SensitiveInfoEntityCreditCardNumber(),
+            )
+        ]
+
+    def test_no_longer_detects_18_digit_visa(self, component: AnalyzeComponent) -> None:
+        config = _deny_config(SensitiveInfoEntityCreditCardNumber())
+        result = component.detect_sensitive_info("card 400000000000000002 ok", config)
+        assert result.denied == []
