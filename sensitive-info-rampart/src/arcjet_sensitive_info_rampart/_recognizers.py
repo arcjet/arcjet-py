@@ -1,7 +1,6 @@
 """Deterministic recognizers that mirror Rampart's redaction layer.
 
-Structured, validatable types (email, URL, IP, phone, SSN, Luhn-valid card
-numbers) are handled here with patterns rather than by the model, which is more
+Structured, validatable types (email, URL, IP, phone, SSN) are handled here with patterns rather than by the model, which is more
 reliable for them. Recognizers are pure and synchronous so they stay cheap
 relative to model inference.
 
@@ -335,7 +334,13 @@ def phone_recognizer(value: str) -> list[DetectedSpan]:
 
 
 def credit_card_recognizer(value: str) -> list[DetectedSpan]:
-    """Credit/debit card recognizer, validated with the Luhn checksum."""
+    """Credit/debit card recognizer, validated with the Luhn checksum.
+
+    .. deprecated::
+        The backend detects card numbers with Arcjet's own card detection, the
+        same definition the default backend and the server use, so this
+        recognizer is no longer in :data:`default_recognizers`.
+    """
     spans = _match_all(value, _CREDIT_CARD, "CREDIT_CARD_NUMBER")
     result: list[DetectedSpan] = []
     for span in spans:
@@ -349,7 +354,6 @@ def credit_card_recognizer(value: str) -> list[DetectedSpan]:
 # shape overlaps with bank accounts, routing numbers, and other identifiers. A
 # pattern cannot validate which semantic type the digits represent.
 default_recognizers: tuple[Recognizer, ...] = (
-    credit_card_recognizer,
     ssn_recognizer,
     email_recognizer,
     url_recognizer,

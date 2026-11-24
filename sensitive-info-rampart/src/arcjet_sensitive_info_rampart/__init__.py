@@ -34,8 +34,10 @@ from arcjet._analyze import (
     DetectedSensitiveInfoEntity,
     SensitiveInfoEntities,
     SensitiveInfoEntitiesDeny,
+    SensitiveInfoEntityCreditCardNumber,
     SensitiveInfoResult,
 )
+from arcjet._local import WasmSensitiveInfoBackend
 from arcjet._sensitive_info_backend import (
     SensitiveInfoBackend,
     SensitiveInfoBackendContext,
@@ -190,6 +192,24 @@ def merge_spans(groups: Sequence[Sequence[DetectedSpan]]) -> list[DetectedSpan]:
     return accepted
 
 
+_CARD_ENTITIES = SensitiveInfoEntitiesDeny(
+    entities=[SensitiveInfoEntityCreditCardNumber()]
+)
+_WASM_BACKEND = WasmSensitiveInfoBackend()
+
+
+def _detect_card_numbers(
+    context: SensitiveInfoBackendContext, value: str
+) -> list[DetectedSpan]:
+    """Find card numbers with Arcjet's card detection in the core package."""
+    result = _WASM_BACKEND.detect(context, value, _CARD_ENTITIES)
+    return [
+        DetectedSpan(start=e.start, end=e.end, type="CREDIT_CARD_NUMBER")
+        for e in result.denied
+        if isinstance(e.identified_type, SensitiveInfoEntityCreditCardNumber)
+    ]
+
+
 class _RampartBackend:
     """A :class:`SensitiveInfoBackend` backed by the Rampart model + recognizers."""
 
@@ -246,9 +266,33 @@ class _RampartBackend:
 
         model_spans = self._run_model(value)
         recognizer_spans = run_recognizers(value, self._recognizers)
+        card_spans = _detect_card_numbers(context, value)
+
+        # Card numbers come from Arcjet's card detection alone, the same
+        # definition the default backend and the server use, so the model's own
+        # card labels are ignored. Cards are kept apart from the merge, where a
+        # longer overlapping span would otherwise replace them, and a span that
+        # lies within a card names the same digits, so it is dropped.
+        def within_card(span: DetectedSpan) -> bool:
+            return any(c.start <= span.start and span.end <= c.end for c in card_spans)
 
         # Recognizers take precedence over the model on overlapping text.
-        merged = merge_spans([recognizer_spans, model_spans])
+        merged = sorted(
+            [
+                *card_spans,
+                *merge_spans(
+                    [
+                        [s for s in recognizer_spans if not within_card(s)],
+                        [
+                            s
+                            for s in model_spans
+                            if s.type != "CREDIT_CARD_NUMBER" and not within_card(s)
+                        ],
+                    ]
+                ),
+            ],
+            key=lambda span: (span.start, span.end),
+        )
 
         listed = {from_analyze_entity(e) for e in entities.entities}
         deny_listed = isinstance(entities, SensitiveInfoEntitiesDeny)
@@ -283,8 +327,9 @@ def rampart(options: RampartOptions = RampartOptions()) -> SensitiveInfoBackend:
     ``BANK_ACCOUNT``, ``ROUTING_NUMBER``, ``GOVERNMENT_ID``, ``PASSPORT``,
     ``DRIVERS_LICENSE``, ``BUILDING_NUMBER``, ``STREET_NAME``,
     ``SECONDARY_ADDRESS``, ``CITY``, ``STATE``, ``ZIP_CODE``. Detected by
-    deterministic recognizers: ``EMAIL``, ``URL``, ``IP_ADDRESS``, ``SSN``,
-    ``CREDIT_CARD_NUMBER``.
+    deterministic recognizers: ``EMAIL``, ``URL``, ``IP_ADDRESS``, ``SSN``.
+    ``CREDIT_CARD_NUMBER`` is detected by Arcjet's own card detection, the same
+    as the default backend, whatever recognizers are configured.
 
     The token-based ``detect`` callback of the ``detect_sensitive_info`` rule is
     **not** used by this backend (the model works on spans, not tokens). Use the

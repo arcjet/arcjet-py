@@ -68,7 +68,11 @@ class TestDetectSensitiveInfoFactory:
         assert rule.deny == ()
 
     def test_accepts_string_entity_types(self):
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["EMAIL", "CUSTOM_TYPE"])
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["EMAIL", "CUSTOM_TYPE"],
+            detect=lambda tokens: [None] * len(tokens),
+        )
         assert rule.deny == ("EMAIL", "CUSTOM_TYPE")
 
     def test_accepts_enum_entity_types(self):
@@ -160,9 +164,23 @@ class TestBackendOption:
         )
         assert rule.deny == ("GIVEN_NAME",)
 
-    def test_custom_string_type_without_backend_ok(self):
-        # Free-form custom strings (not built-in backend-only types) still pass.
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["MY_CUSTOM_TYPE"])
+    def test_custom_string_type_without_detect_or_backend_rejected(self):
+        # Nothing can identify a name that is not built in without a custom
+        # `detect` function or a backend.
+        with pytest.raises(
+            ValueError,
+            match='"MY_CUSTOM_TYPE" is not a built-in sensitive information type',
+        ):
+            detect_sensitive_info(mode=Mode.LIVE, deny=["MY_CUSTOM_TYPE"])
+        with pytest.raises(ValueError, match='"emails" is not a built-in'):
+            detect_sensitive_info(mode=Mode.LIVE, allow=["EMAIL", "emails"])
+
+    def test_custom_string_type_with_detect_ok(self):
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["MY_CUSTOM_TYPE"],
+            detect=lambda tokens: [None] * len(tokens),
+        )
         assert rule.deny == ("MY_CUSTOM_TYPE",)
 
     def test_non_callable_backend_rejected(self):
@@ -365,7 +383,11 @@ class TestSensitiveInfoToProto:
         assert list(proto.sensitive_info.deny) == []
 
     def test_custom_entity_type_to_proto(self):
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["CUSTOM_SSN"])
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["CUSTOM_SSN"],
+            detect=lambda tokens: [None] * len(tokens),
+        )
         proto = rule.to_proto()
         assert list(proto.sensitive_info.deny) == ["CUSTOM_SSN"]
 
@@ -669,7 +691,11 @@ class TestEvaluateSensitiveInfoLocally:
         )
 
         ctx = RequestContext(sensitive_info_value="this is bad")
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["CUSTOM"])
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["CUSTOM"],
+            detect=lambda tokens: [None] * len(tokens),
+        )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             result = evaluate_sensitive_info_locally(ctx, rule)
@@ -774,7 +800,11 @@ class TestEvaluateSensitiveInfoLocally:
         )
 
         ctx = RequestContext(sensitive_info_value="test")
-        rule = detect_sensitive_info(mode=Mode.LIVE, deny=["MY_CUSTOM_TYPE"])
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE,
+            deny=["MY_CUSTOM_TYPE"],
+            detect=lambda tokens: [None] * len(tokens),
+        )
 
         with patch("arcjet._local._get_component", return_value=mock_component):
             evaluate_sensitive_info_locally(ctx, rule)

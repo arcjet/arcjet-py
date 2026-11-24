@@ -666,6 +666,33 @@ class SensitiveInfoDetection(RuleSpec):
                 "SensitiveInfoDetection: expressions must be passed in either "
                 "allow or deny, not both"
             )
+        # Without a custom `detect` or a backend, only the default (WASM) engine
+        # runs, and it cannot identify a name that is not a built-in type, so
+        # reject it rather than silently never matching.
+        if self.detect is None and self.backend is None:
+            unknown = sorted(
+                {
+                    e
+                    for e in (*self.allow, *self.deny)
+                    if not isinstance(e, SensitiveInfoEntityType)
+                    and e
+                    not in NATIVE_SENSITIVE_INFO_TYPES
+                    | BACKEND_ONLY_SENSITIVE_INFO_TYPES
+                }
+            )
+            if unknown:
+                names = ", ".join(f'"{e}"' for e in unknown)
+                raise ValueError(
+                    f"SensitiveInfoDetection options error: {names} "
+                    + (
+                        "is not a built-in sensitive information type"
+                        if len(unknown) == 1
+                        else "are not built-in sensitive information types"
+                    )
+                    + ". Use a built-in type, or provide a custom `detect` function "
+                    "or a `backend` that identifies "
+                    + ("it." if len(unknown) == 1 else "them.")
+                )
         # Without a backend or custom `detect`, only the default (WASM) engine
         # runs, which can never match a backend-only type. Surface that as a
         # configuration error here — not just in the factory — so directly
