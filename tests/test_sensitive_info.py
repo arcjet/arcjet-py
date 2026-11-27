@@ -172,8 +172,24 @@ class TestBackendOption:
             match='"MY_CUSTOM_TYPE" is not a built-in sensitive information type',
         ):
             detect_sensitive_info(mode=Mode.LIVE, deny=["MY_CUSTOM_TYPE"])
-        with pytest.raises(ValueError, match='"emails" is not a built-in'):
+        with pytest.raises(ValueError, match='"emails" looks like the built-in'):
             detect_sensitive_info(mode=Mode.LIVE, allow=["EMAIL", "emails"])
+
+    @pytest.mark.parametrize(
+        "name", ["emails", "EMIAL", "credit-card", "phone_number", "Ip-Address"]
+    )
+    def test_lookalike_builtin_name_rejected_even_with_detect(self, name):
+        with pytest.raises(ValueError, match="looks like the built-in type"):
+            detect_sensitive_info(
+                mode=Mode.LIVE, deny=[name], detect=lambda tokens: [None] * len(tokens)
+            )
+
+    @pytest.mark.parametrize("name", ["ACCOUNT_ID", "URLS", "INVOICE"])
+    def test_custom_name_not_close_to_builtin_ok(self, name):
+        rule = detect_sensitive_info(
+            mode=Mode.LIVE, deny=[name], detect=lambda tokens: [None] * len(tokens)
+        )
+        assert rule.deny == (name,)
 
     def test_custom_string_type_with_detect_ok(self):
         rule = detect_sensitive_info(

@@ -34,6 +34,15 @@ def detect(tokens: list[str]) -> list[str | None]:
 detect_sensitive_info(mode=Mode.LIVE, deny=["ACCOUNT_ID"], detect=detect)
 ```
 
+### Names that look like built-in types raise `ValueError`
+
+A name in `allow` or `deny` that looks like a built-in type now raises
+`ValueError`, even with a `detect` function or a `backend`. A name looks like a
+built-in type when it matches one with case and punctuation ignored, or, at
+five or more characters, is a prefix of one or one typo away from it. Use the
+built-in type, or give a custom type a name that is not close to a built-in
+one.
+
 ### Card number detection
 
 Card numbers are detected with the same definition the Arcjet server uses. Some

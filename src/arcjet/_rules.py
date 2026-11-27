@@ -619,6 +619,49 @@ if {member.value for member in SensitiveInfoEntityType} != (
 SensitiveInfoSpecifier = Union[SensitiveInfoEntityType, str]
 
 
+def _normalize_entity_name(value: str) -> str:
+    return "".join(c for c in value.lower() if c.isascii() and c.isalnum())
+
+
+def _within_one_edit(a: str, b: str) -> bool:
+    """Whether ``a`` and ``b`` differ by at most one insertion, deletion,
+    substitution or swap of neighbouring characters."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    while i < len(a) and i < len(b) and a[i] == b[i]:
+        i += 1
+    if len(a) == len(b):
+        return a[i + 1 :] == b[i + 1 :] or (
+            i + 1 < len(a)
+            and a[i] == b[i + 1]
+            and a[i + 1] == b[i]
+            and a[i + 2 :] == b[i + 2 :]
+        )
+    if len(a) > len(b):
+        return a[i + 1 :] == b[i:]
+    return a[i:] == b[i + 1 :]
+
+
+def _lookalike_builtin(name: str) -> str | None:
+    """The built-in type ``name`` most likely meant, when it is not built in but
+    looks like one: equal once case and punctuation are ignored, or, for names
+    of five or more characters, a prefix of a built-in or one edit away."""
+    builtins = NATIVE_SENSITIVE_INFO_TYPES | BACKEND_ONLY_SENSITIVE_INFO_TYPES
+    if name in builtins:
+        return None
+    wanted = _normalize_entity_name(name)
+    for builtin in sorted(builtins):
+        candidate = _normalize_entity_name(builtin)
+        if candidate == wanted:
+            return builtin
+        if len(wanted) >= 5 and (
+            candidate.startswith(wanted) or _within_one_edit(wanted, candidate)
+        ):
+            return builtin
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class SensitiveInfoDetection(RuleSpec):
     """Sensitive information detection rule configuration.
@@ -666,6 +709,18 @@ class SensitiveInfoDetection(RuleSpec):
                 "SensitiveInfoDetection: expressions must be passed in either "
                 "allow or deny, not both"
             )
+        # A name that looks like a built-in type is almost always a typo for
+        # it, and a custom `detect` function or backend would never report it.
+        for e in (*self.allow, *self.deny):
+            if isinstance(e, SensitiveInfoEntityType):
+                continue
+            meant = _lookalike_builtin(e)
+            if meant is not None:
+                raise ValueError(
+                    f'SensitiveInfoDetection options error: "{e}" looks like the '
+                    f'built-in type "{meant}". Use "{meant}", or give a custom type '
+                    "a name that is not close to a built-in one."
+                )
         # Without a custom `detect` or a backend, only the default (WASM) engine
         # runs, and it cannot identify a name that is not a built-in type, so
         # reject it rather than silently never matching.
