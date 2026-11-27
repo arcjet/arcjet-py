@@ -71,6 +71,7 @@ _DIRECTORY = (
         "IBOU_SEARCH",
         "META_WEBINDEXER",
         "NAVER_CRAWLER",
+        "ECHELONGRAPH_RADAR",
         _DIRECTORY,
     ],
 )
