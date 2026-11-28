@@ -620,7 +620,7 @@ SensitiveInfoSpecifier = Union[SensitiveInfoEntityType, str]
 
 
 def _normalize_entity_name(value: str) -> str:
-    return "".join(c for c in value.lower() if c.isascii() and c.isalnum())
+    return "".join(c for c in value.lower() if c.isalnum())
 
 
 def _within_one_edit(a: str, b: str) -> bool:
@@ -646,7 +646,9 @@ def _within_one_edit(a: str, b: str) -> bool:
 def _lookalike_builtin(name: str) -> str | None:
     """The built-in type ``name`` most likely meant, when it is not built in but
     looks like one: equal once case and punctuation are ignored, or, for names
-    of five or more characters, a prefix of a built-in or one edit away."""
+    of five or more characters, a prefix of a built-in or one edit away.
+    Letters and digits in any script count, so a name with a non-ASCII suffix
+    is its own name."""
     builtins = NATIVE_SENSITIVE_INFO_TYPES | BACKEND_ONLY_SENSITIVE_INFO_TYPES
     if name in builtins:
         return None

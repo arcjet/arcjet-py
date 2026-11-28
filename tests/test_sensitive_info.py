@@ -176,7 +176,8 @@ class TestBackendOption:
             detect_sensitive_info(mode=Mode.LIVE, allow=["EMAIL", "emails"])
 
     @pytest.mark.parametrize(
-        "name", ["emails", "EMIAL", "credit-card", "phone_number", "Ip-Address"]
+        "name",
+        ["emails", "EMIAL", "credit-card", "phone_number", "Ip-Address", "EMA\u0406L"],
     )
     def test_lookalike_builtin_name_rejected_even_with_detect(self, name):
         with pytest.raises(ValueError, match="looks like the built-in type"):
@@ -184,7 +185,9 @@ class TestBackendOption:
                 mode=Mode.LIVE, deny=[name], detect=lambda tokens: [None] * len(tokens)
             )
 
-    @pytest.mark.parametrize("name", ["ACCOUNT_ID", "URLS", "INVOICE"])
+    @pytest.mark.parametrize(
+        "name", ["ACCOUNT_ID", "URLS", "INVOICE", "EMAIL\u5730\u5740"]
+    )
     def test_custom_name_not_close_to_builtin_ok(self, name):
         rule = detect_sensitive_info(
             mode=Mode.LIVE, deny=[name], detect=lambda tokens: [None] * len(tokens)
