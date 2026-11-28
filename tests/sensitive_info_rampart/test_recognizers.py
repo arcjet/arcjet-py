@@ -189,7 +189,8 @@ class TestRunRecognizers:
         value = "alice@example.com and 4242 4242 4242 4242"
         spans = run_recognizers(value)
         assert "EMAIL" in _types(spans)
-        assert "CREDIT_CARD_NUMBER" in _types(spans)
+        # Card numbers come from Arcjet's card detection, not a recognizer.
+        assert "CREDIT_CARD_NUMBER" not in _types(spans)
 
     def test_custom_recognizer_list(self):
         value = "alice@example.com and 4242 4242 4242 4242"
@@ -200,6 +201,7 @@ class TestRunRecognizers:
         assert run_recognizers("alice@example.com", []) == []
 
     def test_default_recognizers_order(self):
-        assert default_recognizers[0] is credit_card_recognizer
+        assert default_recognizers[0] is ssn_recognizer
+        assert credit_card_recognizer not in default_recognizers
         assert phone_recognizer not in default_recognizers
         assert run_recognizers("bank account 0123456789", default_recognizers) == []

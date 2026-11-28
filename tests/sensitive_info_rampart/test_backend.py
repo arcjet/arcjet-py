@@ -131,6 +131,73 @@ class TestRampartBackend:
         assert _typenames(result.allowed) == ["GIVEN_NAME"]
         assert _typenames(result.denied) == ["STREET_NAME"]
 
+    def test_card_numbers_found_with_recognizers_disabled(self):
+        backend = rampart(RampartOptions(recognizers=(), run_model=_model_returning()))
+        result = backend.detect(
+            _CTX, "card 4242 4242 4242 4242", _deny("CREDIT_CARD_NUMBER")
+        )
+        assert [(e.start, e.end) for e in result.denied] == [(5, 24)]
+        assert _typenames(result.denied) == ["CREDIT_CARD_NUMBER"]
+
+    def test_model_card_labels_not_used(self):
+        backend = rampart(
+            RampartOptions(run_model=_model_returning((6, 11, "CREDIT_CARD_NUMBER")))
+        )
+        result = backend.detect(
+            _CTX, "order 12345 shipped", _deny("CREDIT_CARD_NUMBER")
+        )
+        assert result.denied == []
+
+    def test_card_kept_when_longer_span_overlaps(self):
+        backend = rampart(
+            RampartOptions(run_model=_model_returning((0, 24, "STREET_NAME")))
+        )
+        result = backend.detect(
+            _CTX, "card 4242 4242 4242 4242", _deny("CREDIT_CARD_NUMBER")
+        )
+        assert [(e.start, e.end) for e in result.denied] == [(5, 24)]
+        assert _typenames(result.denied) == ["CREDIT_CARD_NUMBER"]
+
+    def test_recognizer_card_labels_not_used(self):
+        backend = rampart(
+            RampartOptions(
+                recognizers=(
+                    lambda value: [DetectedSpan(6, 11, "CREDIT_CARD_NUMBER")],
+                ),
+                run_model=_model_returning(),
+            )
+        )
+        result = backend.detect(
+            _CTX, "order 12345 shipped", _deny("CREDIT_CARD_NUMBER")
+        )
+        assert result.denied == []
+
+    def test_failed_card_scan_still_denies_other_findings(self, monkeypatch):
+        import arcjet_sensitive_info_rampart as rampart_module
+
+        def fail(context, value):
+            raise RuntimeError("no wasm")
+
+        monkeypatch.setattr(rampart_module, "_detect_card_numbers", fail)
+        backend = rampart(
+            RampartOptions(
+                recognizers=(), run_model=_model_returning((6, 12, "SURNAME"))
+            )
+        )
+        result = backend.detect(_CTX, "Hello Rivera", _deny("SURNAME"))
+        assert _typenames(result.denied) == ["SURNAME"]
+
+    def test_failed_card_scan_with_nothing_to_deny_raises(self, monkeypatch):
+        import arcjet_sensitive_info_rampart as rampart_module
+
+        def fail(context, value):
+            raise RuntimeError("no wasm")
+
+        monkeypatch.setattr(rampart_module, "_detect_card_numbers", fail)
+        backend = rampart(RampartOptions(recognizers=(), run_model=_model_returning()))
+        with pytest.raises(RuntimeError, match="no wasm"):
+            backend.detect(_CTX, "nothing here", _deny("CREDIT_CARD_NUMBER"))
+
     def test_recognizer_wins_over_model_on_overlap(self):
         # Model labels the email span as a name; the recognizer must win.
         value = "alice@example.com"
