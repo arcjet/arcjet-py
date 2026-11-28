@@ -43,6 +43,13 @@ five or more characters, is a prefix of one or one typo away from it. Use the
 built-in type, or give a custom type a name that is not close to a built-in
 one.
 
+### Email detection
+
+The default detector reports an email only when its domain has a dot or is a
+bracketed literal (`user@[192.0.2.1]`). An address with a single-label domain,
+such as `user@localhost`, is no longer detected or redacted. Use a custom
+`detect` function if you need to match such addresses.
+
 ### Card number detection
 
 Card numbers are detected with the same definition the Arcjet server uses. Some

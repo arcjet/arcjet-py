@@ -268,3 +268,30 @@ class TestCardDefinition:
         config = _deny_config(SensitiveInfoEntityCreditCardNumber())
         result = component.detect_sensitive_info("card 400000000000000002 ok", config)
         assert result.denied == []
+
+
+class TestEmailDefinition:
+    """Pin email changes in the bundled component, so the previous component
+    is caught."""
+
+    def test_single_label_domain_is_not_an_email(
+        self, component: AnalyzeComponent
+    ) -> None:
+        config = _deny_config(SensitiveInfoEntityEmail())
+        result = component.detect_sensitive_info("write to user@localhost", config)
+        assert result.denied == []
+
+    def test_mailto_scheme_is_not_part_of_the_email(
+        self, component: AnalyzeComponent
+    ) -> None:
+        config = _deny_config(SensitiveInfoEntityEmail())
+        text = "mailto:alice@example.com"
+        result = component.detect_sensitive_info(text, config)
+        start = text.index("alice@")
+        assert result.denied == [
+            DetectedSensitiveInfoEntity(
+                start=start,
+                end=len(text),
+                identified_type=SensitiveInfoEntityEmail(),
+            )
+        ]
